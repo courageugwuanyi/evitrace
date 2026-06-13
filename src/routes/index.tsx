@@ -5,7 +5,6 @@ import {
   Radar as RadarIcon,
   LayoutDashboard,
   TableProperties,
-  TableProperties,
   Target,
   Search,
   Plus,
