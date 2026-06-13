@@ -1357,7 +1357,8 @@ function EvidenceView({
             {filtered.map((r) => (
               <tr
                 key={r.id}
-                className="border-t hover:bg-[#FAFBFC] transition-colors"
+                onClick={() => onOpenRow(r)}
+                className="border-t hover:bg-[#FAFBFC] transition-colors cursor-pointer"
                 style={{ borderColor: C.border }}
               >
                 <Td className="whitespace-nowrap" style={{ color: C.slate }}>
