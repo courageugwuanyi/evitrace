@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Radar as RadarIcon,
   LayoutDashboard,
-  PieChart as PieChartIcon,
+  TableProperties,
   TableProperties,
   Target,
   Search,
