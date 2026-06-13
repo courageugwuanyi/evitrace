@@ -511,8 +511,15 @@ function EvitraceApp() {
                   onApprove={approveInbox}
                 />
               )}
-              {tab === "radar" && <RadarView data={radarData} />}
-              {tab === "evidence" && <EvidenceView rows={evidence} />}
+              {tab === "radar" && (
+                <RadarView
+                  data={radarData}
+                  onCreateObjective={() => setShowCreateObjective(true)}
+                />
+              )}
+              {tab === "evidence" && (
+                <EvidenceView rows={evidence} onOpenRow={setOpenEvidence} />
+              )}
               {tab === "objectives" && (
                 <ObjectivesView
                   items={objectives}
@@ -520,6 +527,7 @@ function EvitraceApp() {
                   onCreate={() => setShowCreateObjective(true)}
                 />
               )}
+              {tab === "settings" && <SettingsView />}
             </motion.div>
           </AnimatePresence>
         </main>
