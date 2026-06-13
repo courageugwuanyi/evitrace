@@ -4,7 +4,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Radar as RadarIcon,
   LayoutDashboard,
-  PieChart as PieChartIcon,
   TableProperties,
   Target,
   Search,
@@ -31,6 +30,17 @@ import {
   Sparkles,
   ArrowUpRight,
   ChevronRight,
+  Settings as SettingsIcon,
+  Award,
+  AlertTriangle,
+  UserCheck,
+  Download,
+  Edit2,
+  Trash2,
+  User,
+  Users,
+  Puzzle,
+  Layers,
 } from "lucide-react";
 import {
   Radar,
@@ -416,7 +426,7 @@ const initialObjectives: Objective[] = [
 /*                        APP ROOT                              */
 /* ============================================================ */
 
-type Tab = "dashboard" | "radar" | "evidence" | "objectives";
+type Tab = "dashboard" | "radar" | "evidence" | "objectives" | "settings";
 
 function EvitraceApp() {
   const [tab, setTab] = useState<Tab>("dashboard");
@@ -429,13 +439,15 @@ function EvitraceApp() {
   const [showCapture, setShowCapture] = useState(false);
   const [showCreateObjective, setShowCreateObjective] = useState(false);
   const [openObjective, setOpenObjective] = useState<Objective | null>(null);
+  const [openEvidence, setOpenEvidence] = useState<(typeof initialEvidence)[number] | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const pageTitle: Record<Tab, string> = {
     dashboard: "Dashboard",
-    radar: "Promotion Radar",
+    radar: "Promotion Readiness",
     evidence: "Evidence Log",
     objectives: "Objectives",
+    settings: "Settings",
   };
 
   function flash(msg: string) {
@@ -498,8 +510,15 @@ function EvitraceApp() {
                   onApprove={approveInbox}
                 />
               )}
-              {tab === "radar" && <RadarView data={radarData} />}
-              {tab === "evidence" && <EvidenceView rows={evidence} />}
+              {tab === "radar" && (
+                <RadarView
+                  data={radarData}
+                  onCreateObjective={() => setShowCreateObjective(true)}
+                />
+              )}
+              {tab === "evidence" && (
+                <EvidenceView rows={evidence} onOpenRow={setOpenEvidence} />
+              )}
               {tab === "objectives" && (
                 <ObjectivesView
                   items={objectives}
@@ -507,6 +526,7 @@ function EvitraceApp() {
                   onCreate={() => setShowCreateObjective(true)}
                 />
               )}
+              {tab === "settings" && <SettingsView />}
             </motion.div>
           </AnimatePresence>
         </main>
@@ -608,6 +628,21 @@ function EvitraceApp() {
         )}
       </AnimatePresence>
 
+      {/* Evidence details slide-over */}
+      <AnimatePresence>
+        {openEvidence && (
+          <EvidenceSlideover
+            item={openEvidence}
+            onClose={() => setOpenEvidence(null)}
+            onDelete={(id: string) => {
+              setEvidence((e) => e.filter((x) => x.id !== id));
+              setOpenEvidence(null);
+              flash("Evidence deleted");
+            }}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Toast */}
       <AnimatePresence>
         {toast && (
@@ -646,9 +681,10 @@ function EvitraceApp() {
 function Sidebar({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
   const nav: { id: Tab; label: string; sub: string; icon: React.ComponentType<{ size?: number }> }[] = [
     { id: "dashboard", label: "Dashboard", sub: "Daily Actions", icon: LayoutDashboard },
-    { id: "radar", label: "Promotion Radar", sub: "Analytics & Assessment", icon: PieChartIcon },
+    { id: "radar", label: "Promotion Readiness", sub: "Assessment & Gaps", icon: TrendingUp },
     { id: "evidence", label: "Evidence Log", sub: "Data Table", icon: TableProperties },
     { id: "objectives", label: "Objectives", sub: "Skill Gap Planning", icon: Target },
+    { id: "settings", label: "Settings", sub: "App & Profile", icon: SettingsIcon },
   ];
   return (
     <aside
@@ -1002,88 +1038,199 @@ function InboxRow({
 /*                  TAB 2: RADAR                                */
 /* ============================================================ */
 
-function RadarView({ data }: { data: typeof initialRadar }) {
+function RadarView({
+  data,
+  onCreateObjective,
+}: {
+  data: typeof initialRadar;
+  onCreateObjective: () => void;
+}) {
   const current = useMemo(
     () => +(data.reduce((s, d) => s + d.current, 0) / data.length).toFixed(2),
     [data],
   );
-  const previous = 2.7;
-  const change = (((current - previous) / previous) * 100).toFixed(1);
+  const readiness = Math.round((current / 4) * 100);
+  const top = [...data].sort((a, b) => b.current - a.current)[0];
+  const gap = [...data].sort((a, b) => b.target - b.current - (a.target - a.current))[0];
 
   return (
     <div className="space-y-6">
+      {/* Executive Summary */}
       <div className="grid grid-cols-4 gap-4">
-        <MetricCard label="Previous Score" value={previous.toFixed(2)} sub="Last assessment" />
-        <MetricCard label="Current Score" value={current.toFixed(2)} sub="Live across 8 axes" highlight />
-        <MetricCard
-          label="Change"
-          value={`+${change}%`}
-          sub="Quarter over quarter"
-          tone="success"
-        />
-        <MetricCard label="Target — Level 4" value="4.00" sub="Promotion threshold" />
+        <Card className="p-5">
+          <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+            Overall Readiness
+          </div>
+          <div className="text-3xl font-bold mt-2 tracking-tight" style={{ color: C.navy }}>
+            {readiness}%
+          </div>
+          <div className="mt-3 h-1.5 rounded-full overflow-hidden" style={{ background: "#EBECF0" }}>
+            <div className="h-full rounded-full" style={{ width: `${readiness}%`, background: C.green }} />
+          </div>
+          <div className="text-xs mt-2" style={{ color: C.subtle }}>
+            Toward Level 4 threshold
+          </div>
+        </Card>
+        <Card className="p-5">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+              Top Strength
+            </div>
+            <Award size={18} style={{ color: C.green }} />
+          </div>
+          <div className="text-lg font-bold mt-2 tracking-tight" style={{ color: C.navy }}>
+            {top.competency}
+          </div>
+          <div className="text-xs mt-1" style={{ color: C.subtle }}>
+            {top.current.toFixed(2)} / 4
+          </div>
+        </Card>
+        <Card className="p-5">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+              Primary Gap
+            </div>
+            <AlertTriangle size={18} style={{ color: C.red }} />
+          </div>
+          <div className="text-lg font-bold mt-2 tracking-tight" style={{ color: C.navy }}>
+            {gap.competency}
+          </div>
+          <div className="text-xs mt-1" style={{ color: C.subtle }}>
+            Gap of {(gap.target - gap.current).toFixed(2)}
+          </div>
+        </Card>
+        <Card className="p-5">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+              Manager Status
+            </div>
+            <UserCheck size={18} style={{ color: C.primary }} />
+          </div>
+          <div className="text-lg font-bold mt-2 tracking-tight" style={{ color: C.navy }}>
+            On Track
+          </div>
+          <div className="text-xs mt-1" style={{ color: C.subtle }}>
+            Last sync: 4 days ago
+          </div>
+        </Card>
       </div>
 
-      <Card className="p-6">
-        <SectionHeader
-          title="Competency Radar"
-          sub="Current score vs Level 4 target across 8 axes"
-          right={
-            <div className="flex items-center gap-3 text-xs" style={{ color: C.slate }}>
-              <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: C.primary }} />
-                Current
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span
-                  className="w-2.5 h-2.5 rounded-sm border-2"
-                  style={{ borderColor: C.amber, background: "transparent" }}
+      {/* Competency Matrix */}
+      <div className="grid grid-cols-5 gap-6">
+        <Card className="col-span-2 p-6">
+          <SectionHeader
+            title="Competency Radar"
+            sub="Current score vs Level 4 target"
+            right={
+              <div className="flex items-center gap-3 text-xs" style={{ color: C.slate }}>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-sm" style={{ background: C.primary }} />
+                  Current
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className="w-2.5 h-2.5 rounded-sm border-2"
+                    style={{ borderColor: C.amber, background: "transparent" }}
+                  />
+                  Target L4
+                </span>
+              </div>
+            }
+          />
+          <div className="h-[420px] mt-4">
+            <ResponsiveContainer width="100%" height="100%">
+              <RadarChart data={data} outerRadius="78%">
+                <PolarGrid stroke={C.border} />
+                <PolarAngleAxis
+                  dataKey="competency"
+                  tick={{ fill: C.navy, fontSize: 11, fontWeight: 600 }}
                 />
-                Target L4
-              </span>
-            </div>
-          }
-        />
-        <div className="h-[460px] mt-4">
-          <ResponsiveContainer width="100%" height="100%">
-            <RadarChart data={data} outerRadius="78%">
-              <PolarGrid stroke={C.border} />
-              <PolarAngleAxis
-                dataKey="competency"
-                tick={{ fill: C.navy, fontSize: 12, fontWeight: 600 }}
-              />
-              <PolarRadiusAxis angle={90} domain={[0, 4]} tick={{ fill: C.subtle, fontSize: 10 }} />
-              <Radar
-                name="Target L4"
-                dataKey="target"
-                stroke={C.amber}
-                fill={C.amber}
-                fillOpacity={0.08}
-                strokeWidth={2}
-                strokeDasharray="4 4"
-              />
-              <Radar
-                name="Current"
-                dataKey="current"
-                stroke={C.primary}
-                fill={C.primary}
-                fillOpacity={0.25}
-                strokeWidth={2}
-              />
-              <RTooltip
-                contentStyle={{
-                  background: "#fff",
-                  border: `1px solid ${C.border}`,
-                  borderRadius: 6,
-                  fontSize: 12,
-                }}
-                formatter={(v) => `${Number(v).toFixed(2)} / 4`}
-              />
-              <Legend wrapperStyle={{ display: "none" }} />
-            </RadarChart>
-          </ResponsiveContainer>
-        </div>
-      </Card>
+                <PolarRadiusAxis angle={90} domain={[0, 4]} tick={{ fill: C.subtle, fontSize: 10 }} />
+                <Radar
+                  name="Target L4"
+                  dataKey="target"
+                  stroke={C.amber}
+                  fill={C.amber}
+                  fillOpacity={0.08}
+                  strokeWidth={2}
+                  strokeDasharray="4 4"
+                />
+                <Radar
+                  name="Current"
+                  dataKey="current"
+                  stroke={C.primary}
+                  fill={C.primary}
+                  fillOpacity={0.25}
+                  strokeWidth={2}
+                />
+                <RTooltip
+                  contentStyle={{
+                    background: "#fff",
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 6,
+                    fontSize: 12,
+                  }}
+                  formatter={(v) => `${Number(v).toFixed(2)} / 4`}
+                />
+                <Legend wrapperStyle={{ display: "none" }} />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+
+        <Card className="col-span-3 p-0 overflow-hidden">
+          <div className="p-5 border-b" style={{ borderColor: C.border }}>
+            <SectionHeader title="Real-Time Gap Analysis" sub="Targeted actions to close each gap" />
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead style={{ background: "#F4F5F7", color: C.subtle }}>
+                <tr className="text-left text-[11px] uppercase tracking-wider">
+                  <Th>Competency</Th>
+                  <Th>Current</Th>
+                  <Th>Target</Th>
+                  <Th>Gap</Th>
+                  <Th>Action</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.map((row) => {
+                  const g = +(row.target - row.current).toFixed(2);
+                  const tone = g >= 1 ? C.red : g >= 0.5 ? C.amber : C.green;
+                  return (
+                    <tr
+                      key={row.competency}
+                      className="border-t hover:bg-[#FAFBFC] transition-colors"
+                      style={{ borderColor: C.border }}
+                    >
+                      <Td className="font-semibold" style={{ color: C.navy }}>
+                        {row.competency}
+                      </Td>
+                      <Td style={{ color: C.slate }}>{row.current.toFixed(2)}</Td>
+                      <Td style={{ color: C.slate }}>{row.target.toFixed(2)}</Td>
+                      <Td>
+                        <span className="font-semibold" style={{ color: tone }}>
+                          {g > 0 ? `+${g}` : g}
+                        </span>
+                      </Td>
+                      <Td>
+                        <button
+                          onClick={onCreateObjective}
+                          className="text-xs font-semibold inline-flex items-center gap-1 px-2.5 py-1 rounded border hover:border-[#0052CC] transition-colors"
+                          style={{ borderColor: C.border, color: C.primary }}
+                        >
+                          <Plus size={12} />
+                          Create Objective
+                        </button>
+                      </Td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }
@@ -1123,7 +1270,15 @@ function MetricCard({
 /*                  TAB 3: EVIDENCE LOG                         */
 /* ============================================================ */
 
-function EvidenceView({ rows }: { rows: typeof initialEvidence }) {
+type EvidenceItem = (typeof initialEvidence)[number];
+
+function EvidenceView({
+  rows,
+  onOpenRow,
+}: {
+  rows: typeof initialEvidence;
+  onOpenRow: (r: EvidenceItem) => void;
+}) {
   const [q, setQ] = useState("");
   const [comp, setComp] = useState("All");
   const [status, setStatus] = useState("All");
@@ -1172,8 +1327,14 @@ function EvidenceView({ rows }: { rows: typeof initialEvidence }) {
           <option>Slack</option>
           <option>Manual Capture</option>
         </Select>
-        <div className="ml-auto text-xs" style={{ color: C.subtle }}>
-          {filtered.length} of {rows.length} items
+        <div className="ml-auto flex items-center gap-3">
+          <div className="text-xs" style={{ color: C.subtle }}>
+            {filtered.length} of {rows.length} items
+          </div>
+          <GhostBtn>
+            <Download size={14} />
+            Export Data
+          </GhostBtn>
         </div>
       </div>
 
@@ -1195,7 +1356,8 @@ function EvidenceView({ rows }: { rows: typeof initialEvidence }) {
             {filtered.map((r) => (
               <tr
                 key={r.id}
-                className="border-t hover:bg-[#FAFBFC] transition-colors"
+                onClick={() => onOpenRow(r)}
+                className="border-t hover:bg-[#FAFBFC] transition-colors cursor-pointer"
                 style={{ borderColor: C.border }}
               >
                 <Td className="whitespace-nowrap" style={{ color: C.slate }}>
@@ -2030,6 +2192,472 @@ function ExtensionPopup({ onDismiss, onSave }: { onDismiss: () => void; onSave: 
           Save Evidence
         </PrimaryBtn>
       </div>
+    </motion.div>
+  );
+}
+
+/* ============================================================ */
+/*                   TAB 5: SETTINGS HUB                        */
+/* ============================================================ */
+
+type SettingsSection =
+  | "profile"
+  | "team"
+  | "notifications"
+  | "extension"
+  | "framework";
+
+function SettingsView() {
+  const [section, setSection] = useState<SettingsSection>("profile");
+  const items: { id: SettingsSection; label: string; icon: React.ComponentType<{ size?: number }> }[] = [
+    { id: "profile", label: "Profile", icon: User },
+    { id: "team", label: "Team & Manager", icon: Users },
+    { id: "notifications", label: "Notifications", icon: Bell },
+    { id: "extension", label: "Extension Preferences", icon: Puzzle },
+    { id: "framework", label: "Competency Framework", icon: Layers },
+  ];
+  return (
+    <div className="grid grid-cols-4 gap-6">
+      <Card className="col-span-1 p-2 h-fit">
+        <nav className="space-y-0.5">
+          {items.map((it) => {
+            const Icon = it.icon;
+            const active = section === it.id;
+            return (
+              <button
+                key={it.id}
+                onClick={() => setSection(it.id)}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded text-left text-sm font-medium transition-colors"
+                style={{
+                  background: active ? C.primarySoft : "transparent",
+                  color: active ? C.primary : C.slate,
+                }}
+                onMouseEnter={(e) => {
+                  if (!active) e.currentTarget.style.background = "#F4F5F7";
+                }}
+                onMouseLeave={(e) => {
+                  if (!active) e.currentTarget.style.background = "transparent";
+                }}
+              >
+                <Icon size={16} />
+                {it.label}
+              </button>
+            );
+          })}
+        </nav>
+      </Card>
+
+      <div className="col-span-3 space-y-6">
+        {section === "profile" && <ProfileSettings />}
+        {section === "team" && <TeamSettings />}
+        {section === "notifications" && <NotificationsSettings />}
+        {section === "extension" && <ExtensionSettings />}
+        {section === "framework" && <FrameworkSettings />}
+      </div>
+    </div>
+  );
+}
+
+function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      onClick={() => onChange(!on)}
+      className="relative w-9 h-5 rounded-full transition-colors"
+      style={{ background: on ? C.primary : "#C1C7D0" }}
+    >
+      <motion.span
+        animate={{ x: on ? 16 : 2 }}
+        transition={{ duration: 0.18 }}
+        className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow"
+      />
+    </button>
+  );
+}
+
+function SettingRow({
+  title,
+  desc,
+  right,
+}: {
+  title: string;
+  desc: string;
+  right: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between py-3 border-b last:border-b-0" style={{ borderColor: C.border }}>
+      <div className="pr-6">
+        <div className="text-sm font-semibold" style={{ color: C.navy }}>
+          {title}
+        </div>
+        <div className="text-xs mt-0.5" style={{ color: C.subtle }}>
+          {desc}
+        </div>
+      </div>
+      {right}
+    </div>
+  );
+}
+
+function ProfileSettings() {
+  return (
+    <Card className="p-6">
+      <SectionHeader title="Profile" sub="Your personal information and role" />
+      <div className="mt-5 flex items-center gap-4">
+        <div
+          className="w-16 h-16 rounded-full flex items-center justify-center text-lg font-semibold text-white"
+          style={{ background: "#5243AA" }}
+        >
+          JM
+        </div>
+        <div>
+          <div className="text-base font-semibold" style={{ color: C.navy }}>
+            Jordan Mills
+          </div>
+          <div className="text-sm" style={{ color: C.subtle }}>
+            Senior Engineer L3 — Payments
+          </div>
+        </div>
+        <div className="ml-auto">
+          <GhostBtn>Upload photo</GhostBtn>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4 mt-6">
+        <Field label="Full name">
+          <Input defaultValue="Jordan Mills" />
+        </Field>
+        <Field label="Email">
+          <Input defaultValue="jordan.mills@acme.com" />
+        </Field>
+        <Field label="Current level">
+          <Select defaultValue="L3">
+            <option>L2</option>
+            <option>L3</option>
+            <option>L4</option>
+            <option>L5</option>
+          </Select>
+        </Field>
+        <Field label="Target level">
+          <Select defaultValue="L4">
+            <option>L3</option>
+            <option>L4</option>
+            <option>L5</option>
+          </Select>
+        </Field>
+      </div>
+      <div className="mt-6 flex justify-end gap-2">
+        <GhostBtn>Cancel</GhostBtn>
+        <PrimaryBtn>Save changes</PrimaryBtn>
+      </div>
+    </Card>
+  );
+}
+
+function TeamSettings() {
+  return (
+    <Card className="p-6">
+      <SectionHeader title="Team & Manager" sub="Who reviews your evidence and approves objectives" />
+      <div className="mt-5 grid grid-cols-2 gap-4">
+        <Field label="Reporting manager">
+          <Input defaultValue="Alex Morgan" />
+        </Field>
+        <Field label="Manager email">
+          <Input defaultValue="alex.morgan@acme.com" />
+        </Field>
+        <Field label="Team">
+          <Input defaultValue="Payments Platform" />
+        </Field>
+        <Field label="Skip-level reviewer">
+          <Input defaultValue="Priya Shah" />
+        </Field>
+      </div>
+      <div className="mt-6 flex justify-end gap-2">
+        <PrimaryBtn>Request sync</PrimaryBtn>
+      </div>
+    </Card>
+  );
+}
+
+function NotificationsSettings() {
+  const [a, setA] = useState(true);
+  const [b, setB] = useState(true);
+  const [c, setC] = useState(false);
+  const [d, setD] = useState(true);
+  return (
+    <Card className="p-6">
+      <SectionHeader title="Notifications" sub="Control how Evitrace reaches you" />
+      <div className="mt-3">
+        <SettingRow
+          title="Daily reflection reminder"
+          desc="Nudge me at 16:00 to log evidence before close of day."
+          right={<Toggle on={a} onChange={setA} />}
+        />
+        <SettingRow
+          title="Manager approvals"
+          desc="Email me when my manager approves or comments."
+          right={<Toggle on={b} onChange={setB} />}
+        />
+        <SettingRow
+          title="Weekly digest"
+          desc="Monday summary of evidence, gaps, and objective progress."
+          right={<Toggle on={c} onChange={setC} />}
+        />
+        <SettingRow
+          title="Browser push"
+          desc="Show desktop notifications from the Evitrace extension."
+          right={<Toggle on={d} onChange={setD} />}
+        />
+      </div>
+    </Card>
+  );
+}
+
+function ExtensionSettings() {
+  const [auto, setAuto] = useState(true);
+  const [jira, setJira] = useState(true);
+  const [gh, setGh] = useState(true);
+  const [slack, setSlack] = useState(false);
+  return (
+    <Card className="p-6">
+      <SectionHeader title="Extension Preferences" sub="Capture sources and trigger windows" />
+      <div className="mt-3">
+        <SettingRow
+          title="Auto-capture events"
+          desc="Surface a capture prompt when work is completed."
+          right={<Toggle on={auto} onChange={setAuto} />}
+        />
+        <SettingRow
+          title="Jira"
+          desc="Trigger when a ticket moves to Done."
+          right={<Toggle on={jira} onChange={setJira} />}
+        />
+        <SettingRow
+          title="GitHub"
+          desc="Trigger when a PR is merged with you as author or reviewer."
+          right={<Toggle on={gh} onChange={setGh} />}
+        />
+        <SettingRow
+          title="Slack"
+          desc="Trigger on saved threads tagged with #wins."
+          right={<Toggle on={slack} onChange={setSlack} />}
+        />
+      </div>
+    </Card>
+  );
+}
+
+function FrameworkSettings() {
+  return (
+    <Card className="p-6">
+      <SectionHeader
+        title="Competency Framework"
+        sub="The 8 axes used to score progress toward Level 4"
+      />
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        {COMPETENCIES.map((c) => (
+          <div
+            key={c}
+            className="flex items-center justify-between px-3 py-2.5 rounded border"
+            style={{ borderColor: C.border }}
+          >
+            <div className="flex items-center gap-2">
+              <Layers size={14} style={{ color: C.primary }} />
+              <span className="text-sm font-semibold" style={{ color: C.navy }}>
+                {c}
+              </span>
+            </div>
+            <Badge tone="neutral">Active</Badge>
+          </div>
+        ))}
+      </div>
+      <div className="mt-5 flex items-center justify-between p-3 rounded" style={{ background: C.primarySoft }}>
+        <div className="flex items-center gap-2 text-sm" style={{ color: C.navy }}>
+          <Info size={14} style={{ color: C.primary }} />
+          Framework is managed by your engineering org. Contact admin to propose edits.
+        </div>
+        <GhostBtn>Contact admin</GhostBtn>
+      </div>
+    </Card>
+  );
+}
+
+/* ============================================================ */
+/*        OVERLAY: EVIDENCE DETAILS SLIDE-OVER                  */
+/* ============================================================ */
+
+function EvidenceSlideover({
+  item,
+  onClose,
+  onDelete,
+}: {
+  item: EvidenceItem;
+  onClose: () => void;
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.15 }}
+      className="fixed inset-0 z-50"
+      style={{ background: "rgba(9, 30, 66, 0.45)" }}
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ x: "100%" }}
+        animate={{ x: 0 }}
+        exit={{ x: "100%" }}
+        transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+        className="absolute top-0 right-0 h-full w-full md:w-[44%] bg-white shadow-2xl flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="px-6 py-5 border-b" style={{ borderColor: C.border }}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1 text-xs" style={{ color: C.subtle }}>
+              <span>Evidence Log</span>
+              <ChevronRight size={12} />
+              <span className="font-semibold" style={{ color: C.slate }}>
+                {item.id}
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                className="p-1.5 rounded hover:bg-[#F4F5F7]"
+                style={{ color: C.slate }}
+                title="Edit"
+              >
+                <Edit2 size={16} />
+              </button>
+              <button
+                onClick={() => onDelete(item.id)}
+                className="p-1.5 rounded hover:bg-[#FFEBE6]"
+                style={{ color: C.red }}
+                title="Delete"
+              >
+                <Trash2 size={16} />
+              </button>
+              <button
+                onClick={onClose}
+                className="p-1.5 rounded hover:bg-[#F4F5F7] ml-1"
+                style={{ color: C.slate }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+          <div className="text-xl font-bold mt-2 leading-snug" style={{ color: C.navy }}>
+            {item.title}
+          </div>
+          <div className="flex items-center gap-3 mt-3 text-xs" style={{ color: C.subtle }}>
+            <span className="flex items-center gap-1.5">
+              <Calendar size={12} />
+              {item.date}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-1 h-1 rounded-full" style={{ background: C.subtle }} />
+              {item.source}
+            </span>
+            {item.status === "Approved" ? (
+              <Badge tone="success" icon={<CheckCircle size={11} />}>
+                Approved
+              </Badge>
+            ) : (
+              <Badge tone="warning" icon={<Clock size={11} />}>
+                Pending
+              </Badge>
+            )}
+          </div>
+        </div>
+
+        {/* Scrollable */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+          <section>
+            <div className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: C.subtle }}>
+              Competency Mapping
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Badge tone="info">{item.competency}</Badge>
+              <Badge tone="neutral">{item.category}</Badge>
+            </div>
+          </section>
+
+          <section>
+            <div className="flex items-center gap-2 mb-2">
+              <AlignLeft size={14} style={{ color: C.slate }} />
+              <div className="text-sm font-bold" style={{ color: C.navy }}>
+                Full Reflection
+              </div>
+            </div>
+            <div className="text-sm leading-relaxed" style={{ color: C.slate }}>
+              {item.description}
+            </div>
+          </section>
+
+          <section>
+            <div className="flex items-center gap-2 mb-2">
+              <LinkIcon size={14} style={{ color: C.slate }} />
+              <div className="text-sm font-bold" style={{ color: C.navy }}>
+                Links & Artifacts
+              </div>
+            </div>
+            {item.link ? (
+              <a
+                href={`https://${item.link}`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center justify-between px-3 py-2 rounded border hover:border-[#0052CC] transition-colors"
+                style={{ borderColor: C.border }}
+              >
+                <span className="text-sm" style={{ color: C.navy }}>
+                  {item.link}
+                </span>
+                <ExternalLink size={14} style={{ color: C.primary }} />
+              </a>
+            ) : (
+              <div className="text-xs" style={{ color: C.subtle }}>
+                No links attached.
+              </div>
+            )}
+          </section>
+
+          <section>
+            <div className="flex items-center gap-2 mb-2">
+              <MessageSquare size={14} style={{ color: C.slate }} />
+              <div className="text-sm font-bold" style={{ color: C.navy }}>
+                Manager Comments
+              </div>
+            </div>
+            {item.status === "Approved" ? (
+              <div
+                className="p-3 rounded border text-sm"
+                style={{ borderColor: C.border, background: C.bg, color: C.slate }}
+              >
+                <div className="text-xs font-semibold mb-1" style={{ color: C.navy }}>
+                  Alex Morgan — Oct 12
+                </div>
+                Strong example of cross-team coordination. Tag this for the L4 architecture
+                criterion in your packet.
+              </div>
+            ) : (
+              <div className="text-xs" style={{ color: C.subtle }}>
+                Awaiting manager review.
+              </div>
+            )}
+          </section>
+        </div>
+
+        <div
+          className="px-6 py-4 border-t flex items-center justify-end gap-2"
+          style={{ borderColor: C.border, background: C.bg }}
+        >
+          <GhostBtn onClick={onClose}>Close</GhostBtn>
+          <PrimaryBtn>
+            <Edit2 size={14} />
+            Edit Evidence
+          </PrimaryBtn>
+        </div>
+      </motion.div>
     </motion.div>
   );
 }
