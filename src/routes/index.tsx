@@ -693,6 +693,7 @@ function Sidebar({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
     { id: "radar", label: "Promotion Readiness", sub: "Assessment & Gaps", icon: TrendingUp },
     { id: "evidence", label: "Evidence Log", sub: "Data Table", icon: TableProperties },
     { id: "objectives", label: "Objectives", sub: "Skill Gap Planning", icon: Target },
+    { id: "report", label: "Performance Report", sub: "1-on-1 Prep", icon: FileText },
     { id: "settings", label: "Settings", sub: "App & Profile", icon: SettingsIcon },
   ];
   return (
