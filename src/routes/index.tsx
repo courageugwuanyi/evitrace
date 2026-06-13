@@ -2196,3 +2196,469 @@ function ExtensionPopup({ onDismiss, onSave }: { onDismiss: () => void; onSave: 
     </motion.div>
   );
 }
+
+/* ============================================================ */
+/*                   TAB 5: SETTINGS HUB                        */
+/* ============================================================ */
+
+type SettingsSection =
+  | "profile"
+  | "team"
+  | "notifications"
+  | "extension"
+  | "framework";
+
+function SettingsView() {
+  const [section, setSection] = useState<SettingsSection>("profile");
+  const items: { id: SettingsSection; label: string; icon: React.ComponentType<{ size?: number }> }[] = [
+    { id: "profile", label: "Profile", icon: User },
+    { id: "team", label: "Team & Manager", icon: Users },
+    { id: "notifications", label: "Notifications", icon: Bell },
+    { id: "extension", label: "Extension Preferences", icon: Puzzle },
+    { id: "framework", label: "Competency Framework", icon: Layers },
+  ];
+  return (
+    <div className="grid grid-cols-4 gap-6">
+      <Card className="col-span-1 p-2 h-fit">
+        <nav className="space-y-0.5">
+          {items.map((it) => {
+            const Icon = it.icon;
+            const active = section === it.id;
+            return (
+              <button
+                key={it.id}
+                onClick={() => setSection(it.id)}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded text-left text-sm font-medium transition-colors"
+                style={{
+                  background: active ? C.primarySoft : "transparent",
+                  color: active ? C.primary : C.slate,
+                }}
+                onMouseEnter={(e) => {
+                  if (!active) e.currentTarget.style.background = "#F4F5F7";
+                }}
+                onMouseLeave={(e) => {
+                  if (!active) e.currentTarget.style.background = "transparent";
+                }}
+              >
+                <Icon size={16} />
+                {it.label}
+              </button>
+            );
+          })}
+        </nav>
+      </Card>
+
+      <div className="col-span-3 space-y-6">
+        {section === "profile" && <ProfileSettings />}
+        {section === "team" && <TeamSettings />}
+        {section === "notifications" && <NotificationsSettings />}
+        {section === "extension" && <ExtensionSettings />}
+        {section === "framework" && <FrameworkSettings />}
+      </div>
+    </div>
+  );
+}
+
+function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      onClick={() => onChange(!on)}
+      className="relative w-9 h-5 rounded-full transition-colors"
+      style={{ background: on ? C.primary : "#C1C7D0" }}
+    >
+      <motion.span
+        animate={{ x: on ? 16 : 2 }}
+        transition={{ duration: 0.18 }}
+        className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow"
+      />
+    </button>
+  );
+}
+
+function SettingRow({
+  title,
+  desc,
+  right,
+}: {
+  title: string;
+  desc: string;
+  right: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between py-3 border-b last:border-b-0" style={{ borderColor: C.border }}>
+      <div className="pr-6">
+        <div className="text-sm font-semibold" style={{ color: C.navy }}>
+          {title}
+        </div>
+        <div className="text-xs mt-0.5" style={{ color: C.subtle }}>
+          {desc}
+        </div>
+      </div>
+      {right}
+    </div>
+  );
+}
+
+function ProfileSettings() {
+  return (
+    <Card className="p-6">
+      <SectionHeader title="Profile" sub="Your personal information and role" />
+      <div className="mt-5 flex items-center gap-4">
+        <div
+          className="w-16 h-16 rounded-full flex items-center justify-center text-lg font-semibold text-white"
+          style={{ background: "#5243AA" }}
+        >
+          JM
+        </div>
+        <div>
+          <div className="text-base font-semibold" style={{ color: C.navy }}>
+            Jordan Mills
+          </div>
+          <div className="text-sm" style={{ color: C.subtle }}>
+            Senior Engineer L3 — Payments
+          </div>
+        </div>
+        <div className="ml-auto">
+          <GhostBtn>Upload photo</GhostBtn>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4 mt-6">
+        <Field label="Full name">
+          <Input defaultValue="Jordan Mills" />
+        </Field>
+        <Field label="Email">
+          <Input defaultValue="jordan.mills@acme.com" />
+        </Field>
+        <Field label="Current level">
+          <Select defaultValue="L3">
+            <option>L2</option>
+            <option>L3</option>
+            <option>L4</option>
+            <option>L5</option>
+          </Select>
+        </Field>
+        <Field label="Target level">
+          <Select defaultValue="L4">
+            <option>L3</option>
+            <option>L4</option>
+            <option>L5</option>
+          </Select>
+        </Field>
+      </div>
+      <div className="mt-6 flex justify-end gap-2">
+        <GhostBtn>Cancel</GhostBtn>
+        <PrimaryBtn>Save changes</PrimaryBtn>
+      </div>
+    </Card>
+  );
+}
+
+function TeamSettings() {
+  return (
+    <Card className="p-6">
+      <SectionHeader title="Team & Manager" sub="Who reviews your evidence and approves objectives" />
+      <div className="mt-5 grid grid-cols-2 gap-4">
+        <Field label="Reporting manager">
+          <Input defaultValue="Alex Morgan" />
+        </Field>
+        <Field label="Manager email">
+          <Input defaultValue="alex.morgan@acme.com" />
+        </Field>
+        <Field label="Team">
+          <Input defaultValue="Payments Platform" />
+        </Field>
+        <Field label="Skip-level reviewer">
+          <Input defaultValue="Priya Shah" />
+        </Field>
+      </div>
+      <div className="mt-6 flex justify-end gap-2">
+        <PrimaryBtn>Request sync</PrimaryBtn>
+      </div>
+    </Card>
+  );
+}
+
+function NotificationsSettings() {
+  const [a, setA] = useState(true);
+  const [b, setB] = useState(true);
+  const [c, setC] = useState(false);
+  const [d, setD] = useState(true);
+  return (
+    <Card className="p-6">
+      <SectionHeader title="Notifications" sub="Control how Evitrace reaches you" />
+      <div className="mt-3">
+        <SettingRow
+          title="Daily reflection reminder"
+          desc="Nudge me at 16:00 to log evidence before close of day."
+          right={<Toggle on={a} onChange={setA} />}
+        />
+        <SettingRow
+          title="Manager approvals"
+          desc="Email me when my manager approves or comments."
+          right={<Toggle on={b} onChange={setB} />}
+        />
+        <SettingRow
+          title="Weekly digest"
+          desc="Monday summary of evidence, gaps, and objective progress."
+          right={<Toggle on={c} onChange={setC} />}
+        />
+        <SettingRow
+          title="Browser push"
+          desc="Show desktop notifications from the Evitrace extension."
+          right={<Toggle on={d} onChange={setD} />}
+        />
+      </div>
+    </Card>
+  );
+}
+
+function ExtensionSettings() {
+  const [auto, setAuto] = useState(true);
+  const [jira, setJira] = useState(true);
+  const [gh, setGh] = useState(true);
+  const [slack, setSlack] = useState(false);
+  return (
+    <Card className="p-6">
+      <SectionHeader title="Extension Preferences" sub="Capture sources and trigger windows" />
+      <div className="mt-3">
+        <SettingRow
+          title="Auto-capture events"
+          desc="Surface a capture prompt when work is completed."
+          right={<Toggle on={auto} onChange={setAuto} />}
+        />
+        <SettingRow
+          title="Jira"
+          desc="Trigger when a ticket moves to Done."
+          right={<Toggle on={jira} onChange={setJira} />}
+        />
+        <SettingRow
+          title="GitHub"
+          desc="Trigger when a PR is merged with you as author or reviewer."
+          right={<Toggle on={gh} onChange={setGh} />}
+        />
+        <SettingRow
+          title="Slack"
+          desc="Trigger on saved threads tagged with #wins."
+          right={<Toggle on={slack} onChange={setSlack} />}
+        />
+      </div>
+    </Card>
+  );
+}
+
+function FrameworkSettings() {
+  return (
+    <Card className="p-6">
+      <SectionHeader
+        title="Competency Framework"
+        sub="The 8 axes used to score progress toward Level 4"
+      />
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        {COMPETENCIES.map((c) => (
+          <div
+            key={c}
+            className="flex items-center justify-between px-3 py-2.5 rounded border"
+            style={{ borderColor: C.border }}
+          >
+            <div className="flex items-center gap-2">
+              <Layers size={14} style={{ color: C.primary }} />
+              <span className="text-sm font-semibold" style={{ color: C.navy }}>
+                {c}
+              </span>
+            </div>
+            <Badge tone="neutral">Active</Badge>
+          </div>
+        ))}
+      </div>
+      <div className="mt-5 flex items-center justify-between p-3 rounded" style={{ background: C.primarySoft }}>
+        <div className="flex items-center gap-2 text-sm" style={{ color: C.navy }}>
+          <Info size={14} style={{ color: C.primary }} />
+          Framework is managed by your engineering org. Contact admin to propose edits.
+        </div>
+        <GhostBtn>Contact admin</GhostBtn>
+      </div>
+    </Card>
+  );
+}
+
+/* ============================================================ */
+/*        OVERLAY: EVIDENCE DETAILS SLIDE-OVER                  */
+/* ============================================================ */
+
+function EvidenceSlideover({
+  item,
+  onClose,
+  onDelete,
+}: {
+  item: EvidenceItem;
+  onClose: () => void;
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.15 }}
+      className="fixed inset-0 z-50"
+      style={{ background: "rgba(9, 30, 66, 0.45)" }}
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ x: "100%" }}
+        animate={{ x: 0 }}
+        exit={{ x: "100%" }}
+        transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+        className="absolute top-0 right-0 h-full w-full md:w-[44%] bg-white shadow-2xl flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="px-6 py-5 border-b" style={{ borderColor: C.border }}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1 text-xs" style={{ color: C.subtle }}>
+              <span>Evidence Log</span>
+              <ChevronRight size={12} />
+              <span className="font-semibold" style={{ color: C.slate }}>
+                {item.id}
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                className="p-1.5 rounded hover:bg-[#F4F5F7]"
+                style={{ color: C.slate }}
+                title="Edit"
+              >
+                <Edit2 size={16} />
+              </button>
+              <button
+                onClick={() => onDelete(item.id)}
+                className="p-1.5 rounded hover:bg-[#FFEBE6]"
+                style={{ color: C.red }}
+                title="Delete"
+              >
+                <Trash2 size={16} />
+              </button>
+              <button
+                onClick={onClose}
+                className="p-1.5 rounded hover:bg-[#F4F5F7] ml-1"
+                style={{ color: C.slate }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+          <div className="text-xl font-bold mt-2 leading-snug" style={{ color: C.navy }}>
+            {item.title}
+          </div>
+          <div className="flex items-center gap-3 mt-3 text-xs" style={{ color: C.subtle }}>
+            <span className="flex items-center gap-1.5">
+              <Calendar size={12} />
+              {item.date}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-1 h-1 rounded-full" style={{ background: C.subtle }} />
+              {item.source}
+            </span>
+            {item.status === "Approved" ? (
+              <Badge tone="success" icon={<CheckCircle size={11} />}>
+                Approved
+              </Badge>
+            ) : (
+              <Badge tone="warning" icon={<Clock size={11} />}>
+                Pending
+              </Badge>
+            )}
+          </div>
+        </div>
+
+        {/* Scrollable */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+          <section>
+            <div className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: C.subtle }}>
+              Competency Mapping
+            </div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Badge tone="info">{item.competency}</Badge>
+              <Badge tone="neutral">{item.category}</Badge>
+            </div>
+          </section>
+
+          <section>
+            <div className="flex items-center gap-2 mb-2">
+              <AlignLeft size={14} style={{ color: C.slate }} />
+              <div className="text-sm font-bold" style={{ color: C.navy }}>
+                Full Reflection
+              </div>
+            </div>
+            <div className="text-sm leading-relaxed" style={{ color: C.slate }}>
+              {item.description}
+            </div>
+          </section>
+
+          <section>
+            <div className="flex items-center gap-2 mb-2">
+              <LinkIcon size={14} style={{ color: C.slate }} />
+              <div className="text-sm font-bold" style={{ color: C.navy }}>
+                Links & Artifacts
+              </div>
+            </div>
+            {item.link ? (
+              <a
+                href={`https://${item.link}`}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center justify-between px-3 py-2 rounded border hover:border-[#0052CC] transition-colors"
+                style={{ borderColor: C.border }}
+              >
+                <span className="text-sm" style={{ color: C.navy }}>
+                  {item.link}
+                </span>
+                <ExternalLink size={14} style={{ color: C.primary }} />
+              </a>
+            ) : (
+              <div className="text-xs" style={{ color: C.subtle }}>
+                No links attached.
+              </div>
+            )}
+          </section>
+
+          <section>
+            <div className="flex items-center gap-2 mb-2">
+              <MessageSquare size={14} style={{ color: C.slate }} />
+              <div className="text-sm font-bold" style={{ color: C.navy }}>
+                Manager Comments
+              </div>
+            </div>
+            {item.status === "Approved" ? (
+              <div
+                className="p-3 rounded border text-sm"
+                style={{ borderColor: C.border, background: C.bg, color: C.slate }}
+              >
+                <div className="text-xs font-semibold mb-1" style={{ color: C.navy }}>
+                  Alex Morgan — Oct 12
+                </div>
+                Strong example of cross-team coordination. Tag this for the L4 architecture
+                criterion in your packet.
+              </div>
+            ) : (
+              <div className="text-xs" style={{ color: C.subtle }}>
+                Awaiting manager review.
+              </div>
+            )}
+          </section>
+        </div>
+
+        <div
+          className="px-6 py-4 border-t flex items-center justify-end gap-2"
+          style={{ borderColor: C.border, background: C.bg }}
+        >
+          <GhostBtn onClick={onClose}>Close</GhostBtn>
+          <PrimaryBtn>
+            <Edit2 size={14} />
+            Edit Evidence
+          </PrimaryBtn>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
