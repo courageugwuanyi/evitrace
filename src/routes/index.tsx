@@ -629,6 +629,21 @@ function EvitraceApp() {
         )}
       </AnimatePresence>
 
+      {/* Evidence details slide-over */}
+      <AnimatePresence>
+        {openEvidence && (
+          <EvidenceSlideover
+            item={openEvidence}
+            onClose={() => setOpenEvidence(null)}
+            onDelete={(id) => {
+              setEvidence((e) => e.filter((x) => x.id !== id));
+              setOpenEvidence(null);
+              flash("Evidence deleted");
+            }}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Toast */}
       <AnimatePresence>
         {toast && (
