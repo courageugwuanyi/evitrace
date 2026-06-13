@@ -1271,7 +1271,15 @@ function MetricCard({
 /*                  TAB 3: EVIDENCE LOG                         */
 /* ============================================================ */
 
-function EvidenceView({ rows }: { rows: typeof initialEvidence }) {
+type EvidenceItem = (typeof initialEvidence)[number];
+
+function EvidenceView({
+  rows,
+  onOpenRow,
+}: {
+  rows: typeof initialEvidence;
+  onOpenRow: (r: EvidenceItem) => void;
+}) {
   const [q, setQ] = useState("");
   const [comp, setComp] = useState("All");
   const [status, setStatus] = useState("All");
