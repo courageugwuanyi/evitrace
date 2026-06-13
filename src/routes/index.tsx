@@ -512,7 +512,10 @@ function CareerRadar({ scores }: { scores: Record<string, number> }) {
                 fontSize: 12,
                 color: C.navy,
               }}
-              formatter={(value: number, name: string) => [`${Math.round(value / 25)}/4 (${value})`, name]}
+              formatter={(value, name) => {
+                const v = Number(value) || 0;
+                return [`${(v / 25).toFixed(1)}/4 (${v})`, String(name)];
+              }}
             />
             <Radar name="Target L4" dataKey="target" stroke={C.navy} strokeWidth={1.5} strokeDasharray="5 4" fill="none" />
             <Radar name="Current" dataKey="current" stroke={C.primary} strokeWidth={2} fill={C.primary} fillOpacity={0.4} />
