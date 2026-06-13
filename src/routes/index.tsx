@@ -682,9 +682,10 @@ function EvitraceApp() {
 function Sidebar({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
   const nav: { id: Tab; label: string; sub: string; icon: React.ComponentType<{ size?: number }> }[] = [
     { id: "dashboard", label: "Dashboard", sub: "Daily Actions", icon: LayoutDashboard },
-    { id: "radar", label: "Promotion Radar", sub: "Analytics & Assessment", icon: PieChartIcon },
+    { id: "radar", label: "Promotion Readiness", sub: "Assessment & Gaps", icon: TrendingUp },
     { id: "evidence", label: "Evidence Log", sub: "Data Table", icon: TableProperties },
     { id: "objectives", label: "Objectives", sub: "Skill Gap Planning", icon: Target },
+    { id: "settings", label: "Settings", sub: "App & Profile", icon: SettingsIcon },
   ];
   return (
     <aside
