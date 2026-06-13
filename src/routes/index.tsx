@@ -426,7 +426,7 @@ const initialObjectives: Objective[] = [
 /*                        APP ROOT                              */
 /* ============================================================ */
 
-type Tab = "dashboard" | "radar" | "evidence" | "objectives" | "settings";
+type Tab = "dashboard" | "radar" | "evidence" | "objectives" | "report" | "settings";
 
 function EvitraceApp() {
   const [tab, setTab] = useState<Tab>("dashboard");
@@ -447,6 +447,7 @@ function EvitraceApp() {
     radar: "Promotion Readiness",
     evidence: "Evidence Log",
     objectives: "Objectives",
+    report: "Performance Report",
     settings: "Settings",
   };
 
@@ -524,6 +525,14 @@ function EvitraceApp() {
                   items={objectives}
                   onOpen={setOpenObjective}
                   onCreate={() => setShowCreateObjective(true)}
+                />
+              )}
+              {tab === "report" && (
+                <ReportView
+                  evidence={evidence}
+                  objectives={objectives}
+                  radarData={radarData}
+                  onFlash={flash}
                 />
               )}
               {tab === "settings" && <SettingsView />}
@@ -684,6 +693,7 @@ function Sidebar({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
     { id: "radar", label: "Promotion Readiness", sub: "Assessment & Gaps", icon: TrendingUp },
     { id: "evidence", label: "Evidence Log", sub: "Data Table", icon: TableProperties },
     { id: "objectives", label: "Objectives", sub: "Skill Gap Planning", icon: Target },
+    { id: "report", label: "Performance Report", sub: "1-on-1 Prep", icon: FileText },
     { id: "settings", label: "Settings", sub: "App & Profile", icon: SettingsIcon },
   ];
   return (
@@ -2659,5 +2669,334 @@ function EvidenceSlideover({
         </div>
       </motion.div>
     </motion.div>
+  );
+}
+
+/* ============================================================ */
+/*                    REPORT VIEW                               */
+/* ============================================================ */
+
+function ReportView({
+  evidence,
+  objectives,
+  radarData: _radarData,
+  onFlash,
+}: {
+  evidence: typeof initialEvidence;
+  objectives: Objective[];
+  radarData: typeof initialRadar;
+  onFlash: (m: string) => void;
+}) {
+  const approved = evidence.filter((e) => e.status === "Approved");
+  const topThree = approved.slice(0, 3);
+  const completed = objectives.filter((o) => o.status === "Completed");
+  const upcoming = objectives.filter((o) => o.status !== "Completed");
+
+  const deltas = [
+    { name: "Engineering Quality", from: 2.0, to: 2.5 },
+    { name: "Analytical Thinking", from: 1.5, to: 2.0 },
+    { name: "System Design", from: 2.4, to: 2.8 },
+    { name: "Communication", from: 2.7, to: 3.0 },
+  ];
+
+  const [topics, setTopics] = useState<string[]>([
+    "Discuss timeline for the formal L4 promotion panel.",
+    "Request budget for AWS Advanced Networking certification.",
+    "Align on which Q4 initiative best demonstrates System Design at L4.",
+  ]);
+  const [draft, setDraft] = useState("");
+
+  function addTopic() {
+    const t = draft.trim();
+    if (!t) return;
+    setTopics((x) => [...x, t]);
+    setDraft("");
+  }
+
+  function copyLink() {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(window.location.href + "?report=q3-2026").catch(() => {});
+    }
+    onFlash("Share link copied to clipboard");
+  }
+
+  function exportPdf() {
+    if (typeof window !== "undefined") window.print();
+  }
+
+  return (
+    <div>
+      {/* Sticky action bar */}
+      <div
+        className="sticky top-0 z-20 -mx-8 px-8 py-3 mb-6 border-b flex items-center justify-between"
+        style={{ background: C.bg, borderColor: C.border }}
+      >
+        <nav className="flex items-center gap-1.5 text-xs" style={{ color: C.subtle }}>
+          <span>Promotion Readiness</span>
+          <ChevronRight size={12} />
+          <span className="font-semibold" style={{ color: C.navy }}>
+            Generate Report
+          </span>
+        </nav>
+        <div className="flex items-center gap-2">
+          <GhostBtn onClick={copyLink}>
+            <LinkIcon size={14} />
+            Copy Share Link
+          </GhostBtn>
+          <PrimaryBtn onClick={exportPdf}>
+            <Download size={14} />
+            Export to PDF
+          </PrimaryBtn>
+        </div>
+      </div>
+
+      {/* Document */}
+      <article
+        className="max-w-4xl mx-auto bg-white border rounded shadow-md p-10"
+        style={{ borderColor: C.border }}
+      >
+        {/* 1. Header */}
+        <header>
+          <h1
+            className="text-3xl font-bold tracking-tight"
+            style={{ color: C.navy }}
+          >
+            Q3 Performance & Growth Summary
+          </h1>
+          <div className="mt-3 space-y-1 text-sm" style={{ color: C.slate }}>
+            <div>
+              Engineer: <span style={{ color: C.navy, fontWeight: 600 }}>Courage U.</span>
+              {"  |  "}Role: L3 Engineer{"  |  "}Target: L4 Senior Engineer
+            </div>
+            <div>
+              Manager: <span style={{ color: C.navy, fontWeight: 600 }}>Alex M.</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Calendar size={14} style={{ color: C.subtle }} />
+              Period: July 1, 2026 — Sept 30, 2026
+            </div>
+          </div>
+          <div className="mt-6 border-t" style={{ borderColor: C.border }} />
+        </header>
+
+        {/* 2. Executive summary */}
+        <section className="mt-8">
+          <SectionHeading icon={<Target size={18} />} title="Quarterly Overview" />
+          <p className="mt-3 text-[15px] leading-relaxed" style={{ color: C.slate }}>
+            This quarter, Courage demonstrated strong growth in{" "}
+            <span style={{ color: C.navy, fontWeight: 600 }}>Engineering Quality</span> and{" "}
+            <span style={{ color: C.navy, fontWeight: 600 }}>Analytical Thinking</span>.{" "}
+            <span style={{ color: C.navy, fontWeight: 600 }}>{approved.length}</span> pieces of
+            evidence were verified, closing the gap in System Design. Current readiness for L4 is at{" "}
+            <span style={{ color: C.primary, fontWeight: 700 }}>85%</span>.
+          </p>
+        </section>
+
+        {/* 3. Competency delta */}
+        <section className="mt-10">
+          <SectionHeading icon={<TrendingUp size={18} />} title="Competency Growth" />
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
+            {deltas.map((d) => {
+              const pct = Math.round(((d.to - d.from) / d.from) * 100);
+              const width = Math.min(100, (d.to / 4) * 100);
+              return (
+                <div key={d.name}>
+                  <div className="flex items-baseline justify-between mb-1.5">
+                    <div className="text-sm font-semibold" style={{ color: C.navy }}>
+                      {d.name}
+                    </div>
+                    <div className="text-xs font-medium" style={{ color: C.slate }}>
+                      {d.from.toFixed(2)} → {d.to.toFixed(2)}{" "}
+                      <span style={{ color: C.green, fontWeight: 700 }}>+{pct}%</span>
+                    </div>
+                  </div>
+                  <div
+                    className="h-2 rounded-full overflow-hidden"
+                    style={{ background: "#EBECF0" }}
+                  >
+                    <div
+                      className="h-full rounded-full"
+                      style={{ width: `${width}%`, background: C.green }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* 4. Highlighted evidence */}
+        <section className="mt-10">
+          <SectionHeading icon={<Award size={18} />} title="Top Verified Contributions" />
+          <div className="mt-4 space-y-3">
+            {topThree.map((e) => (
+              <div
+                key={e.id}
+                className="border-l-4 pl-4 py-3 pr-4 rounded-sm"
+                style={{ borderColor: C.primary, background: "#FAFBFC" }}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="text-[15px] font-bold" style={{ color: C.navy }}>
+                    {e.title}
+                  </div>
+                  <Badge tone="info">{e.competency}</Badge>
+                </div>
+                <p className="mt-1.5 text-sm leading-relaxed" style={{ color: C.slate }}>
+                  {e.description}
+                </p>
+                <div
+                  className="mt-2 flex items-center gap-1.5 text-xs font-medium"
+                  style={{ color: "#006644" }}
+                >
+                  <CheckCircle size={13} />
+                  Verified on {e.date}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* 5. Objectives */}
+        <section className="mt-10">
+          <SectionHeading icon={<ListTodo size={18} />} title="SMART Objectives" />
+          <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
+            <ObjectiveColumn
+              label="Completed This Quarter"
+              tone="success"
+              items={completed}
+              emptyText="No objectives completed this period."
+            />
+            <ObjectiveColumn
+              label="Focus for Next Quarter"
+              tone="info"
+              items={upcoming}
+              emptyText="No active objectives planned."
+            />
+          </div>
+        </section>
+
+        {/* 6. Talking points */}
+        <section className="mt-10">
+          <SectionHeading icon={<MessageSquare size={18} />} title="Talking Points for 1-on-1" />
+          <div
+            className="mt-4 p-5 rounded border"
+            style={{ background: C.bg, borderColor: C.border }}
+          >
+            <ol className="space-y-2.5">
+              {topics.map((t, i) => (
+                <li key={i} className="flex items-start gap-3 text-sm" style={{ color: C.slate }}>
+                  <span
+                    className="shrink-0 w-5 h-5 rounded-full text-[11px] font-bold flex items-center justify-center"
+                    style={{ background: C.primarySoft, color: C.primary }}
+                  >
+                    {i + 1}
+                  </span>
+                  <span className="leading-relaxed">{t}</span>
+                </li>
+              ))}
+            </ol>
+
+            <div className="mt-4 flex items-center gap-2">
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") addTopic();
+                }}
+                placeholder="Add a discussion topic..."
+                className="flex-1 h-9 px-3 text-sm rounded border bg-white focus:outline-none"
+                style={{ borderColor: C.border, color: C.navy }}
+              />
+              <GhostBtn onClick={addTopic}>
+                <Plus size={14} />
+                Add Topic
+              </GhostBtn>
+            </div>
+          </div>
+        </section>
+
+        <footer
+          className="mt-10 pt-6 border-t text-xs flex items-center justify-between"
+          style={{ borderColor: C.border, color: C.subtle }}
+        >
+          <span>Generated by Evitrace · Confidential</span>
+          <span>Report ID · EVT-RPT-Q3-2026</span>
+        </footer>
+      </article>
+    </div>
+  );
+}
+
+function SectionHeading({
+  icon,
+  title,
+}: {
+  icon: React.ReactNode;
+  title: string;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span style={{ color: C.primary }}>{icon}</span>
+      <h2 className="text-lg font-bold tracking-tight" style={{ color: C.navy }}>
+        {title}
+      </h2>
+    </div>
+  );
+}
+
+function ObjectiveColumn({
+  label,
+  tone,
+  items,
+  emptyText,
+}: {
+  label: string;
+  tone: "success" | "info";
+  items: Objective[];
+  emptyText: string;
+}) {
+  return (
+    <div>
+      <div
+        className="text-[11px] font-bold uppercase tracking-wider mb-2"
+        style={{ color: C.subtle }}
+      >
+        {label}
+      </div>
+      <div className="space-y-2">
+        {items.length === 0 && (
+          <div
+            className="text-sm p-3 rounded border border-dashed"
+            style={{ color: C.subtle, borderColor: C.border }}
+          >
+            {emptyText}
+          </div>
+        )}
+        {items.map((o) => (
+          <div
+            key={o.id}
+            className="p-3 rounded border"
+            style={{ borderColor: C.border, background: "#FFFFFF" }}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="text-sm font-semibold leading-snug" style={{ color: C.navy }}>
+                {o.title}
+              </div>
+              <Badge tone={tone}>{o.status}</Badge>
+            </div>
+            <div className="mt-1.5 flex items-center gap-3 text-xs" style={{ color: C.subtle }}>
+              <span className="inline-flex items-center gap-1">
+                <Target size={12} />
+                {o.competency}
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <Calendar size={12} />
+                Due {o.due}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
