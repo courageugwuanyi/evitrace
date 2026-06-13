@@ -1039,88 +1039,199 @@ function InboxRow({
 /*                  TAB 2: RADAR                                */
 /* ============================================================ */
 
-function RadarView({ data }: { data: typeof initialRadar }) {
+function RadarView({
+  data,
+  onCreateObjective,
+}: {
+  data: typeof initialRadar;
+  onCreateObjective: () => void;
+}) {
   const current = useMemo(
     () => +(data.reduce((s, d) => s + d.current, 0) / data.length).toFixed(2),
     [data],
   );
-  const previous = 2.7;
-  const change = (((current - previous) / previous) * 100).toFixed(1);
+  const readiness = Math.round((current / 4) * 100);
+  const top = [...data].sort((a, b) => b.current - a.current)[0];
+  const gap = [...data].sort((a, b) => b.target - b.current - (a.target - a.current))[0];
 
   return (
     <div className="space-y-6">
+      {/* Executive Summary */}
       <div className="grid grid-cols-4 gap-4">
-        <MetricCard label="Previous Score" value={previous.toFixed(2)} sub="Last assessment" />
-        <MetricCard label="Current Score" value={current.toFixed(2)} sub="Live across 8 axes" highlight />
-        <MetricCard
-          label="Change"
-          value={`+${change}%`}
-          sub="Quarter over quarter"
-          tone="success"
-        />
-        <MetricCard label="Target — Level 4" value="4.00" sub="Promotion threshold" />
+        <Card className="p-5">
+          <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+            Overall Readiness
+          </div>
+          <div className="text-3xl font-bold mt-2 tracking-tight" style={{ color: C.navy }}>
+            {readiness}%
+          </div>
+          <div className="mt-3 h-1.5 rounded-full overflow-hidden" style={{ background: "#EBECF0" }}>
+            <div className="h-full rounded-full" style={{ width: `${readiness}%`, background: C.green }} />
+          </div>
+          <div className="text-xs mt-2" style={{ color: C.subtle }}>
+            Toward Level 4 threshold
+          </div>
+        </Card>
+        <Card className="p-5">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+              Top Strength
+            </div>
+            <Award size={18} style={{ color: C.green }} />
+          </div>
+          <div className="text-lg font-bold mt-2 tracking-tight" style={{ color: C.navy }}>
+            {top.competency}
+          </div>
+          <div className="text-xs mt-1" style={{ color: C.subtle }}>
+            {top.current.toFixed(2)} / 4
+          </div>
+        </Card>
+        <Card className="p-5">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+              Primary Gap
+            </div>
+            <AlertTriangle size={18} style={{ color: C.red }} />
+          </div>
+          <div className="text-lg font-bold mt-2 tracking-tight" style={{ color: C.navy }}>
+            {gap.competency}
+          </div>
+          <div className="text-xs mt-1" style={{ color: C.subtle }}>
+            Gap of {(gap.target - gap.current).toFixed(2)}
+          </div>
+        </Card>
+        <Card className="p-5">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+              Manager Status
+            </div>
+            <UserCheck size={18} style={{ color: C.primary }} />
+          </div>
+          <div className="text-lg font-bold mt-2 tracking-tight" style={{ color: C.navy }}>
+            On Track
+          </div>
+          <div className="text-xs mt-1" style={{ color: C.subtle }}>
+            Last sync: 4 days ago
+          </div>
+        </Card>
       </div>
 
-      <Card className="p-6">
-        <SectionHeader
-          title="Competency Radar"
-          sub="Current score vs Level 4 target across 8 axes"
-          right={
-            <div className="flex items-center gap-3 text-xs" style={{ color: C.slate }}>
-              <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: C.primary }} />
-                Current
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span
-                  className="w-2.5 h-2.5 rounded-sm border-2"
-                  style={{ borderColor: C.amber, background: "transparent" }}
+      {/* Competency Matrix */}
+      <div className="grid grid-cols-5 gap-6">
+        <Card className="col-span-2 p-6">
+          <SectionHeader
+            title="Competency Radar"
+            sub="Current score vs Level 4 target"
+            right={
+              <div className="flex items-center gap-3 text-xs" style={{ color: C.slate }}>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-sm" style={{ background: C.primary }} />
+                  Current
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className="w-2.5 h-2.5 rounded-sm border-2"
+                    style={{ borderColor: C.amber, background: "transparent" }}
+                  />
+                  Target L4
+                </span>
+              </div>
+            }
+          />
+          <div className="h-[420px] mt-4">
+            <ResponsiveContainer width="100%" height="100%">
+              <RadarChart data={data} outerRadius="78%">
+                <PolarGrid stroke={C.border} />
+                <PolarAngleAxis
+                  dataKey="competency"
+                  tick={{ fill: C.navy, fontSize: 11, fontWeight: 600 }}
                 />
-                Target L4
-              </span>
-            </div>
-          }
-        />
-        <div className="h-[460px] mt-4">
-          <ResponsiveContainer width="100%" height="100%">
-            <RadarChart data={data} outerRadius="78%">
-              <PolarGrid stroke={C.border} />
-              <PolarAngleAxis
-                dataKey="competency"
-                tick={{ fill: C.navy, fontSize: 12, fontWeight: 600 }}
-              />
-              <PolarRadiusAxis angle={90} domain={[0, 4]} tick={{ fill: C.subtle, fontSize: 10 }} />
-              <Radar
-                name="Target L4"
-                dataKey="target"
-                stroke={C.amber}
-                fill={C.amber}
-                fillOpacity={0.08}
-                strokeWidth={2}
-                strokeDasharray="4 4"
-              />
-              <Radar
-                name="Current"
-                dataKey="current"
-                stroke={C.primary}
-                fill={C.primary}
-                fillOpacity={0.25}
-                strokeWidth={2}
-              />
-              <RTooltip
-                contentStyle={{
-                  background: "#fff",
-                  border: `1px solid ${C.border}`,
-                  borderRadius: 6,
-                  fontSize: 12,
-                }}
-                formatter={(v) => `${Number(v).toFixed(2)} / 4`}
-              />
-              <Legend wrapperStyle={{ display: "none" }} />
-            </RadarChart>
-          </ResponsiveContainer>
-        </div>
-      </Card>
+                <PolarRadiusAxis angle={90} domain={[0, 4]} tick={{ fill: C.subtle, fontSize: 10 }} />
+                <Radar
+                  name="Target L4"
+                  dataKey="target"
+                  stroke={C.amber}
+                  fill={C.amber}
+                  fillOpacity={0.08}
+                  strokeWidth={2}
+                  strokeDasharray="4 4"
+                />
+                <Radar
+                  name="Current"
+                  dataKey="current"
+                  stroke={C.primary}
+                  fill={C.primary}
+                  fillOpacity={0.25}
+                  strokeWidth={2}
+                />
+                <RTooltip
+                  contentStyle={{
+                    background: "#fff",
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 6,
+                    fontSize: 12,
+                  }}
+                  formatter={(v) => `${Number(v).toFixed(2)} / 4`}
+                />
+                <Legend wrapperStyle={{ display: "none" }} />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+
+        <Card className="col-span-3 p-0 overflow-hidden">
+          <div className="p-5 border-b" style={{ borderColor: C.border }}>
+            <SectionHeader title="Real-Time Gap Analysis" sub="Targeted actions to close each gap" />
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead style={{ background: "#F4F5F7", color: C.subtle }}>
+                <tr className="text-left text-[11px] uppercase tracking-wider">
+                  <Th>Competency</Th>
+                  <Th>Current</Th>
+                  <Th>Target</Th>
+                  <Th>Gap</Th>
+                  <Th>Action</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.map((row) => {
+                  const g = +(row.target - row.current).toFixed(2);
+                  const tone = g >= 1 ? C.red : g >= 0.5 ? C.amber : C.green;
+                  return (
+                    <tr
+                      key={row.competency}
+                      className="border-t hover:bg-[#FAFBFC] transition-colors"
+                      style={{ borderColor: C.border }}
+                    >
+                      <Td className="font-semibold" style={{ color: C.navy }}>
+                        {row.competency}
+                      </Td>
+                      <Td style={{ color: C.slate }}>{row.current.toFixed(2)}</Td>
+                      <Td style={{ color: C.slate }}>{row.target.toFixed(2)}</Td>
+                      <Td>
+                        <span className="font-semibold" style={{ color: tone }}>
+                          {g > 0 ? `+${g}` : g}
+                        </span>
+                      </Td>
+                      <Td>
+                        <button
+                          onClick={onCreateObjective}
+                          className="text-xs font-semibold inline-flex items-center gap-1 px-2.5 py-1 rounded border hover:border-[#0052CC] transition-colors"
+                          style={{ borderColor: C.border, color: C.primary }}
+                        >
+                          <Plus size={12} />
+                          Create Objective
+                        </button>
+                      </Td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }
