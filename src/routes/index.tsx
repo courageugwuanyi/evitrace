@@ -31,6 +31,17 @@ import {
   Sparkles,
   ArrowUpRight,
   ChevronRight,
+  Settings as SettingsIcon,
+  Award,
+  AlertTriangle,
+  UserCheck,
+  Download,
+  Edit2,
+  Trash2,
+  User,
+  Users,
+  Puzzle,
+  Layers,
 } from "lucide-react";
 import {
   Radar,
