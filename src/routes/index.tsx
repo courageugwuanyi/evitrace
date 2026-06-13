@@ -1328,8 +1328,14 @@ function EvidenceView({
           <option>Slack</option>
           <option>Manual Capture</option>
         </Select>
-        <div className="ml-auto text-xs" style={{ color: C.subtle }}>
-          {filtered.length} of {rows.length} items
+        <div className="ml-auto flex items-center gap-3">
+          <div className="text-xs" style={{ color: C.subtle }}>
+            {filtered.length} of {rows.length} items
+          </div>
+          <GhostBtn>
+            <Download size={14} />
+            Export Data
+          </GhostBtn>
         </div>
       </div>
 
