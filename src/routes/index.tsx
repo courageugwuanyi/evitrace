@@ -635,7 +635,7 @@ function EvitraceApp() {
           <EvidenceSlideover
             item={openEvidence}
             onClose={() => setOpenEvidence(null)}
-            onDelete={(id) => {
+            onDelete={(id: string) => {
               setEvidence((e) => e.filter((x) => x.id !== id));
               setOpenEvidence(null);
               flash("Evidence deleted");
