@@ -427,7 +427,7 @@ const initialObjectives: Objective[] = [
 /*                        APP ROOT                              */
 /* ============================================================ */
 
-type Tab = "dashboard" | "radar" | "evidence" | "objectives";
+type Tab = "dashboard" | "radar" | "evidence" | "objectives" | "settings";
 
 function EvitraceApp() {
   const [tab, setTab] = useState<Tab>("dashboard");
@@ -440,13 +440,15 @@ function EvitraceApp() {
   const [showCapture, setShowCapture] = useState(false);
   const [showCreateObjective, setShowCreateObjective] = useState(false);
   const [openObjective, setOpenObjective] = useState<Objective | null>(null);
+  const [openEvidence, setOpenEvidence] = useState<(typeof initialEvidence)[number] | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const pageTitle: Record<Tab, string> = {
     dashboard: "Dashboard",
-    radar: "Promotion Radar",
+    radar: "Promotion Readiness",
     evidence: "Evidence Log",
     objectives: "Objectives",
+    settings: "Settings",
   };
 
   function flash(msg: string) {
