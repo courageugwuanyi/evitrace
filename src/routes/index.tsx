@@ -1077,7 +1077,7 @@ function RadarView({ data }: { data: typeof initialRadar }) {
                   borderRadius: 6,
                   fontSize: 12,
                 }}
-                formatter={(v: number) => `${v.toFixed(2)} / 4`}
+                formatter={(v) => `${Number(v).toFixed(2)} / 4`}
               />
               <Legend wrapperStyle={{ display: "none" }} />
             </RadarChart>
