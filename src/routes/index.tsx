@@ -527,6 +527,14 @@ function EvitraceApp() {
                   onCreate={() => setShowCreateObjective(true)}
                 />
               )}
+              {tab === "report" && (
+                <ReportView
+                  evidence={evidence}
+                  objectives={objectives}
+                  radarData={radarData}
+                  onFlash={flash}
+                />
+              )}
               {tab === "settings" && <SettingsView />}
             </motion.div>
           </AnimatePresence>
