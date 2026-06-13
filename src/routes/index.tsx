@@ -1,25 +1,36 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Radar as RadarIcon,
-  X,
   LayoutDashboard,
-  FileText,
+  PieChart as PieChartIcon,
+  TableProperties,
   Target,
-  Flag,
   Search,
-  Bell,
   Plus,
-  Github,
-  CheckCircle2,
-  AlertTriangle,
-  ArrowRight,
-  Sparkles,
-  Filter,
-  ChevronDown,
-  Circle,
+  X,
+  TrendingUp,
+  Calendar,
   Clock,
+  CheckCircle,
+  AlertCircle,
+  ListTodo,
+  Filter,
+  Info,
+  ChevronDown,
+  Link as LinkIcon,
+  Paperclip,
+  UploadCloud,
+  AlignLeft,
+  ExternalLink,
+  Github,
+  MessageSquare,
+  FileText,
+  Bell,
+  Sparkles,
+  ArrowUpRight,
+  ChevronRight,
 } from "lucide-react";
 import {
   Radar,
@@ -28,7 +39,8 @@ import {
   PolarAngleAxis,
   PolarRadiusAxis,
   ResponsiveContainer,
-  Tooltip,
+  Tooltip as RTooltip,
+  Legend,
 } from "recharts";
 
 export const Route = createFileRoute("/")({
@@ -38,285 +50,694 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Capture engineering evidence, map it to competencies, and visualize your path to promotion.",
+          "Capture evidence of your work, map it to competencies, and close the gap to your next promotion.",
       },
+      { property: "og:title", content: "Evitrace — Promotion Radar for Engineers" },
+      {
+        property: "og:description",
+        content: "Track competency, evidence, and SMART objectives in one trusted workspace.",
+      },
+      { property: "og:type", content: "website" },
     ],
   }),
-  component: Index,
+  component: EvitraceApp,
 });
 
-/* ---------------- Tokens ---------------- */
+/* ---------- Design tokens ---------- */
 const C = {
-  appBg: "#FAFBFC",
+  bg: "#FAFBFC",
   card: "#FFFFFF",
   border: "#DFE1E6",
+  borderStrong: "#C1C7D0",
   primary: "#0052CC",
   primaryHover: "#0065FF",
+  primarySoft: "#DEEBFF",
   navy: "#172B4D",
   slate: "#42526E",
-  muted: "#6B778C",
+  subtle: "#6B778C",
   green: "#36B37E",
   greenSoft: "#E3FCEF",
   amber: "#FFAB00",
-  amberDeep: "#FF8B00",
-  paleBlue: "#DEEBFF",
-  paleAmber: "#FFFAE6",
-  inputRest: "#F4F5F7",
-  rowHover: "#F4F5F7",
-};
-
-type View = "dashboard" | "evidence" | "radar" | "objectives";
-
-type PendingItem = {
-  id: string;
-  kind: "jira" | "github";
-  title: string;
-  date: string;
-  context: string;
-  suggested: string[];
+  amberSoft: "#FFFAE6",
+  red: "#DE350B",
 };
 
 const COMPETENCIES = [
-  "Architecture",
+  "Analytical Thinking",
+  "System Design",
   "Code Quality",
   "Communication",
   "Leadership",
-  "DevOps",
+  "Engineering for UX",
   "Security",
-  "System Design",
-  "Mentorship",
+  "Delivery",
 ];
 
-const TITLES: Record<View, string> = {
-  dashboard: "Dashboard Overview",
-  evidence: "Evidence Log",
-  radar: "Promotion Radar",
-  objectives: "Objectives",
-};
-
-/* ---------------- Page ---------------- */
-function Index() {
-  const [activeView, setActiveView] = useState<View>("dashboard");
-  const [isCaptureModalOpen, setCaptureModalOpen] = useState(false);
-  const [reviewItem, setReviewItem] = useState<PendingItem | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
-
-  const [pending, setPending] = useState<PendingItem[]>([
-    {
-      id: "p1",
-      kind: "github",
-      title: "Merged PR: refactor-auth-flow (#142)",
-      date: "2 hours ago",
-      context: "Git: refactor-auth-flow (#142) • +482 / -311 lines",
-      suggested: ["System Design", "Security", "Code Quality"],
-    },
-    {
-      id: "p2",
-      kind: "jira",
-      title: "Resolved Incident #992 — payments outage",
-      date: "Yesterday",
-      context: "Jira: INC-992 • Sev2 resolved in 38m",
-      suggested: ["Leadership", "Communication"],
-    },
-  ]);
-
-  type EvidenceRow = {
-    id: string;
-    date: string;
-    title: string;
-    source: "github" | "jira";
-    comps: string[];
-    status: "Pending" | "Approved";
-  };
-  const [evidence, setEvidence] = useState<EvidenceRow[]>([
-    { id: "e1", date: "Oct 12", title: "Migrated legacy DB", source: "github", comps: ["Architecture", "Code Quality"], status: "Approved" },
-    { id: "e2", date: "Oct 9", title: "Led incident retro for #992", source: "jira", comps: ["Leadership", "Communication"], status: "Approved" },
-    { id: "e3", date: "Oct 4", title: "Hardened OAuth flow", source: "github", comps: ["Security", "Architecture"], status: "Approved" },
-    { id: "e4", date: "Sep 28", title: "CI pipeline optimization", source: "github", comps: ["DevOps"], status: "Approved" },
-    { id: "e5", date: "Sep 22", title: "Drafted RFC: feature flags v2", source: "jira", comps: ["System Design"], status: "Pending" },
-    { id: "e6", date: "Sep 18", title: "Mentored new hire onboarding", source: "jira", comps: ["Mentorship", "Communication"], status: "Approved" },
-  ]);
-
-  // baseline radar scores; "Confirm Mapping" bumps mapped competencies
-  const [scores, setScores] = useState<Record<string, number>>({
-    Architecture: 70,
-    "Code Quality": 80,
-    Communication: 65,
-    Leadership: 45,
-    DevOps: 70,
-  });
-
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2400);
-  };
-
-  const handleSaveCapture = (title: string, comps: string[]) => {
-    setEvidence((prev) => [
-      {
-        id: `e${Date.now()}`,
-        date: "Today",
-        title: title || "Untitled evidence",
-        source: "github",
-        comps,
-        status: "Pending",
-      },
-      ...prev,
-    ]);
-    setCaptureModalOpen(false);
-    showToast("Evidence saved!");
-  };
-
-  const handleConfirmMapping = (item: PendingItem, comps: string[]) => {
-    setPending((p) => p.filter((x) => x.id !== item.id));
-    setEvidence((prev) => [
-      { id: `e${Date.now()}`, date: "Today", title: item.title, source: item.kind, comps, status: "Approved" },
-      ...prev,
-    ]);
-    setScores((s) => {
-      const next = { ...s };
-      comps.forEach((c) => {
-        if (next[c] != null) next[c] = Math.min(100, next[c] + 4);
-      });
-      return next;
-    });
-    setReviewItem(null);
-    showToast("Mapping confirmed — radar updated");
-  };
-
+/* ---------- Primitives ---------- */
+function Card({
+  children,
+  className = "",
+  ...rest
+}: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      style={{ backgroundColor: C.appBg, color: C.slate, fontFamily: "Inter, system-ui, -apple-system, sans-serif" }}
-      className="min-h-screen flex"
+      {...rest}
+      className={`bg-white border rounded-md shadow-sm ${className}`}
+      style={{ borderColor: C.border }}
     >
-      <Sidebar activeView={activeView} onNavigate={setActiveView} />
+      {children}
+    </div>
+  );
+}
+
+function PrimaryBtn({
+  children,
+  className = "",
+  ...rest
+}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      {...rest}
+      className={`inline-flex items-center gap-2 px-3 h-9 text-sm font-medium text-white rounded transition-colors ${className}`}
+      style={{ background: C.primary }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = C.primaryHover)}
+      onMouseLeave={(e) => (e.currentTarget.style.background = C.primary)}
+    >
+      {children}
+    </button>
+  );
+}
+
+function GhostBtn({
+  children,
+  className = "",
+  ...rest
+}: React.ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      {...rest}
+      className={`inline-flex items-center gap-2 px-3 h-9 text-sm font-medium rounded transition-colors hover:bg-[#F4F5F7] ${className}`}
+      style={{ color: C.slate }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Pill({
+  active,
+  onClick,
+  children,
+  icon,
+}: {
+  active?: boolean;
+  onClick?: () => void;
+  children: React.ReactNode;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="inline-flex items-center gap-1.5 px-2.5 h-7 text-xs font-medium rounded-full border transition-all"
+      style={{
+        background: active ? C.primarySoft : "#F4F5F7",
+        color: active ? C.primary : C.slate,
+        borderColor: active ? C.primary : "transparent",
+      }}
+    >
+      {icon}
+      {children}
+    </button>
+  );
+}
+
+function Badge({
+  tone = "neutral",
+  children,
+  icon,
+}: {
+  tone?: "neutral" | "success" | "warning" | "info";
+  children: React.ReactNode;
+  icon?: React.ReactNode;
+}) {
+  const map = {
+    neutral: { bg: "#F4F5F7", fg: C.slate },
+    success: { bg: C.greenSoft, fg: "#006644" },
+    warning: { bg: C.amberSoft, fg: "#974F00" },
+    info: { bg: C.primarySoft, fg: C.primary },
+  } as const;
+  const s = map[tone];
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold uppercase tracking-wide rounded"
+      style={{ background: s.bg, color: s.fg }}
+    >
+      {icon}
+      {children}
+    </span>
+  );
+}
+
+function Input({
+  icon,
+  className = "",
+  ...rest
+}: React.InputHTMLAttributes<HTMLInputElement> & { icon?: React.ReactNode }) {
+  return (
+    <div className="relative flex items-center">
+      {icon && (
+        <span className="absolute left-2.5 pointer-events-none" style={{ color: C.subtle }}>
+          {icon}
+        </span>
+      )}
+      <input
+        {...rest}
+        className={`h-9 ${icon ? "pl-8" : "pl-3"} pr-3 w-full text-sm rounded border bg-[#F4F5F7] focus:bg-white outline-none transition-all focus:ring-2 ${className}`}
+        style={{
+          borderColor: C.border,
+          color: C.navy,
+        }}
+        onFocus={(e) => {
+          e.currentTarget.style.background = "#fff";
+          e.currentTarget.style.borderColor = C.primary;
+          e.currentTarget.style.boxShadow = `0 0 0 1px ${C.primary}`;
+        }}
+        onBlur={(e) => {
+          e.currentTarget.style.background = "#F4F5F7";
+          e.currentTarget.style.borderColor = C.border;
+          e.currentTarget.style.boxShadow = "none";
+        }}
+      />
+    </div>
+  );
+}
+
+function Select({
+  icon,
+  children,
+  ...rest
+}: React.SelectHTMLAttributes<HTMLSelectElement> & { icon?: React.ReactNode }) {
+  return (
+    <div className="relative flex items-center">
+      {icon && (
+        <span className="absolute left-2.5 pointer-events-none" style={{ color: C.subtle }}>
+          {icon}
+        </span>
+      )}
+      <select
+        {...rest}
+        className={`h-9 ${icon ? "pl-8" : "pl-3"} pr-8 text-sm rounded border bg-[#F4F5F7] hover:bg-white outline-none appearance-none cursor-pointer transition-all`}
+        style={{ borderColor: C.border, color: C.navy }}
+      >
+        {children}
+      </select>
+      <ChevronDown
+        size={14}
+        className="absolute right-2.5 pointer-events-none"
+        style={{ color: C.subtle }}
+      />
+    </div>
+  );
+}
+
+/* ---------- Mock data ---------- */
+const initialRadar = [
+  { competency: "Analytical", current: 3.2, target: 4 },
+  { competency: "System Design", current: 2.8, target: 4 },
+  { competency: "Code Quality", current: 3.6, target: 4 },
+  { competency: "Communication", current: 3.0, target: 4 },
+  { competency: "Leadership", current: 2.4, target: 4 },
+  { competency: "UX Eng", current: 2.6, target: 4 },
+  { competency: "Security", current: 2.9, target: 4 },
+  { competency: "Delivery", current: 3.4, target: 4 },
+];
+
+const initialEvidence = [
+  {
+    id: "EV-201",
+    date: "Dec 02, 2026",
+    source: "GitHub",
+    category: "Technical",
+    competency: "System Design",
+    title: "Migrated billing service to event-driven model",
+    description: "Designed Kafka topology and rollout plan; zero downtime cutover.",
+    link: "github.com/acme/billing/pr/482",
+    status: "Approved" as const,
+  },
+  {
+    id: "EV-200",
+    date: "Nov 28, 2026",
+    source: "Jira",
+    category: "Delivery",
+    competency: "Delivery",
+    title: "Shipped Q4 metering MVP",
+    description: "Coordinated across 3 squads; delivered 4 days ahead of plan.",
+    link: "acme.atlassian.net/AT-1422",
+    status: "Approved" as const,
+  },
+  {
+    id: "EV-199",
+    date: "Nov 24, 2026",
+    source: "Manual Capture",
+    category: "Leadership",
+    competency: "Communication",
+    title: "Ran cross-team RFC review",
+    description: "Facilitated 12-person review; consolidated 3 proposals into 1.",
+    link: "notion.so/rfc-payments",
+    status: "Pending" as const,
+  },
+  {
+    id: "EV-198",
+    date: "Nov 19, 2026",
+    source: "Slack",
+    category: "Technical",
+    competency: "Security",
+    title: "Patched JWT validation edge case",
+    description: "Identified and remediated token replay vector flagged in audit.",
+    link: "slack.com/archives/sec/p17324",
+    status: "Approved" as const,
+  },
+  {
+    id: "EV-197",
+    date: "Nov 11, 2026",
+    source: "GitHub",
+    category: "Technical",
+    competency: "Code Quality",
+    title: "Reduced p95 latency by 38%",
+    description: "Profiled hot path, replaced N+1 query with batched loader.",
+    link: "github.com/acme/api/pr/612",
+    status: "Approved" as const,
+  },
+];
+
+const initialInbox = [
+  {
+    id: "IN-1",
+    source: "GitHub",
+    icon: Github,
+    title: "PR merged: feat/observability-traces",
+    suggestion: ["System Design", "Code Quality"],
+    when: "2h ago",
+  },
+  {
+    id: "IN-2",
+    source: "Jira",
+    icon: FileText,
+    title: "Story closed: AT-1488 SSO error recovery",
+    suggestion: ["Delivery", "Communication"],
+    when: "5h ago",
+  },
+  {
+    id: "IN-3",
+    source: "Slack",
+    icon: MessageSquare,
+    title: "Recognition from @priya in #eng-wins",
+    suggestion: ["Leadership"],
+    when: "Yesterday",
+  },
+];
+
+type Objective = {
+  id: string;
+  title: string;
+  competency: string;
+  due: string;
+  status: "Pending Approval" | "In Progress" | "Completed";
+  specific?: string;
+  measurable?: string;
+  achievable?: string;
+  relevant?: string;
+  timebound?: string;
+  links?: { label: string; url: string }[];
+  notes?: string;
+};
+
+const initialObjectives: Objective[] = [
+  {
+    id: "UIUX-01",
+    title: "Design a targeted social media advertising campaign",
+    competency: "Engineering for User Experience",
+    due: "Dec 15, 2026",
+    status: "In Progress",
+    specific:
+      "Design and prototype a 4-channel ad campaign for the developer audience targeting trial signups.",
+    measurable:
+      "Ship a click-through prototype reviewed by Design, with at least 2 user testing sessions completed.",
+    achievable: "Allocate 4 hours weekly; pair with the Brand designer on Figma sessions.",
+    relevant: "Closes the UX Eng gap required for L4 promotion criteria.",
+    timebound: "Complete by Dec 15, 2026",
+    links: [{ label: "Figma Auto-Layout Tutorial", url: "https://figma.com" }],
+    notes: "Initial moodboard collected; testing 3 messaging directions next week.",
+  },
+  {
+    id: "ARCH-04",
+    title: "Lead a system design review for the search platform",
+    competency: "System Design",
+    due: "Jan 10, 2027",
+    status: "Pending Approval",
+  },
+  {
+    id: "LEAD-02",
+    title: "Mentor two junior engineers through onboarding",
+    competency: "Leadership",
+    due: "Feb 28, 2027",
+    status: "In Progress",
+  },
+  {
+    id: "SEC-03",
+    title: "Complete OWASP Top 10 certification",
+    competency: "Security",
+    due: "Oct 30, 2026",
+    status: "Completed",
+  },
+];
+
+/* ============================================================ */
+/*                        APP ROOT                              */
+/* ============================================================ */
+
+type Tab = "dashboard" | "radar" | "evidence" | "objectives";
+
+function EvitraceApp() {
+  const [tab, setTab] = useState<Tab>("dashboard");
+  const [evidence, setEvidence] = useState(initialEvidence);
+  const [inbox, setInbox] = useState(initialInbox);
+  const [radarData, setRadarData] = useState(initialRadar);
+  const [objectives, setObjectives] = useState(initialObjectives);
+
+  const [showExtension, setShowExtension] = useState(true);
+  const [showCapture, setShowCapture] = useState(false);
+  const [showCreateObjective, setShowCreateObjective] = useState(false);
+  const [openObjective, setOpenObjective] = useState<Objective | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const pageTitle: Record<Tab, string> = {
+    dashboard: "Dashboard",
+    radar: "Promotion Radar",
+    evidence: "Evidence Log",
+    objectives: "Objectives",
+  };
+
+  function flash(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2400);
+  }
+
+  function approveInbox(id: string, comps: string[]) {
+    const item = inbox.find((i) => i.id === id);
+    if (!item) return;
+    setInbox((x) => x.filter((i) => i.id !== id));
+    setEvidence((e) => [
+      {
+        id: `EV-${300 + e.length}`,
+        date: new Date().toLocaleDateString("en-US", {
+          month: "short",
+          day: "2-digit",
+          year: "numeric",
+        }),
+        source: item.source,
+        category: "Technical",
+        competency: comps[0] ?? "Delivery",
+        title: item.title,
+        description: "Auto-captured and mapped from " + item.source,
+        link: "",
+        status: "Pending" as const,
+      },
+      ...e,
+    ]);
+    setRadarData((d) =>
+      d.map((row) =>
+        comps.some((c) => c.toLowerCase().includes(row.competency.toLowerCase().split(" ")[0]))
+          ? { ...row, current: Math.min(4, +(row.current + 0.1).toFixed(2)) }
+          : row,
+      ),
+    );
+    flash("Evidence mapped and added to log");
+  }
+
+  return (
+    <div className="min-h-screen flex" style={{ background: C.bg, color: C.navy, fontFamily: "Inter, system-ui, sans-serif" }}>
+      <Sidebar tab={tab} setTab={setTab} />
+
       <div className="flex-1 flex flex-col min-w-0">
-        <TopHeader title={TITLES[activeView]} onCapture={() => setCaptureModalOpen(true)} />
-        <main className="p-8 flex-1 relative">
+        <TopHeader title={pageTitle[tab]} onCapture={() => setShowCapture(true)} />
+
+        <main className="flex-1 px-8 py-6">
           <AnimatePresence mode="wait">
             <motion.div
-              key={activeView}
-              initial={{ opacity: 0, y: 8 }}
+              key={tab}
+              initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
-              transition={{ duration: 0.2, ease: "easeOut" }}
+              transition={{ duration: 0.18 }}
             >
-              {activeView === "dashboard" && (
+              {tab === "dashboard" && (
                 <DashboardView
-                  pending={pending}
-                  onReview={setReviewItem}
-                  scores={scores}
+                  inbox={inbox}
+                  objectives={objectives}
+                  onApprove={approveInbox}
                 />
               )}
-              {activeView === "evidence" && <EvidenceView evidence={evidence} />}
-              {activeView === "radar" && <RadarView scores={scores} />}
-              {activeView === "objectives" && <ObjectivesView />}
+              {tab === "radar" && <RadarView data={radarData} />}
+              {tab === "evidence" && <EvidenceView rows={evidence} />}
+              {tab === "objectives" && (
+                <ObjectivesView
+                  items={objectives}
+                  onOpen={setOpenObjective}
+                  onCreate={() => setShowCreateObjective(true)}
+                />
+              )}
             </motion.div>
           </AnimatePresence>
         </main>
       </div>
 
-      {/* Modals */}
+      {/* Floating extension preview */}
       <AnimatePresence>
-        {isCaptureModalOpen && (
-          <CaptureModal onClose={() => setCaptureModalOpen(false)} onSave={handleSaveCapture} />
-        )}
-      </AnimatePresence>
-      <AnimatePresence>
-        {reviewItem && (
-          <ReviewSlideover
-            item={reviewItem}
-            onClose={() => setReviewItem(null)}
-            onConfirm={handleConfirmMapping}
+        {showExtension && (
+          <ExtensionPopup
+            onDismiss={() => setShowExtension(false)}
+            onSave={() => {
+              setShowExtension(false);
+              flash("Evidence saved from extension");
+            }}
           />
         )}
       </AnimatePresence>
-      <AnimatePresence>{toast && <Toast message={toast} />}</AnimatePresence>
+
+      {/* Capture modal */}
+      <AnimatePresence>
+        {showCapture && (
+          <CaptureModal
+            onClose={() => setShowCapture(false)}
+            onSave={(title, comps) => {
+              setEvidence((e) => [
+                {
+                  id: `EV-${300 + e.length}`,
+                  date: new Date().toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "2-digit",
+                    year: "numeric",
+                  }),
+                  source: "Manual Capture",
+                  category: "Technical",
+                  competency: comps[0] ?? "Delivery",
+                  title,
+                  description: "Manually captured reflection",
+                  link: "",
+                  status: "Pending" as const,
+                },
+                ...e,
+              ]);
+              setShowCapture(false);
+              flash("Evidence captured");
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Create SMART objective modal */}
+      <AnimatePresence>
+        {showCreateObjective && (
+          <CreateObjectiveModal
+            onClose={() => setShowCreateObjective(false)}
+            onSubmit={(o) => {
+              setObjectives((x) => [
+                { ...o, id: `OBJ-${100 + x.length}`, status: "Pending Approval" as const },
+                ...x,
+              ]);
+              setShowCreateObjective(false);
+              flash("Objective submitted for approval");
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Objective details slide-over */}
+      <AnimatePresence>
+        {openObjective && (
+          <ObjectiveSlideover
+            objective={openObjective}
+            onClose={() => setOpenObjective(null)}
+            onComplete={(o) => {
+              setObjectives((x) =>
+                x.map((it) => (it.id === o.id ? { ...it, status: "Completed" as const } : it)),
+              );
+              setEvidence((e) => [
+                {
+                  id: `EV-${300 + e.length}`,
+                  date: new Date().toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "2-digit",
+                    year: "numeric",
+                  }),
+                  source: "Manual Capture",
+                  category: "Objective",
+                  competency: o.competency,
+                  title: o.title,
+                  description: o.notes ?? "Completed objective summary",
+                  link: "",
+                  status: "Pending" as const,
+                },
+                ...e,
+              ]);
+              setOpenObjective(null);
+              flash("Objective completed and added to evidence");
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Toast */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 12 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 rounded shadow-lg text-white text-sm font-medium"
+            style={{ background: C.navy }}
+          >
+            <CheckCircle size={16} style={{ color: C.green }} />
+            {toast}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Floating "show extension" toggle when hidden */}
+      {!showExtension && (
+        <button
+          onClick={() => setShowExtension(true)}
+          className="fixed bottom-6 right-6 z-40 flex items-center gap-2 px-3 h-10 rounded-full shadow-lg border bg-white text-sm font-medium"
+          style={{ borderColor: C.border, color: C.slate }}
+        >
+          <RadarIcon size={16} style={{ color: C.primary }} />
+          Show extension preview
+        </button>
+      )}
     </div>
   );
 }
 
-/* ---------------- Sidebar ---------------- */
-function Sidebar({ activeView, onNavigate }: { activeView: View; onNavigate: (v: View) => void }) {
-  const items: { id: View; icon: typeof LayoutDashboard; label: string }[] = [
-    { id: "dashboard", icon: LayoutDashboard, label: "Dashboard" },
-    { id: "evidence", icon: FileText, label: "Evidence Log" },
-    { id: "radar", icon: Target, label: "Promotion Radar" },
-    { id: "objectives", icon: Flag, label: "Objectives" },
+/* ============================================================ */
+/*                        SHELL                                 */
+/* ============================================================ */
+
+function Sidebar({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
+  const nav: { id: Tab; label: string; sub: string; icon: React.ComponentType<{ size?: number }> }[] = [
+    { id: "dashboard", label: "Dashboard", sub: "Daily Actions", icon: LayoutDashboard },
+    { id: "radar", label: "Promotion Radar", sub: "Analytics & Assessment", icon: PieChartIcon },
+    { id: "evidence", label: "Evidence Log", sub: "Data Table", icon: TableProperties },
+    { id: "objectives", label: "Objectives", sub: "Skill Gap Planning", icon: Target },
   ];
   return (
     <aside
-      className="w-64 shrink-0 flex flex-col sticky top-0 h-screen"
-      style={{ backgroundColor: C.card, borderRight: `1px solid ${C.border}` }}
+      className="w-64 shrink-0 border-r flex flex-col"
+      style={{ background: C.card, borderColor: C.border }}
     >
-      <div className="px-6 py-5 flex items-center gap-2" style={{ color: C.navy }}>
+      <div className="h-16 px-5 flex items-center gap-2 border-b" style={{ borderColor: C.border }}>
         <div
-          className="w-8 h-8 rounded-md flex items-center justify-center"
-          style={{ backgroundColor: C.paleBlue, color: C.primary }}
+          className="w-8 h-8 rounded flex items-center justify-center"
+          style={{ background: C.primary }}
         >
-          <RadarIcon size={18} />
+          <RadarIcon size={18} color="#fff" />
         </div>
-        <span className="font-bold text-lg tracking-tight">Evitrace</span>
+        <div className="leading-tight">
+          <div className="text-[15px] font-bold tracking-tight" style={{ color: C.navy }}>
+            Evitrace
+          </div>
+          <div className="text-[10px] uppercase tracking-wider" style={{ color: C.subtle }}>
+            Promotion Radar
+          </div>
+        </div>
       </div>
 
-      <nav className="px-3 mt-2 flex flex-col gap-1">
-        {items.map((it) => {
-          const Icon = it.icon;
-          const active = activeView === it.id;
+      <nav className="flex-1 p-3 space-y-1">
+        {nav.map((n) => {
+          const active = tab === n.id;
+          const Icon = n.icon;
           return (
             <button
-              key={it.id}
-              onClick={() => onNavigate(it.id)}
-              className="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors text-left"
+              key={n.id}
+              onClick={() => setTab(n.id)}
+              className="w-full flex items-start gap-3 px-3 py-2.5 rounded text-left transition-colors group"
               style={{
-                backgroundColor: active ? C.paleBlue : "transparent",
+                background: active ? C.primarySoft : "transparent",
                 color: active ? C.primary : C.slate,
               }}
               onMouseEnter={(e) => {
-                if (!active) e.currentTarget.style.backgroundColor = C.inputRest;
+                if (!active) e.currentTarget.style.background = "#F4F5F7";
               }}
               onMouseLeave={(e) => {
-                if (!active) e.currentTarget.style.backgroundColor = "transparent";
+                if (!active) e.currentTarget.style.background = "transparent";
               }}
             >
-              <Icon size={16} />
-              {it.label}
+              <Icon size={18} />
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-semibold">{n.label}</div>
+                <div
+                  className="text-[11px]"
+                  style={{ color: active ? C.primary : C.subtle }}
+                >
+                  {n.sub}
+                </div>
+              </div>
             </button>
           );
         })}
       </nav>
 
-      <div className="mt-auto p-4">
-        <div className="rounded-md p-3" style={{ border: `1px solid ${C.border}`, backgroundColor: C.card }}>
-          <div className="flex items-center gap-3">
-            <div
-              className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold"
-              style={{ backgroundColor: C.paleBlue, color: C.primary }}
-            >
-              CU
+      <div className="p-3 border-t" style={{ borderColor: C.border }}>
+        <Card className="p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs font-semibold" style={{ color: C.navy }}>
+              Promotion to L4
             </div>
-            <div className="min-w-0">
-              <div className="text-sm font-semibold truncate" style={{ color: C.navy }}>
-                Courage U.
-              </div>
-              <div className="text-xs" style={{ color: C.slate }}>
-                L3 Engineer
-              </div>
-            </div>
+            <span className="text-xs font-bold" style={{ color: C.primary }}>
+              68%
+            </span>
           </div>
-          <div className="mt-3">
-            <div className="flex justify-between text-xs mb-1.5">
-              <span style={{ color: C.slate }}>Progress to L4</span>
-              <span style={{ color: C.navy, fontWeight: 600 }}>85%</span>
+          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "#EBECF0" }}>
+            <div className="h-full rounded-full" style={{ width: "68%", background: C.primary }} />
+          </div>
+          <div className="mt-2 text-[11px]" style={{ color: C.subtle }}>
+            5 evidence items shy of target
+          </div>
+        </Card>
+
+        <div className="flex items-center gap-2 mt-3 px-1">
+          <div
+            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white"
+            style={{ background: "#5243AA" }}
+          >
+            JM
+          </div>
+          <div className="leading-tight">
+            <div className="text-xs font-semibold" style={{ color: C.navy }}>
+              Jordan Mills
             </div>
-            <div className="h-1.5 rounded-full overflow-hidden" style={{ backgroundColor: "#EBECF0" }}>
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: "85%" }}
-                transition={{ duration: 0.9, ease: "easeOut" }}
-                className="h-full rounded-full"
-                style={{ backgroundColor: C.green }}
-              />
+            <div className="text-[11px]" style={{ color: C.subtle }}>
+              Senior Engineer L3
             </div>
           </div>
         </div>
@@ -325,416 +746,506 @@ function Sidebar({ activeView, onNavigate }: { activeView: View; onNavigate: (v:
   );
 }
 
-/* ---------------- Top Header ---------------- */
 function TopHeader({ title, onCapture }: { title: string; onCapture: () => void }) {
   return (
     <header
-      className="sticky top-0 z-20 flex items-center justify-between px-8 h-16"
-      style={{ backgroundColor: C.card, borderBottom: `1px solid ${C.border}` }}
+      className="h-16 sticky top-0 z-30 flex items-center justify-between px-8 border-b"
+      style={{ background: C.card, borderColor: C.border }}
     >
-      <h1 className="text-xl font-bold" style={{ color: C.navy }}>
+      <h1 className="text-xl font-bold tracking-tight" style={{ color: C.navy }}>
         {title}
       </h1>
       <div className="flex items-center gap-3">
-        <div
-          className="hidden md:flex items-center gap-2 px-3 h-9 rounded-md w-72 transition-colors"
-          style={{ backgroundColor: C.inputRest, border: `1px solid transparent` }}
-        >
-          <Search size={15} style={{ color: C.slate }} />
-          <input
-            placeholder="Search evidence, competencies…"
-            className="bg-transparent outline-none text-sm w-full"
-            style={{ color: C.navy }}
-          />
+        <div className="w-72">
+          <Input placeholder="Search evidence, objectives, people…" icon={<Search size={14} />} />
         </div>
         <button
-          className="relative w-9 h-9 rounded-md flex items-center justify-center transition-colors hover:bg-[#F4F5F7]"
+          className="w-9 h-9 rounded flex items-center justify-center hover:bg-[#F4F5F7] relative"
           style={{ color: C.slate }}
-          aria-label="Notifications"
         >
-          <Bell size={17} />
-          <span className="absolute top-2 right-2 w-2 h-2 rounded-full" style={{ backgroundColor: C.amber }} />
+          <Bell size={18} />
+          <span
+            className="absolute top-2 right-2 w-2 h-2 rounded-full"
+            style={{ background: C.red }}
+          />
         </button>
-        <button
-          onClick={onCapture}
-          className="flex items-center gap-2 h-9 px-3 rounded-md text-sm font-semibold text-white transition-colors"
-          style={{ backgroundColor: C.primary }}
-          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = C.primaryHover)}
-          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = C.primary)}
-        >
-          <Plus size={15} />
-          Manual Capture
-        </button>
+        <PrimaryBtn onClick={onCapture}>
+          <Plus size={16} />
+          Capture Evidence
+        </PrimaryBtn>
       </div>
     </header>
   );
 }
 
-/* ---------------- Card primitive ---------------- */
-function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div
-      className={`rounded-lg shadow-sm ${className}`}
-      style={{ backgroundColor: C.card, border: `1px solid ${C.border}` }}
-    >
-      {children}
-    </div>
-  );
-}
+/* ============================================================ */
+/*                  TAB 1: DASHBOARD                            */
+/* ============================================================ */
 
-/* ---------------- Dashboard View ---------------- */
 function DashboardView({
-  pending,
-  onReview,
-  scores,
+  inbox,
+  objectives,
+  onApprove,
 }: {
-  pending: PendingItem[];
-  onReview: (i: PendingItem) => void;
-  scores: Record<string, number>;
+  inbox: typeof initialInbox;
+  objectives: Objective[];
+  onApprove: (id: string, comps: string[]) => void;
 }) {
+  const active = objectives.filter((o) => o.status === "In Progress");
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-      <div className="xl:col-span-3">
-        <ActionInbox items={pending} onReview={onReview} />
+    <div className="space-y-6">
+      {/* Widget A */}
+      <div className="grid grid-cols-3 gap-4">
+        <StatCard
+          icon={<TrendingUp size={18} />}
+          label="Evidence This Quarter"
+          value="42"
+          delta="+8 vs last quarter"
+          tone="info"
+        />
+        <StatCard
+          icon={<Calendar size={18} />}
+          label="Current Streak"
+          value="14 days"
+          delta="Best: 21 days"
+          tone="success"
+        />
+        <StatCard
+          icon={<Clock size={18} />}
+          label="Awaiting Manager Review"
+          value="3"
+          delta="Oldest: 2 days"
+          tone="warning"
+        />
       </div>
-      <div className="xl:col-span-2">
-        <CareerRadar scores={scores} />
-      </div>
-      <div className="xl:col-span-1">
-        <RecentWins />
-      </div>
-    </div>
-  );
-}
 
-function ActionInbox({ items, onReview }: { items: PendingItem[]; onReview: (i: PendingItem) => void }) {
-  return (
-    <Card>
-      <div className="flex items-center justify-between px-6 py-4" style={{ borderBottom: `1px solid ${C.border}` }}>
-        <div>
-          <h3 className="text-base font-bold" style={{ color: C.navy }}>
-            Pending Evidence
-          </h3>
-          <p className="text-xs mt-0.5" style={{ color: C.slate }}>
-            Auto-captured items waiting for you to map and confirm.
-          </p>
-        </div>
-        <span
-          className="text-xs font-semibold px-2 py-1 rounded"
-          style={{ backgroundColor: C.paleAmber, color: C.amberDeep }}
-        >
-          {items.length} pending
-        </span>
-      </div>
-      {items.length === 0 ? (
-        <div className="px-6 py-10 text-center text-sm" style={{ color: C.slate }}>
-          <CheckCircle2 size={20} className="mx-auto mb-2" style={{ color: C.green }} />
-          Inbox zero. Nice work.
-        </div>
-      ) : (
-        <ul>
-          {items.map((it, i) => (
-            <li
-              key={it.id}
-              className="group flex items-center gap-4 px-6 py-3.5 transition-colors hover:bg-[#F4F5F7]"
-              style={{ borderBottom: i < items.length - 1 ? `1px solid ${C.border}` : "none" }}
-            >
+      <div className="grid grid-cols-3 gap-6">
+        {/* Widget B */}
+        <Card className="col-span-2 p-5">
+          <SectionHeader
+            title="Action Inbox"
+            sub="Auto-captured events that need your mapping"
+            right={<Badge tone="warning" icon={<AlertCircle size={12} />}>{inbox.length} pending</Badge>}
+          />
+          <div className="mt-4 divide-y" style={{ borderColor: C.border }}>
+            {inbox.length === 0 ? (
               <div
-                className="w-9 h-9 rounded-md flex items-center justify-center shrink-0"
-                style={{
-                  backgroundColor: it.kind === "jira" ? C.paleBlue : C.inputRest,
-                  color: it.kind === "jira" ? C.primary : C.navy,
-                }}
+                className="py-10 text-center text-sm flex flex-col items-center gap-2"
+                style={{ color: C.subtle }}
               >
-                {it.kind === "jira" ? <JiraGlyph /> : <Github size={16} />}
+                <CheckCircle size={28} style={{ color: C.green }} />
+                Inbox zero. Nice work.
               </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-semibold truncate" style={{ color: C.navy }}>
-                  {it.title}
-                </div>
-                <div className="text-xs" style={{ color: C.slate }}>
-                  {it.date}
-                </div>
+            ) : (
+              inbox.map((it) => (
+                <InboxRow key={it.id} item={it} onApprove={onApprove} />
+              ))
+            )}
+          </div>
+        </Card>
+
+        {/* Widget C */}
+        <Card className="p-5">
+          <SectionHeader title="Current Focus Areas" sub="Active objectives in flight" />
+          <div className="mt-4 space-y-2">
+            {active.length === 0 && (
+              <div className="text-sm" style={{ color: C.subtle }}>
+                No active objectives yet.
               </div>
-              <button
-                onClick={() => onReview(it)}
-                className="flex items-center gap-1.5 text-sm font-semibold px-3 py-1.5 rounded-md transition-colors"
-                style={{ color: C.primary }}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = C.paleBlue)}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+            )}
+            {active.map((o) => (
+              <div
+                key={o.id}
+                className="flex items-start gap-3 p-3 rounded border hover:border-[#0052CC] transition-colors"
+                style={{ borderColor: C.border }}
               >
-                Review & Map
-                <ArrowRight size={14} />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
-  );
-}
-
-function JiraGlyph() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M11.53 2L2 11.53a.7.7 0 000 .94l9.53 9.53a.7.7 0 00.94 0L22 12.47a.7.7 0 000-.94L12.47 2a.7.7 0 00-.94 0zM12 15.5L8.5 12 12 8.5l3.5 3.5L12 15.5z" />
-    </svg>
-  );
-}
-
-function CareerRadar({ scores }: { scores: Record<string, number> }) {
-  const data = Object.entries(scores).map(([axis, current]) => ({
-    axis,
-    current,
-    target: axis === "Code Quality" ? 85 : axis === "DevOps" ? 75 : axis === "Architecture" ? 85 : 80,
-  }));
-  return (
-    <Card className="h-full flex flex-col">
-      <div className="px-6 py-4" style={{ borderBottom: `1px solid ${C.border}` }}>
-        <h3 className="text-base font-bold" style={{ color: C.navy }}>
-          L4 Competency Gap
-        </h3>
-        <p className="text-xs mt-0.5" style={{ color: C.slate }}>
-          Current evidence vs. L4 target across core competencies.
-        </p>
+                <ListTodo size={16} style={{ color: C.primary }} className="mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold truncate" style={{ color: C.navy }}>
+                    {o.title}
+                  </div>
+                  <div className="text-[11px] mt-1 flex items-center gap-2" style={{ color: C.subtle }}>
+                    <Calendar size={11} />
+                    Due {o.due}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
       </div>
-      <div className="p-4 flex-1 min-h-[340px]">
-        <ResponsiveContainer width="100%" height={340}>
-          <RadarChart data={data} outerRadius="75%">
-            <PolarGrid stroke={C.border} />
-            <PolarAngleAxis dataKey="axis" tick={{ fill: C.navy, fontSize: 12, fontWeight: 600 }} />
-            <PolarRadiusAxis angle={90} domain={[0, 100]} tick={false} axisLine={false} />
-            <Tooltip
-              contentStyle={{
-                backgroundColor: C.card,
-                border: `1px solid ${C.border}`,
-                borderRadius: 6,
-                fontSize: 12,
-                color: C.navy,
-              }}
-              formatter={(value, name) => {
-                const v = Number(value) || 0;
-                return [`${(v / 25).toFixed(1)}/4 (${v})`, String(name)];
-              }}
-            />
-            <Radar name="Target L4" dataKey="target" stroke={C.navy} strokeWidth={1.5} strokeDasharray="5 4" fill="none" />
-            <Radar name="Current" dataKey="current" stroke={C.primary} strokeWidth={2} fill={C.primary} fillOpacity={0.4} />
-          </RadarChart>
-        </ResponsiveContainer>
-        <div className="flex gap-5 px-2 pb-2 text-xs" style={{ color: C.slate }}>
-          <Legend swatchColor={C.primary} label="Current" />
-          <Legend swatchColor={C.navy} dashed label="Target L4" />
-        </div>
-      </div>
-      <div className="m-4 mt-0 rounded-md flex items-start gap-3 p-3" style={{ backgroundColor: C.paleAmber }}>
-        <AlertTriangle size={16} style={{ color: C.amberDeep }} className="mt-0.5 shrink-0" />
-        <p className="text-sm" style={{ color: C.amberDeep }}>
-          <span className="font-semibold">Focus area:</span> You need 2 more logged instances of Leadership to meet L4 criteria.
-        </p>
-      </div>
-    </Card>
-  );
-}
-
-function Legend({ swatchColor, label, dashed }: { swatchColor: string; label: string; dashed?: boolean }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span
-        className="inline-block w-4 h-0"
-        style={{ borderTop: `${dashed ? "1.5px dashed" : "3px solid"} ${swatchColor}` }}
-      />
-      {label}
     </div>
   );
 }
 
-function RecentWins() {
-  const wins = [
-    { title: "Migrated legacy DB", badges: ["Architecture", "Code Quality"], meta: "Approved by Alex M. • Oct 12" },
-    { title: "Led incident retro for #992", badges: ["Leadership", "Communication"], meta: "Approved by Priya R. • Oct 9" },
-    { title: "Hardened OAuth flow", badges: ["Security", "Architecture"], meta: "Approved by Alex M. • Oct 4" },
-    { title: "CI pipeline optimization", badges: ["DevOps"], meta: "Approved by Sam K. • Sep 28" },
-  ];
+function StatCard({
+  icon,
+  label,
+  value,
+  delta,
+  tone,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  delta: string;
+  tone: "info" | "success" | "warning";
+}) {
+  const toneMap = {
+    info: { bg: C.primarySoft, fg: C.primary },
+    success: { bg: C.greenSoft, fg: "#006644" },
+    warning: { bg: C.amberSoft, fg: "#974F00" },
+  } as const;
+  const t = toneMap[tone];
   return (
-    <Card className="h-full">
-      <div className="px-6 py-4" style={{ borderBottom: `1px solid ${C.border}` }}>
-        <h3 className="text-base font-bold" style={{ color: C.navy }}>
-          Verified Trail
-        </h3>
-        <p className="text-xs mt-0.5" style={{ color: C.slate }}>
-          Recent evidence approved by your manager.
-        </p>
+    <Card className="p-5">
+      <div className="flex items-center justify-between">
+        <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+          {label}
+        </div>
+        <div
+          className="w-8 h-8 rounded flex items-center justify-center"
+          style={{ background: t.bg, color: t.fg }}
+        >
+          {icon}
+        </div>
       </div>
-      <ol className="px-6 py-4 relative">
-        <span aria-hidden className="absolute left-[30px] top-6 bottom-6 w-px" style={{ backgroundColor: C.border }} />
-        {wins.map((w, i) => (
-          <li key={i} className="relative pl-8 pb-5 last:pb-0">
-            <span
-              className="absolute left-0 top-0.5 w-5 h-5 rounded-full flex items-center justify-center"
-              style={{ backgroundColor: C.greenSoft }}
-            >
-              <CheckCircle2 size={14} style={{ color: C.green }} />
-            </span>
-            <div className="text-sm font-semibold" style={{ color: C.navy }}>
-              {w.title}
-            </div>
-            <div className="flex flex-wrap gap-1.5 mt-1.5">
-              {w.badges.map((b) => (
-                <Pill key={b}>{b}</Pill>
-              ))}
-            </div>
-            <div className="text-xs mt-1.5" style={{ color: C.slate }}>
-              {w.meta}
-            </div>
-          </li>
-        ))}
-      </ol>
+      <div className="mt-3 text-3xl font-bold tracking-tight" style={{ color: C.navy }}>
+        {value}
+      </div>
+      <div className="text-xs mt-1" style={{ color: C.subtle }}>
+        {delta}
+      </div>
     </Card>
   );
 }
 
-function Pill({
-  children,
-  active,
-  onClick,
-  size = "sm",
+function SectionHeader({
+  title,
+  sub,
+  right,
 }: {
-  children: React.ReactNode;
-  active?: boolean;
-  onClick?: () => void;
-  size?: "sm" | "xs";
+  title: string;
+  sub?: string;
+  right?: React.ReactNode;
 }) {
-  const interactive = Boolean(onClick);
   return (
-    <button
-      onClick={onClick}
-      type="button"
-      className={`font-semibold rounded-full transition-colors ${size === "sm" ? "text-xs px-2 py-0.5" : "text-[11px] px-2 py-0.5"}`}
-      style={{
-        backgroundColor: active ? C.primary : C.paleBlue,
-        color: active ? "#FFFFFF" : C.primary,
-        cursor: interactive ? "pointer" : "default",
-        border: active ? `1px solid ${C.primary}` : `1px solid transparent`,
-      }}
-    >
-      {children}
-    </button>
+    <div className="flex items-start justify-between">
+      <div>
+        <div className="text-sm font-bold" style={{ color: C.navy }}>
+          {title}
+        </div>
+        {sub && (
+          <div className="text-xs mt-0.5" style={{ color: C.subtle }}>
+            {sub}
+          </div>
+        )}
+      </div>
+      {right}
+    </div>
   );
 }
 
-/* ---------------- Evidence View ---------------- */
-function EvidenceView({
-  evidence,
+function InboxRow({
+  item,
+  onApprove,
 }: {
-  evidence: {
-    id: string;
-    date: string;
-    title: string;
-    source: "github" | "jira";
-    comps: string[];
-    status: "Pending" | "Approved";
-  }[];
+  item: (typeof initialInbox)[number];
+  onApprove: (id: string, comps: string[]) => void;
 }) {
-  const [q, setQ] = useState("");
-  const [status, setStatus] = useState<"All" | "Pending" | "Approved">("All");
-  const [statusOpen, setStatusOpen] = useState(false);
+  const [selected, setSelected] = useState<string[]>(item.suggestion);
+  const Icon = item.icon;
+  function toggle(c: string) {
+    setSelected((s) => (s.includes(c) ? s.filter((x) => x !== c) : [...s, c]));
+  }
+  return (
+    <div className="py-4 flex items-start gap-3">
+      <div
+        className="w-9 h-9 rounded flex items-center justify-center shrink-0"
+        style={{ background: "#F4F5F7", color: C.slate }}
+      >
+        <Icon size={16} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 text-[11px]" style={{ color: C.subtle }}>
+          <span className="font-semibold uppercase tracking-wider">{item.source}</span>
+          <span>•</span>
+          <span>{item.when}</span>
+        </div>
+        <div className="text-sm font-semibold mt-0.5 truncate" style={{ color: C.navy }}>
+          {item.title}
+        </div>
+        <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+          <Sparkles size={12} style={{ color: C.primary }} />
+          <span className="text-[11px] mr-1" style={{ color: C.subtle }}>
+            AI suggested:
+          </span>
+          {COMPETENCIES.slice(0, 5).map((c) => (
+            <Pill key={c} active={selected.includes(c)} onClick={() => toggle(c)}>
+              {c}
+            </Pill>
+          ))}
+        </div>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <GhostBtn>Dismiss</GhostBtn>
+        <PrimaryBtn onClick={() => onApprove(item.id, selected)}>
+          Confirm
+          <ArrowUpRight size={14} />
+        </PrimaryBtn>
+      </div>
+    </div>
+  );
+}
 
-  const filtered = evidence.filter(
-    (e) =>
-      (status === "All" || e.status === status) &&
-      e.title.toLowerCase().includes(q.toLowerCase()),
+/* ============================================================ */
+/*                  TAB 2: RADAR                                */
+/* ============================================================ */
+
+function RadarView({ data }: { data: typeof initialRadar }) {
+  const current = useMemo(
+    () => +(data.reduce((s, d) => s + d.current, 0) / data.length).toFixed(2),
+    [data],
+  );
+  const previous = 2.7;
+  const change = (((current - previous) / previous) * 100).toFixed(1);
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-4 gap-4">
+        <MetricCard label="Previous Score" value={previous.toFixed(2)} sub="Last assessment" />
+        <MetricCard label="Current Score" value={current.toFixed(2)} sub="Live across 8 axes" highlight />
+        <MetricCard
+          label="Change"
+          value={`+${change}%`}
+          sub="Quarter over quarter"
+          tone="success"
+        />
+        <MetricCard label="Target — Level 4" value="4.00" sub="Promotion threshold" />
+      </div>
+
+      <Card className="p-6">
+        <SectionHeader
+          title="Competency Radar"
+          sub="Current score vs Level 4 target across 8 axes"
+          right={
+            <div className="flex items-center gap-3 text-xs" style={{ color: C.slate }}>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: C.primary }} />
+                Current
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span
+                  className="w-2.5 h-2.5 rounded-sm border-2"
+                  style={{ borderColor: C.amber, background: "transparent" }}
+                />
+                Target L4
+              </span>
+            </div>
+          }
+        />
+        <div className="h-[460px] mt-4">
+          <ResponsiveContainer width="100%" height="100%">
+            <RadarChart data={data} outerRadius="78%">
+              <PolarGrid stroke={C.border} />
+              <PolarAngleAxis
+                dataKey="competency"
+                tick={{ fill: C.navy, fontSize: 12, fontWeight: 600 }}
+              />
+              <PolarRadiusAxis angle={90} domain={[0, 4]} tick={{ fill: C.subtle, fontSize: 10 }} />
+              <Radar
+                name="Target L4"
+                dataKey="target"
+                stroke={C.amber}
+                fill={C.amber}
+                fillOpacity={0.08}
+                strokeWidth={2}
+                strokeDasharray="4 4"
+              />
+              <Radar
+                name="Current"
+                dataKey="current"
+                stroke={C.primary}
+                fill={C.primary}
+                fillOpacity={0.25}
+                strokeWidth={2}
+              />
+              <RTooltip
+                contentStyle={{
+                  background: "#fff",
+                  border: `1px solid ${C.border}`,
+                  borderRadius: 6,
+                  fontSize: 12,
+                }}
+                formatter={(v) => `${Number(v).toFixed(2)} / 4`}
+              />
+              <Legend wrapperStyle={{ display: "none" }} />
+            </RadarChart>
+          </ResponsiveContainer>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  sub,
+  highlight,
+  tone,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  highlight?: boolean;
+  tone?: "success";
+}) {
+  return (
+    <Card className="p-5" style={highlight ? { borderColor: C.primary, borderWidth: 1 } : undefined}>
+      <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+        {label}
+      </div>
+      <div
+        className="text-3xl font-bold mt-2 tracking-tight"
+        style={{ color: tone === "success" ? "#006644" : C.navy }}
+      >
+        {value}
+      </div>
+      <div className="text-xs mt-1" style={{ color: C.subtle }}>
+        {sub}
+      </div>
+    </Card>
+  );
+}
+
+/* ============================================================ */
+/*                  TAB 3: EVIDENCE LOG                         */
+/* ============================================================ */
+
+function EvidenceView({ rows }: { rows: typeof initialEvidence }) {
+  const [q, setQ] = useState("");
+  const [comp, setComp] = useState("All");
+  const [status, setStatus] = useState("All");
+  const [source, setSource] = useState("All");
+
+  const filtered = rows.filter(
+    (r) =>
+      (q === "" || r.title.toLowerCase().includes(q.toLowerCase())) &&
+      (comp === "All" || r.competency === comp) &&
+      (status === "All" || r.status === status) &&
+      (source === "All" || r.source === source),
   );
 
   return (
-    <Card>
-      <div className="flex flex-wrap items-center gap-3 px-6 py-4" style={{ borderBottom: `1px solid ${C.border}` }}>
-        <div className="flex items-center gap-2 h-9 px-3 rounded-md flex-1 min-w-[220px]" style={{ backgroundColor: C.inputRest }}>
-          <Search size={15} style={{ color: C.slate }} />
-          <input
+    <Card className="overflow-hidden">
+      <div className="p-4 border-b flex items-center gap-2 flex-wrap" style={{ borderColor: C.border }}>
+        <div className="w-72">
+          <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Filter by title…"
-            className="bg-transparent outline-none text-sm w-full"
-            style={{ color: C.navy }}
+            placeholder="Filter by title or keyword…"
+            icon={<Search size={14} />}
           />
         </div>
-        <div className="relative">
-          <button
-            onClick={() => setStatusOpen((o) => !o)}
-            className="flex items-center gap-2 h-9 px-3 rounded-md text-sm font-medium transition-colors"
-            style={{ backgroundColor: C.card, border: `1px solid ${C.border}`, color: C.navy }}
-          >
-            <Filter size={14} style={{ color: C.slate }} />
-            Status: {status}
-            <ChevronDown size={14} style={{ color: C.slate }} />
-          </button>
-          {statusOpen && (
-            <div
-              className="absolute right-0 mt-1 w-40 rounded-md shadow-md z-10 py-1"
-              style={{ backgroundColor: C.card, border: `1px solid ${C.border}` }}
-            >
-              {(["All", "Pending", "Approved"] as const).map((s) => (
-                <button
-                  key={s}
-                  onClick={() => {
-                    setStatus(s);
-                    setStatusOpen(false);
-                  }}
-                  className="block w-full text-left px-3 py-1.5 text-sm transition-colors hover:bg-[#F4F5F7]"
-                  style={{ color: C.navy }}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          )}
+        <Select icon={<Calendar size={14} />} defaultValue="all">
+          <option value="all">All dates</option>
+          <option>Last 7 days</option>
+          <option>Last 30 days</option>
+          <option>This quarter</option>
+        </Select>
+        <Select icon={<Filter size={14} />} value={comp} onChange={(e) => setComp(e.target.value)}>
+          <option>All</option>
+          {COMPETENCIES.map((c) => (
+            <option key={c}>{c}</option>
+          ))}
+        </Select>
+        <Select icon={<Filter size={14} />} value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option>All</option>
+          <option>Pending</option>
+          <option>Approved</option>
+        </Select>
+        <Select icon={<Filter size={14} />} value={source} onChange={(e) => setSource(e.target.value)}>
+          <option>All</option>
+          <option>Jira</option>
+          <option>GitHub</option>
+          <option>Slack</option>
+          <option>Manual Capture</option>
+        </Select>
+        <div className="ml-auto text-xs" style={{ color: C.subtle }}>
+          {filtered.length} of {rows.length} items
         </div>
       </div>
+
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead>
-            <tr style={{ backgroundColor: "#FBFBFC", color: C.slate }}>
-              {["Date", "Title", "Source", "Competencies", "Status"].map((h) => (
-                <th
-                  key={h}
-                  className="text-left text-xs font-semibold uppercase tracking-wide px-6 py-2.5"
-                  style={{ borderBottom: `1px solid ${C.border}` }}
-                >
-                  {h}
-                </th>
-              ))}
+          <thead style={{ background: "#F4F5F7", color: C.subtle }}>
+            <tr className="text-left text-[11px] uppercase tracking-wider">
+              <Th>Date</Th>
+              <Th>Source</Th>
+              <Th>Category</Th>
+              <Th>Competency</Th>
+              <Th>Title</Th>
+              <Th>Description</Th>
+              <Th>Link</Th>
+              <Th>Status</Th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((e, i) => (
+            {filtered.map((r) => (
               <tr
-                key={e.id}
-                className="transition-colors hover:bg-[#F4F5F7]"
-                style={{ borderBottom: i < filtered.length - 1 ? `1px solid ${C.border}` : "none" }}
+                key={r.id}
+                className="border-t hover:bg-[#FAFBFC] transition-colors"
+                style={{ borderColor: C.border }}
               >
-                <td className="px-6 py-3" style={{ color: C.slate }}>{e.date}</td>
-                <td className="px-6 py-3 font-semibold" style={{ color: C.navy }}>{e.title}</td>
-                <td className="px-6 py-3">
-                  <span className="inline-flex items-center gap-1.5" style={{ color: C.slate }}>
-                    {e.source === "github" ? <Github size={14} /> : <JiraGlyph />}
-                    {e.source === "github" ? "GitHub" : "Jira"}
-                  </span>
-                </td>
-                <td className="px-6 py-3">
-                  <div className="flex flex-wrap gap-1.5">
-                    {e.comps.map((c) => (
-                      <Pill key={c}>{c}</Pill>
-                    ))}
-                  </div>
-                </td>
-                <td className="px-6 py-3">
-                  <StatusBadge status={e.status} />
-                </td>
+                <Td className="whitespace-nowrap" style={{ color: C.slate }}>
+                  {r.date}
+                </Td>
+                <Td>
+                  <Badge tone="neutral">{r.source}</Badge>
+                </Td>
+                <Td style={{ color: C.slate }}>{r.category}</Td>
+                <Td>
+                  <Badge tone="info">{r.competency}</Badge>
+                </Td>
+                <Td className="font-semibold" style={{ color: C.navy }}>
+                  {r.title}
+                </Td>
+                <Td style={{ color: C.slate }} className="max-w-sm">
+                  <span className="line-clamp-1">{r.description}</span>
+                </Td>
+                <Td>
+                  {r.link ? (
+                    <a
+                      className="inline-flex items-center gap-1 hover:underline"
+                      style={{ color: C.primary }}
+                      href={`https://${r.link}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <ExternalLink size={12} />
+                      Open
+                    </a>
+                  ) : (
+                    <span style={{ color: C.subtle }}>—</span>
+                  )}
+                </Td>
+                <Td>
+                  {r.status === "Approved" ? (
+                    <Badge tone="success" icon={<CheckCircle size={11} />}>
+                      Approved
+                    </Badge>
+                  ) : (
+                    <Badge tone="warning" icon={<Clock size={11} />}>
+                      Pending
+                    </Badge>
+                  )}
+                </Td>
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-6 py-10 text-center text-sm" style={{ color: C.slate }}>
+                <td colSpan={8} className="text-center py-12 text-sm" style={{ color: C.subtle }}>
                   No evidence matches your filters.
                 </td>
               </tr>
@@ -746,378 +1257,779 @@ function EvidenceView({
   );
 }
 
-function StatusBadge({ status }: { status: "Pending" | "Approved" }) {
-  const approved = status === "Approved";
+function Th({ children }: { children: React.ReactNode }) {
+  return <th className="px-4 py-3 font-semibold">{children}</th>;
+}
+function Td({
+  children,
+  className = "",
+  style,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
   return (
-    <span
-      className="inline-flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded"
-      style={{
-        backgroundColor: approved ? C.greenSoft : C.paleAmber,
-        color: approved ? "#006644" : C.amberDeep,
-      }}
-    >
-      {approved ? <CheckCircle2 size={12} /> : <Clock size={12} />}
-      {status}
-    </span>
+    <td className={`px-4 py-3 align-middle ${className}`} style={style}>
+      {children}
+    </td>
   );
 }
 
-/* ---------------- Radar standalone view ---------------- */
-function RadarView({ scores }: { scores: Record<string, number> }) {
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div className="lg:col-span-2">
-        <CareerRadar scores={scores} />
-      </div>
-      <Card>
-        <div className="px-6 py-4" style={{ borderBottom: `1px solid ${C.border}` }}>
-          <h3 className="text-base font-bold" style={{ color: C.navy }}>
-            Competency Scores
-          </h3>
-          <p className="text-xs mt-0.5" style={{ color: C.slate }}>
-            4-point scale derived from approved evidence.
-          </p>
-        </div>
-        <ul className="px-6 py-4 space-y-3">
-          {Object.entries(scores).map(([k, v]) => (
-            <li key={k}>
-              <div className="flex justify-between text-sm">
-                <span style={{ color: C.navy, fontWeight: 600 }}>{k}</span>
-                <span style={{ color: C.slate }}>{(v / 25).toFixed(1)}/4</span>
-              </div>
-              <div className="h-1.5 rounded-full mt-1.5" style={{ backgroundColor: "#EBECF0" }}>
-                <div className="h-full rounded-full" style={{ width: `${v}%`, backgroundColor: C.primary }} />
-              </div>
-            </li>
-          ))}
-        </ul>
-      </Card>
-    </div>
-  );
-}
+/* ============================================================ */
+/*                  TAB 4: OBJECTIVES                           */
+/* ============================================================ */
 
-/* ---------------- Objectives View ---------------- */
-function ObjectivesView() {
-  const cols: { title: string; tone: string; items: { title: string; desc: string }[] }[] = [
-    {
-      title: "To Do",
-      tone: C.slate,
-      items: [
-        { title: "Publish RFC: feature flags v2", desc: "Manager-approved goal · Due Nov 30" },
-      ],
-    },
-    {
-      title: "In Progress",
-      tone: C.primary,
-      items: [
-        { title: "Lead a cross-functional system design meeting", desc: "Manager-approved goal · Due Oct 30" },
-        { title: "Mentor 2 junior engineers through code reviews", desc: "Manager-approved goal · Quarterly" },
-      ],
-    },
-    {
-      title: "Done",
-      tone: C.green,
-      items: [{ title: "Ship OAuth hardening", desc: "Completed Oct 4" }],
-    },
+function ObjectivesView({
+  items,
+  onOpen,
+  onCreate,
+}: {
+  items: Objective[];
+  onOpen: (o: Objective) => void;
+  onCreate: () => void;
+}) {
+  const cols: { id: Objective["status"]; label: string; tone: "warning" | "info" | "success" }[] = [
+    { id: "Pending Approval", label: "Pending Approval", tone: "warning" },
+    { id: "In Progress", label: "In Progress", tone: "info" },
+    { id: "Completed", label: "Completed", tone: "success" },
   ];
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-      {cols.map((col) => (
-        <Card key={col.title}>
-          <div className="px-5 py-3 flex items-center justify-between" style={{ borderBottom: `1px solid ${C.border}` }}>
-            <div className="flex items-center gap-2">
-              <Circle size={8} fill={col.tone} stroke={col.tone} />
-              <h3 className="text-sm font-bold uppercase tracking-wide" style={{ color: C.navy }}>
-                {col.title}
-              </h3>
-            </div>
-            <span className="text-xs" style={{ color: C.slate }}>
-              {col.items.length}
-            </span>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-bold" style={{ color: C.navy }}>
+            Career Objectives
+          </h2>
+          <div className="text-sm mt-0.5" style={{ color: C.subtle }}>
+            Proactive goals that close competency gaps outside your daily work
           </div>
-          <ul className="p-3 space-y-2">
-            {col.items.map((it, i) => (
-              <li
-                key={i}
-                className="rounded-md p-3 cursor-pointer transition-shadow hover:shadow-sm"
-                style={{ border: `1px solid ${C.border}`, backgroundColor: C.card }}
-              >
-                <div className="text-sm font-semibold" style={{ color: C.navy }}>
-                  {it.title}
+        </div>
+        <PrimaryBtn onClick={onCreate}>
+          <Plus size={16} />
+          Create SMART Objective
+        </PrimaryBtn>
+      </div>
+
+      <div className="grid grid-cols-3 gap-5">
+        {cols.map((col) => {
+          const list = items.filter((i) => i.status === col.id);
+          return (
+            <div key={col.id} className="space-y-3">
+              <div className="flex items-center justify-between px-1">
+                <div className="flex items-center gap-2">
+                  <Badge tone={col.tone}>{col.label}</Badge>
+                  <span className="text-xs font-semibold" style={{ color: C.subtle }}>
+                    {list.length}
+                  </span>
                 </div>
-                <div className="text-xs mt-1" style={{ color: C.slate }}>
-                  {it.desc}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      ))}
+              </div>
+              <div className="space-y-3 min-h-[200px]">
+                {list.map((o) => (
+                  <ObjectiveCard key={o.id} o={o} onOpen={() => onOpen(o)} />
+                ))}
+                {list.length === 0 && (
+                  <div
+                    className="border border-dashed rounded p-6 text-center text-xs"
+                    style={{ borderColor: C.border, color: C.subtle }}
+                  >
+                    Nothing here yet.
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-/* ---------------- Capture Modal ---------------- */
-function CaptureModal({ onClose, onSave }: { onClose: () => void; onSave: (title: string, comps: string[]) => void }) {
+function ObjectiveCard({ o, onOpen }: { o: Objective; onOpen: () => void }) {
+  const statusIcon =
+    o.status === "Completed" ? (
+      <CheckCircle size={13} style={{ color: C.green }} />
+    ) : (
+      <Clock size={13} style={{ color: C.amber }} />
+    );
+  return (
+    <motion.button
+      whileHover={{ y: -2 }}
+      transition={{ duration: 0.15 }}
+      onClick={onOpen}
+      className="w-full text-left"
+    >
+      <Card className="p-4 hover:border-[#0052CC] transition-colors">
+        <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.subtle }}>
+          {o.id}
+        </div>
+        <div className="text-sm font-semibold mt-1 leading-snug" style={{ color: C.navy }}>
+          {o.title}
+        </div>
+        <div className="mt-3">
+          <Badge tone="info">{o.competency}</Badge>
+        </div>
+        <div
+          className="mt-3 pt-3 border-t flex items-center justify-between text-[11px]"
+          style={{ borderColor: C.border, color: C.slate }}
+        >
+          <span className="flex items-center gap-1.5">
+            <Calendar size={12} />
+            {o.due}
+          </span>
+          <span className="flex items-center gap-1.5 font-medium">
+            {statusIcon}
+            {o.status}
+          </span>
+        </div>
+      </Card>
+    </motion.button>
+  );
+}
+
+/* ============================================================ */
+/*               OVERLAY: CAPTURE MODAL                         */
+/* ============================================================ */
+
+function CaptureModal({
+  onClose,
+  onSave,
+}: {
+  onClose: () => void;
+  onSave: (title: string, comps: string[]) => void;
+}) {
   const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [active, setActive] = useState<Record<string, boolean>>({
-    "System Design": true,
-    Security: false,
-    "Code Quality": false,
-    Leadership: false,
-  });
-  const [titleFocused, setTitleFocused] = useState(false);
-  const [bodyFocused, setBodyFocused] = useState(false);
+  const [reflection, setReflection] = useState("");
+  const [comps, setComps] = useState<string[]>(["Code Quality"]);
+  return (
+    <Backdrop onClose={onClose}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.96 }}
+        transition={{ duration: 0.18 }}
+        className="bg-white rounded-lg shadow-2xl w-full max-w-xl border"
+        style={{ borderColor: C.border }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-5 border-b flex items-center justify-between" style={{ borderColor: C.border }}>
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+              Manual Capture
+            </div>
+            <div className="text-lg font-bold mt-0.5" style={{ color: C.navy }}>
+              Log new evidence
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
+            <X size={18} />
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          <Field label="Title">
+            <Input
+              autoFocus
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Led RFC review for payments cutover"
+            />
+          </Field>
+          <Field label="Reflection">
+            <Textarea
+              value={reflection}
+              onChange={(e) => setReflection(e.target.value)}
+              placeholder="What did you learn? What impact did it have?"
+              rows={4}
+            />
+          </Field>
+          <Field label="Tag competencies">
+            <div className="flex flex-wrap gap-1.5">
+              {COMPETENCIES.map((c) => (
+                <Pill
+                  key={c}
+                  active={comps.includes(c)}
+                  onClick={() =>
+                    setComps((s) => (s.includes(c) ? s.filter((x) => x !== c) : [...s, c]))
+                  }
+                >
+                  {c}
+                </Pill>
+              ))}
+            </div>
+          </Field>
+        </div>
+        <div className="p-4 border-t flex items-center justify-end gap-2" style={{ borderColor: C.border }}>
+          <GhostBtn onClick={onClose}>Cancel</GhostBtn>
+          <PrimaryBtn disabled={!title} onClick={() => onSave(title, comps)}>
+            Save Evidence
+          </PrimaryBtn>
+        </div>
+      </motion.div>
+    </Backdrop>
+  );
+}
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+function Backdrop({
+  children,
+  onClose,
+}: {
+  children: React.ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.15 }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-6"
+      style={{ background: "rgba(9, 30, 66, 0.54)", backdropFilter: "blur(2px)" }}
+      onClick={onClose}
+    >
+      {children}
+    </motion.div>
+  );
+}
 
-  const inputStyle = (focused: boolean) => ({
-    backgroundColor: focused ? C.card : C.inputRest,
-    border: `1px solid ${focused ? C.primary : "transparent"}`,
-    boxShadow: focused ? `0 0 0 2px ${C.paleBlue}` : "none",
-    color: C.navy,
-  });
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <div className="text-xs font-semibold mb-1.5" style={{ color: C.slate }}>
+        {label}
+      </div>
+      {children}
+    </label>
+  );
+}
+
+function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      {...props}
+      className="w-full px-3 py-2 text-sm rounded border bg-[#F4F5F7] focus:bg-white outline-none transition-all resize-none"
+      style={{ borderColor: C.border, color: C.navy }}
+      onFocus={(e) => {
+        e.currentTarget.style.background = "#fff";
+        e.currentTarget.style.borderColor = C.primary;
+        e.currentTarget.style.boxShadow = `0 0 0 1px ${C.primary}`;
+      }}
+      onBlur={(e) => {
+        e.currentTarget.style.background = "#F4F5F7";
+        e.currentTarget.style.borderColor = C.border;
+        e.currentTarget.style.boxShadow = "none";
+      }}
+    />
+  );
+}
+
+/* ============================================================ */
+/*          OVERLAY: CREATE SMART OBJECTIVE                     */
+/* ============================================================ */
+
+function CreateObjectiveModal({
+  onClose,
+  onSubmit,
+}: {
+  onClose: () => void;
+  onSubmit: (o: Omit<Objective, "id" | "status">) => void;
+}) {
+  const [competency, setCompetency] = useState(COMPETENCIES[0]);
+  const [s, setS] = useState("");
+  const [m, setM] = useState("");
+  const [a, setA] = useState("");
+  const [r, setR] = useState("");
+  const [t, setT] = useState("");
+
+  return (
+    <Backdrop onClose={onClose}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.97, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.97, y: 8 }}
+        transition={{ duration: 0.2 }}
+        className="bg-white rounded-lg shadow-2xl w-full max-w-4xl border max-h-[90vh] overflow-hidden flex flex-col"
+        style={{ borderColor: C.border }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-5 border-b flex items-center justify-between" style={{ borderColor: C.border }}>
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+              New Objective
+            </div>
+            <div className="text-lg font-bold mt-0.5" style={{ color: C.navy }}>
+              Create SMART Objective
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-5 flex-1 overflow-hidden">
+          {/* Form */}
+          <div className="col-span-3 p-6 overflow-y-auto space-y-4">
+            <Field label="Target Competency">
+              <Select value={competency} onChange={(e) => setCompetency(e.target.value)}>
+                {COMPETENCIES.map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </Select>
+            </Field>
+            <SmartField
+              letter="S"
+              name="Specific"
+              hint="Clearly state who, what action, and context. Avoid vague verbs like 'understand'."
+              value={s}
+              onChange={setS}
+            />
+            <SmartField
+              letter="M"
+              name="Measurable"
+              hint="Define how you will evaluate success (e.g., a completed project or assessment)."
+              value={m}
+              onChange={setM}
+            />
+            <SmartField
+              letter="A"
+              name="Achievable"
+              hint="Ensure it is realistic based on your current skills, resources, and time."
+              value={a}
+              onChange={setA}
+            />
+            <SmartField
+              letter="R"
+              name="Relevant"
+              hint="How does this align with your promotion goals?"
+              value={r}
+              onChange={setR}
+            />
+            <Field label="T — Time-bound">
+              <Input type="date" value={t} onChange={(e) => setT(e.target.value)} icon={<Calendar size={14} />} />
+              <div className="text-[11px] mt-1.5" style={{ color: C.subtle }}>
+                Specific timeframe or deadline.
+              </div>
+            </Field>
+          </div>
+
+          {/* Guidance */}
+          <aside
+            className="col-span-2 border-l p-6 overflow-y-auto"
+            style={{ borderColor: C.border, background: C.bg }}
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <Info size={16} style={{ color: C.primary }} />
+              <div className="text-sm font-bold" style={{ color: C.navy }}>
+                Writing Effective Objectives
+              </div>
+            </div>
+
+            <div
+              className="p-3 rounded border mb-4"
+              style={{ background: C.primarySoft, borderColor: "transparent" }}
+            >
+              <div className="text-[11px] font-bold uppercase tracking-wider mb-1" style={{ color: C.primary }}>
+                Pro Tip — Bloom's Taxonomy
+              </div>
+              <div className="text-xs leading-relaxed" style={{ color: C.navy }}>
+                Rely on observable action verbs (identify, analyze, demonstrate). Instead of
+                "understand the new software", use "execute core data-entry tasks".
+              </div>
+            </div>
+
+            <div className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: C.subtle }}>
+              Examples
+            </div>
+            <div
+              className="p-3 rounded border mb-2 text-xs"
+              style={{ borderColor: C.border, background: "#fff" }}
+            >
+              <div className="font-bold mb-1" style={{ color: C.red }}>
+                Weak
+              </div>
+              <div style={{ color: C.slate }}>"Students will learn about digital marketing."</div>
+            </div>
+            <div
+              className="p-3 rounded border text-xs"
+              style={{ borderColor: C.border, background: "#fff" }}
+            >
+              <div className="font-bold mb-1" style={{ color: "#006644" }}>
+                SMART
+              </div>
+              <div style={{ color: C.slate }}>
+                "By the end of this 4-week module, students will design a targeted social media
+                advertising campaign with a measurable ROI."
+              </div>
+            </div>
+          </aside>
+        </div>
+
+        <div className="p-4 border-t flex items-center justify-end gap-2" style={{ borderColor: C.border }}>
+          <GhostBtn onClick={onClose}>Cancel</GhostBtn>
+          <PrimaryBtn
+            disabled={!s || !m}
+            onClick={() =>
+              onSubmit({
+                title: s.slice(0, 80) || "New objective",
+                competency,
+                due: t || "TBD",
+                specific: s,
+                measurable: m,
+                achievable: a,
+                relevant: r,
+                timebound: t,
+              })
+            }
+          >
+            Submit for Manager Approval
+          </PrimaryBtn>
+        </div>
+      </motion.div>
+    </Backdrop>
+  );
+}
+
+function SmartField({
+  letter,
+  name,
+  hint,
+  value,
+  onChange,
+}: {
+  letter: string;
+  name: string;
+  hint: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-1.5">
+        <div
+          className="w-6 h-6 rounded flex items-center justify-center text-xs font-bold text-white"
+          style={{ background: C.primary }}
+        >
+          {letter}
+        </div>
+        <div className="text-sm font-semibold" style={{ color: C.navy }}>
+          {name}
+        </div>
+      </div>
+      <Textarea rows={2} value={value} onChange={(e) => onChange(e.target.value)} />
+      <div className="text-[11px] mt-1" style={{ color: C.subtle }}>
+        {hint}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================ */
+/*       OVERLAY: OBJECTIVE DETAILS SLIDE-OVER                  */
+/* ============================================================ */
+
+function ObjectiveSlideover({
+  objective,
+  onClose,
+  onComplete,
+}: {
+  objective: Objective;
+  onClose: () => void;
+  onComplete: (o: Objective) => void;
+}) {
+  const [smartOpen, setSmartOpen] = useState(false);
+  const [links, setLinks] = useState(objective.links ?? []);
+  const [newLink, setNewLink] = useState("");
+  const [notes, setNotes] = useState(objective.notes ?? "");
+  const [status, setStatus] = useState(objective.status);
 
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 0.18 }}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ backgroundColor: "rgba(23, 43, 77, 0.55)", backdropFilter: "blur(4px)" }}
+      transition={{ duration: 0.15 }}
+      className="fixed inset-0 z-50"
+      style={{ background: "rgba(9, 30, 66, 0.45)" }}
       onClick={onClose}
     >
       <motion.div
-        initial={{ opacity: 0, y: 16, scale: 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 16, scale: 0.98 }}
+        initial={{ x: "100%" }}
+        animate={{ x: 0 }}
+        exit={{ x: "100%" }}
         transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+        className="absolute top-0 right-0 h-full w-full md:w-[48%] bg-white shadow-2xl flex flex-col"
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-lg rounded-lg shadow-xl overflow-hidden"
-        style={{ backgroundColor: C.card, border: `1px solid ${C.border}` }}
       >
-        <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: `1px solid ${C.border}` }}>
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded flex items-center justify-center" style={{ backgroundColor: C.paleBlue, color: C.primary }}>
-              <Sparkles size={14} />
+        {/* Header */}
+        <div className="px-6 py-5 border-b" style={{ borderColor: C.border }}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1 text-xs" style={{ color: C.subtle }}>
+              <span>Objectives</span>
+              <ChevronRight size={12} />
+              <span className="font-semibold" style={{ color: C.slate }}>
+                {objective.id}
+              </span>
             </div>
-            <span className="text-sm font-bold" style={{ color: C.navy }}>
-              Capture Evidence
-            </span>
+            <button onClick={onClose} className="p-1.5 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
+              <X size={18} />
+            </button>
           </div>
-          <button onClick={onClose} className="w-7 h-7 rounded flex items-center justify-center transition-colors hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
-            <X size={15} />
-          </button>
+          <div className="text-xl font-bold mt-2 leading-snug" style={{ color: C.navy }}>
+            {objective.title}
+          </div>
+          <div className="flex items-center gap-2 mt-3">
+            <Select value={status} onChange={(e) => setStatus(e.target.value as Objective["status"])}>
+              <option>Pending Approval</option>
+              <option>In Progress</option>
+              <option>Completed</option>
+            </Select>
+            <Badge tone="info">{objective.competency}</Badge>
+          </div>
         </div>
 
-        <div className="p-5">
-          <h2 className="text-lg font-bold" style={{ color: C.navy }}>
-            Log it while it's fresh.
-          </h2>
-          <p className="text-sm mt-1" style={{ color: C.slate }}>
-            Capture the moment so future-you doesn't have to dig through Jira.
-          </p>
+        {/* Scrollable */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+          {/* SMART accordion */}
+          <div className="rounded border" style={{ borderColor: C.border }}>
+            <button
+              onClick={() => setSmartOpen((x) => !x)}
+              className="w-full px-4 py-3 flex items-center justify-between text-sm font-semibold"
+              style={{ color: C.navy }}
+            >
+              <span>SMART Details</span>
+              <motion.span animate={{ rotate: smartOpen ? 180 : 0 }} transition={{ duration: 0.18 }}>
+                <ChevronDown size={16} />
+              </motion.span>
+            </button>
+            <AnimatePresence initial={false}>
+              {smartOpen && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.18 }}
+                  className="overflow-hidden"
+                >
+                  <div className="px-4 pb-4 space-y-3 text-sm" style={{ color: C.slate }}>
+                    {(
+                      [
+                        ["S", "Specific", objective.specific],
+                        ["M", "Measurable", objective.measurable],
+                        ["A", "Achievable", objective.achievable],
+                        ["R", "Relevant", objective.relevant],
+                        ["T", "Time-bound", objective.timebound],
+                      ] as const
+                    ).map(([k, n, v]) => (
+                      <div key={k}>
+                        <div className="text-[11px] font-bold uppercase tracking-wider" style={{ color: C.primary }}>
+                          {k} — {n}
+                        </div>
+                        <div className="mt-0.5">{v || <span style={{ color: C.subtle }}>Not provided</span>}</div>
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
-          <label className="block mt-4 text-xs font-semibold mb-1.5" style={{ color: C.slate }}>
-            Title
-          </label>
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onFocus={() => setTitleFocused(true)}
-            onBlur={() => setTitleFocused(false)}
-            placeholder="e.g. Designed retry strategy for payments queue"
-            className="w-full text-sm rounded-md px-3 py-2 outline-none transition-all"
-            style={inputStyle(titleFocused)}
-          />
-
-          <label className="block mt-3 text-xs font-semibold mb-1.5" style={{ color: C.slate }}>
-            What was the challenge? What did you learn?
-          </label>
-          <textarea
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            onFocus={() => setBodyFocused(true)}
-            onBlur={() => setBodyFocused(false)}
-            rows={4}
-            placeholder="The trade-offs, the constraints, the outcome…"
-            className="w-full text-sm rounded-md px-3 py-2 outline-none resize-none transition-all"
-            style={inputStyle(bodyFocused)}
-          />
-
-          <div className="mt-4">
-            <div className="text-xs font-semibold mb-2" style={{ color: C.slate }}>
-              Tag competencies
+          {/* Links */}
+          <section>
+            <div className="flex items-center gap-2 mb-2">
+              <LinkIcon size={14} style={{ color: C.slate }} />
+              <div className="text-sm font-bold" style={{ color: C.navy }}>
+                Learning Resources
+              </div>
             </div>
-            <div className="flex flex-wrap gap-1.5">
-              {Object.keys(active).map((label) => (
-                <Pill key={label} active={active[label]} onClick={() => setActive((s) => ({ ...s, [label]: !s[label] }))}>
-                  {label}
-                </Pill>
+            <div className="space-y-2">
+              {links.map((l, i) => (
+                <a
+                  key={i}
+                  href={l.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center justify-between px-3 py-2 rounded border hover:border-[#0052CC] transition-colors"
+                  style={{ borderColor: C.border }}
+                >
+                  <span className="text-sm" style={{ color: C.navy }}>
+                    {l.label}
+                  </span>
+                  <ExternalLink size={14} style={{ color: C.primary }} />
+                </a>
               ))}
+              {links.length === 0 && (
+                <div className="text-xs" style={{ color: C.subtle }}>
+                  No resources added yet.
+                </div>
+              )}
+              <div className="flex items-center gap-2 pt-1">
+                <Input
+                  value={newLink}
+                  onChange={(e) => setNewLink(e.target.value)}
+                  placeholder="Add URL…"
+                />
+                <GhostBtn
+                  onClick={() => {
+                    if (!newLink) return;
+                    setLinks((l) => [...l, { label: newLink.replace(/^https?:\/\//, ""), url: newLink }]);
+                    setNewLink("");
+                  }}
+                >
+                  <Plus size={14} />
+                  Add
+                </GhostBtn>
+              </div>
             </div>
-          </div>
+          </section>
+
+          {/* Evidence & Artifacts */}
+          <section>
+            <div className="flex items-center gap-2 mb-2">
+              <Paperclip size={14} style={{ color: C.slate }} />
+              <div className="text-sm font-bold" style={{ color: C.navy }}>
+                Evidence & Artifacts
+              </div>
+            </div>
+            <div
+              className="border-2 border-dashed rounded p-6 text-center cursor-pointer hover:border-[#0052CC] transition-colors"
+              style={{ borderColor: C.border }}
+            >
+              <UploadCloud size={28} className="mx-auto" style={{ color: C.primary }} />
+              <div className="text-sm font-semibold mt-2" style={{ color: C.navy }}>
+                Drop files here or click to upload
+              </div>
+              <div className="text-xs mt-1" style={{ color: C.subtle }}>
+                PDF, images, or code snippets
+              </div>
+            </div>
+          </section>
+
+          {/* Notes */}
+          <section>
+            <div className="flex items-center gap-2 mb-2">
+              <AlignLeft size={14} style={{ color: C.slate }} />
+              <div className="text-sm font-bold" style={{ color: C.navy }}>
+                Learning Log & Notes
+              </div>
+            </div>
+            <Textarea
+              rows={5}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="What are your key takeaways so far? Summarize your findings here."
+            />
+          </section>
         </div>
 
-        <div className="flex items-center justify-end gap-2 px-5 py-3" style={{ borderTop: `1px solid ${C.border}`, backgroundColor: "#FBFBFC" }}>
-          <button onClick={onClose} className="text-sm font-semibold px-3 py-1.5 rounded transition-colors hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
-            Cancel
-          </button>
-          <button
-            onClick={() => onSave(title, Object.keys(active).filter((k) => active[k]))}
-            className="text-sm font-semibold px-3.5 py-1.5 rounded text-white transition-colors"
-            style={{ backgroundColor: C.primary }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = C.primaryHover)}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = C.primary)}
-          >
-            Save Evidence
-          </button>
+        {/* Footer */}
+        <div
+          className="px-6 py-4 border-t flex items-center justify-between"
+          style={{ borderColor: C.border, background: C.bg }}
+        >
+          <GhostBtn onClick={onClose}>Close</GhostBtn>
+          <PrimaryBtn onClick={() => onComplete({ ...objective, notes, links })}>
+            <CheckCircle size={16} />
+            Complete & Add to Evidence Log
+          </PrimaryBtn>
         </div>
       </motion.div>
     </motion.div>
   );
 }
 
-/* ---------------- Review Slide-over ---------------- */
-function ReviewSlideover({
-  item,
-  onClose,
-  onConfirm,
-}: {
-  item: PendingItem;
-  onClose: () => void;
-  onConfirm: (i: PendingItem, comps: string[]) => void;
-}) {
-  const initial: Record<string, boolean> = {};
-  COMPETENCIES.forEach((c) => (initial[c] = item.suggested.includes(c)));
-  const [active, setActive] = useState(initial);
-  const [notes, setNotes] = useState("");
-  const [focused, setFocused] = useState(false);
+/* ============================================================ */
+/*           VIEW 1: CHROME EXTENSION POPUP                     */
+/* ============================================================ */
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+function ExtensionPopup({ onDismiss, onSave }: { onDismiss: () => void; onSave: () => void }) {
+  const [trigger, setTrigger] = useState("event");
+  const [text, setText] = useState(
+    "Coordinated cutover plan with on-call and data teams; zero downtime achieved.",
+  );
+  const [comps, setComps] = useState<string[]>(["Analytical Thinking", "Delivery"]);
+  function toggle(c: string) {
+    setComps((s) => (s.includes(c) ? s.filter((x) => x !== c) : [...s, c]));
+  }
 
   return (
     <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.18 }}
-      className="fixed inset-0 z-50 flex justify-end"
-      style={{ backgroundColor: "rgba(23, 43, 77, 0.45)" }}
-      onClick={onClose}
+      initial={{ opacity: 0, y: 20, scale: 0.96 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 20, scale: 0.96 }}
+      transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+      className="fixed bottom-6 right-6 w-96 rounded-lg shadow-xl border bg-white z-40 overflow-hidden"
+      style={{ borderColor: C.border }}
     >
-      <motion.aside
-        initial={{ x: "100%" }}
-        animate={{ x: 0 }}
-        exit={{ x: "100%" }}
-        transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md h-full flex flex-col shadow-xl"
-        style={{ backgroundColor: C.card, borderLeft: `1px solid ${C.border}` }}
-      >
-        <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: `1px solid ${C.border}` }}>
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.muted }}>
-              Review & Map
-            </div>
-            <div className="text-sm font-bold mt-0.5" style={{ color: C.navy }}>
-              {item.title}
-            </div>
+      {/* Header */}
+      <div className="px-4 py-3 flex items-center justify-between border-b" style={{ borderColor: C.border }}>
+        <div className="flex items-center gap-2">
+          <div
+            className="w-6 h-6 rounded flex items-center justify-center"
+            style={{ background: C.primary }}
+          >
+            <RadarIcon size={13} color="#fff" />
           </div>
-          <button onClick={onClose} className="w-7 h-7 rounded flex items-center justify-center transition-colors hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
-            <X size={15} />
-          </button>
+          <span className="text-sm font-bold tracking-tight" style={{ color: C.navy }}>
+            Evitrace
+          </span>
+          <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded" style={{ background: "#F4F5F7", color: C.subtle }}>
+            Extension
+          </span>
+        </div>
+        <button onClick={onDismiss} className="p-1 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
+          <X size={14} />
+        </button>
+      </div>
+
+      {/* Trigger */}
+      <div className="px-4 pt-3">
+        <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: C.subtle }}>
+          Trigger
+        </div>
+        <Select value={trigger} onChange={(e) => setTrigger(e.target.value)}>
+          <option value="event">Event: Ticket moved to Done</option>
+          <option value="time">Time: 16:00 (1 hour before close)</option>
+          <option value="pr">Event: Pull request merged</option>
+        </Select>
+      </div>
+
+      {/* Content */}
+      <div className="px-4 py-3">
+        <div className="text-sm font-bold" style={{ color: C.navy }}>
+          Great work! What did you learn?
+        </div>
+        <div className="text-xs mt-0.5" style={{ color: C.subtle }}>
+          Capture it while it's fresh.
+        </div>
+        <div className="mt-3">
+          <Textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} />
         </div>
 
-        <div className="p-5 overflow-y-auto flex-1">
-          <div className="rounded-md flex items-center gap-2 px-3 py-2 text-xs" style={{ backgroundColor: C.inputRest, color: C.slate }}>
-            {item.kind === "github" ? <Github size={13} /> : <JiraGlyph />}
-            <span className="font-medium" style={{ color: C.navy }}>
-              Context:
-            </span>
-            <span className="truncate">{item.context}</span>
-          </div>
-
-          <div className="mt-5 flex items-center gap-2">
-            <Sparkles size={14} style={{ color: C.primary }} />
-            <span className="text-sm font-semibold" style={{ color: C.navy }}>
+        <div className="mt-3">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <Sparkles size={12} style={{ color: C.primary }} />
+            <span className="text-[11px] font-semibold" style={{ color: C.slate }}>
               AI auto-mapped competencies
             </span>
           </div>
-          <p className="text-xs mt-1" style={{ color: C.slate }}>
-            Click to toggle. Add or remove until the mapping feels right.
-          </p>
-
-          <div className="flex flex-wrap gap-1.5 mt-3">
-            {COMPETENCIES.map((label) => (
-              <Pill key={label} active={active[label]} onClick={() => setActive((s) => ({ ...s, [label]: !s[label] }))}>
-                {label}
+          <div className="flex flex-wrap gap-1.5">
+            {["Analytical Thinking", "Delivery", "System Design", "Communication"].map((c) => (
+              <Pill key={c} active={comps.includes(c)} onClick={() => toggle(c)}>
+                {c}
               </Pill>
             ))}
           </div>
-
-          <label className="block mt-5 text-xs font-semibold mb-1.5" style={{ color: C.slate }}>
-            Reflection (optional)
-          </label>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            rows={4}
-            placeholder="What stood out about this work?"
-            className="w-full text-sm rounded-md px-3 py-2 outline-none resize-none transition-all"
-            style={{
-              backgroundColor: focused ? C.card : C.inputRest,
-              border: `1px solid ${focused ? C.primary : "transparent"}`,
-              boxShadow: focused ? `0 0 0 2px ${C.paleBlue}` : "none",
-              color: C.navy,
-            }}
-          />
         </div>
+      </div>
 
-        <div className="flex items-center justify-end gap-2 px-5 py-3" style={{ borderTop: `1px solid ${C.border}`, backgroundColor: "#FBFBFC" }}>
-          <button onClick={onClose} className="text-sm font-semibold px-3 py-1.5 rounded transition-colors hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
-            Dismiss
-          </button>
-          <button
-            onClick={() => onConfirm(item, Object.keys(active).filter((k) => active[k]))}
-            className="text-sm font-semibold px-3.5 py-1.5 rounded text-white transition-colors"
-            style={{ backgroundColor: C.primary }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = C.primaryHover)}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = C.primary)}
-          >
-            Confirm Mapping
-          </button>
-        </div>
-      </motion.aside>
-    </motion.div>
-  );
-}
-
-/* ---------------- Toast ---------------- */
-function Toast({ message }: { message: string }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 16 }}
-      transition={{ duration: 0.22, ease: "easeOut" }}
-      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-2 px-4 py-2.5 rounded-md shadow-lg"
-      style={{ backgroundColor: C.green, color: "#FFFFFF" }}
-    >
-      <CheckCircle2 size={16} />
-      <span className="text-sm font-semibold">{message}</span>
+      {/* Footer */}
+      <div className="px-4 py-3 border-t flex items-center justify-between" style={{ borderColor: C.border, background: C.bg }}>
+        <GhostBtn onClick={onDismiss}>Snooze</GhostBtn>
+        <PrimaryBtn onClick={onSave}>
+          <CheckCircle size={14} />
+          Save Evidence
+        </PrimaryBtn>
+      </div>
     </motion.div>
   );
 }
