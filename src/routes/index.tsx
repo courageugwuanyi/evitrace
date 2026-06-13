@@ -120,13 +120,21 @@ function Index() {
     },
   ]);
 
-  const [evidence, setEvidence] = useState([
-    { id: "e1", date: "Oct 12", title: "Migrated legacy DB", source: "github" as const, comps: ["Architecture", "Code Quality"], status: "Approved" as const },
-    { id: "e2", date: "Oct 9", title: "Led incident retro for #992", source: "jira" as const, comps: ["Leadership", "Communication"], status: "Approved" as const },
-    { id: "e3", date: "Oct 4", title: "Hardened OAuth flow", source: "github" as const, comps: ["Security", "Architecture"], status: "Approved" as const },
-    { id: "e4", date: "Sep 28", title: "CI pipeline optimization", source: "github" as const, comps: ["DevOps"], status: "Approved" as const },
-    { id: "e5", date: "Sep 22", title: "Drafted RFC: feature flags v2", source: "jira" as const, comps: ["System Design"], status: "Pending" as const },
-    { id: "e6", date: "Sep 18", title: "Mentored new hire onboarding", source: "jira" as const, comps: ["Mentorship", "Communication"], status: "Approved" as const },
+  type EvidenceRow = {
+    id: string;
+    date: string;
+    title: string;
+    source: "github" | "jira";
+    comps: string[];
+    status: "Pending" | "Approved";
+  };
+  const [evidence, setEvidence] = useState<EvidenceRow[]>([
+    { id: "e1", date: "Oct 12", title: "Migrated legacy DB", source: "github", comps: ["Architecture", "Code Quality"], status: "Approved" },
+    { id: "e2", date: "Oct 9", title: "Led incident retro for #992", source: "jira", comps: ["Leadership", "Communication"], status: "Approved" },
+    { id: "e3", date: "Oct 4", title: "Hardened OAuth flow", source: "github", comps: ["Security", "Architecture"], status: "Approved" },
+    { id: "e4", date: "Sep 28", title: "CI pipeline optimization", source: "github", comps: ["DevOps"], status: "Approved" },
+    { id: "e5", date: "Sep 22", title: "Drafted RFC: feature flags v2", source: "jira", comps: ["System Design"], status: "Pending" },
+    { id: "e6", date: "Sep 18", title: "Mentored new hire onboarding", source: "jira", comps: ["Mentorship", "Communication"], status: "Approved" },
   ]);
 
   // baseline radar scores; "Confirm Mapping" bumps mapped competencies
