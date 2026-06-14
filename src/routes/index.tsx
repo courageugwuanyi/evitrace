@@ -707,6 +707,9 @@ function EvitraceApp() {
   const [openEvidence, setOpenEvidence] = useState<(typeof initialEvidence)[number] | null>(null);
   const [openInbox, setOpenInbox] = useState<(typeof initialInbox)[number] | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [showWizard, setShowWizard] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [review, setReview] = useState<ReviewSession | null>(null);
 
   const pageTitle: Record<Tab, string> = {
     dashboard: "Dashboard",
@@ -781,6 +784,8 @@ function EvitraceApp() {
                 <RadarView
                   data={radarData}
                   onCreateObjective={() => setShowCreateObjective(true)}
+                  onStartReview={() => setShowWizard(true)}
+                  onOpenHistory={() => setShowHistory(true)}
                 />
               )}
               {tab === "evidence" && (
@@ -799,6 +804,8 @@ function EvitraceApp() {
                   objectives={objectives}
                   radarData={radarData}
                   onFlash={flash}
+                  review={review}
+                  onStartReview={() => setShowWizard(true)}
                 />
               )}
               {tab === "settings" && <SettingsView />}
