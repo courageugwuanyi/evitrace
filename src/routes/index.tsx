@@ -3386,28 +3386,39 @@ function ReportView({
   // Empty state when no review has been finalized
   if (!review) {
     return (
-      <div className="max-w-2xl mx-auto mt-12">
-        <Card className="p-10 text-center">
+      <div className="space-y-6">
+        {/* Action Hub bar */}
+        <div className="flex items-center justify-between">
+          <div className="text-sm" style={{ color: C.subtle }}>
+            The action hub for performance reviews. Start a new session or revisit past assessments.
+          </div>
+          <div className="flex items-center gap-2">
+            <GhostBtn onClick={onOpenHistory}>
+              <History size={14} />
+              Assessment History
+            </GhostBtn>
+            <PrimaryBtn onClick={onStartReview}>
+              <ClipboardList size={14} />
+              Start Performance Review
+            </PrimaryBtn>
+          </div>
+        </div>
+
+        <Card className="p-10 text-center max-w-2xl mx-auto">
           <div
             className="w-14 h-14 rounded-full mx-auto flex items-center justify-center mb-4"
             style={{ background: C.primarySoft, color: C.primary }}
           >
             <FileCheck2 size={26} />
           </div>
-          <h2 className="text-xl font-bold tracking-tight" style={{ color: C.navy }}>
+          <h3 className="text-lg font-bold tracking-tight" style={{ color: C.navy }}>
             No finalized performance review yet
-          </h2>
+          </h3>
           <p className="mt-2 text-sm leading-relaxed" style={{ color: C.slate }}>
-            Start a Performance Review session from the Promotion Readiness tab. Once you finalize the
-            wizard, this page will auto-generate a shareable summary with the competency delta,
-            justification notes, highlighted evidence, and a 1-on-1 talking points checklist.
+            Click "Start Performance Review" above to launch the wizard. Once finalized, this page
+            auto-generates a shareable summary with the competency delta, justification notes,
+            highlighted evidence, and a 1-on-1 talking points checklist.
           </p>
-          <div className="mt-6">
-            <PrimaryBtn onClick={onStartReview}>
-              <ClipboardList size={14} />
-              Start Performance Review
-            </PrimaryBtn>
-          </div>
         </Card>
       </div>
     );
@@ -3415,6 +3426,23 @@ function ReportView({
 
   return (
     <div>
+      {/* Action Hub bar */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="text-sm" style={{ color: C.subtle }}>
+          The action hub for performance reviews. Start a new session or revisit past assessments.
+        </div>
+        <div className="flex items-center gap-2">
+          <GhostBtn onClick={onOpenHistory}>
+            <History size={14} />
+            Assessment History
+          </GhostBtn>
+          <PrimaryBtn onClick={onStartReview}>
+            <ClipboardList size={14} />
+            Start Performance Review
+          </PrimaryBtn>
+        </div>
+      </div>
+
       {/* Sticky action bar */}
       <div
         className="sticky top-0 z-20 -mx-8 px-8 py-3 mb-6 border-b flex items-center justify-between"
