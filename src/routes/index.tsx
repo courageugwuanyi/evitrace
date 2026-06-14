@@ -995,18 +995,17 @@ function SectionHeader({
 
 function InboxRow({
   item,
-  onApprove,
+  onOpen,
 }: {
   item: (typeof initialInbox)[number];
-  onApprove: (id: string, comps: string[]) => void;
+  onOpen: () => void;
 }) {
-  const [selected, setSelected] = useState<string[]>(item.suggestion);
   const Icon = item.icon;
-  function toggle(c: string) {
-    setSelected((s) => (s.includes(c) ? s.filter((x) => x !== c) : [...s, c]));
-  }
   return (
-    <div className="py-4 flex items-start gap-3">
+    <button
+      onClick={onOpen}
+      className="w-full text-left py-4 flex items-start gap-3 hover:bg-[#FAFBFC] transition-colors rounded px-2 -mx-2"
+    >
       <div
         className="w-9 h-9 rounded flex items-center justify-center shrink-0"
         style={{ background: "#F4F5F7", color: C.slate }}
@@ -1027,21 +1026,22 @@ function InboxRow({
           <span className="text-[11px] mr-1" style={{ color: C.subtle }}>
             AI suggested:
           </span>
-          {COMPETENCIES.slice(0, 5).map((c) => (
-            <Pill key={c} active={selected.includes(c)} onClick={() => toggle(c)}>
+          {item.suggestion.map((c) => (
+            <span
+              key={c}
+              className="text-[11px] px-2 py-0.5 rounded-full border"
+              style={{ borderColor: C.border, color: C.slate, background: "#F4F5F7" }}
+            >
               {c}
-            </Pill>
+            </span>
           ))}
         </div>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <GhostBtn>Dismiss</GhostBtn>
-        <PrimaryBtn onClick={() => onApprove(item.id, selected)}>
-          Confirm
-          <ArrowUpRight size={14} />
-        </PrimaryBtn>
+      <div className="shrink-0 self-center flex items-center gap-1 text-xs font-medium" style={{ color: C.primary }}>
+        Review
+        <ChevronRight size={14} />
       </div>
-    </div>
+    </button>
   );
 }
 
