@@ -133,6 +133,56 @@ const EFFECTIVENESS_SCALE: { value: number; label: string; tone: "danger" | "war
   { value: 5, label: "Extremely Effective", tone: "success" },
 ];
 
+// 3-tier framework: Category -> Subcategory/Question -> 1-5 Effectiveness
+const SUBCATEGORIES: Record<string, string[]> = {
+  "Analytical Thinking": [
+    "Draws logical conclusions based on in-depth analysis of information",
+    "Diagnoses root causes vs. symptoms in production incidents",
+    "Synthesizes data from multiple sources to frame complex problems",
+  ],
+  "System Design": [
+    "Designs scalable services with clear failure modes and SLOs",
+    "Articulates trade-offs across consistency, availability, and cost",
+    "Reviews and improves architecture proposals across the team",
+  ],
+  "Code Quality": [
+    "Describes what code smells are and refactors to remove them",
+    "Conversant in the language's syntax, idioms, and standard library",
+    "Writes meaningful unit, integration, and system tests",
+  ],
+  Communication: [
+    "Listens actively and communicates respectfully with different audiences",
+    "Writes clear technical documents (RFCs, runbooks, postmortems)",
+    "Adapts the message and depth to the audience",
+  ],
+  Leadership: [
+    "Influences direction and drives alignment across teams",
+    "Mentors peers and grows engineers around them",
+    "Takes ownership of cross-team outcomes",
+  ],
+  "Engineering for UX": [
+    "Applies UX heuristics and accessibility standards to shipped features",
+    "Partners with design through the full delivery lifecycle",
+    "Instruments and learns from real user behavior",
+  ],
+  Security: [
+    "Anticipates threats and embeds secure-by-default practices in the SDLC",
+    "Identifies and remediates common vulnerability classes (OWASP Top 10)",
+    "Reviews code and designs through a security lens",
+  ],
+  Delivery: [
+    "Breaks down complex work into shippable, predictable increments",
+    "Ships reliably with a sustainable cadence",
+    "Coordinates dependencies across squads to unblock outcomes",
+  ],
+};
+
+function subRating(cat: string, sub: string): number {
+  // deterministic pseudo-rating for the mock matrix
+  const key = (cat + sub).split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+  return 1 + (key % 5);
+}
+
 /* ---------- Primitives ---------- */
 function Card({
   children,
