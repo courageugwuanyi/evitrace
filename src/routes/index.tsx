@@ -106,6 +106,33 @@ const COMPETENCIES = [
   "Delivery",
 ];
 
+const COMPETENCY_DESC: Record<string, string> = {
+  "Analytical Thinking":
+    "Identifies critical connections and patterns in information/data to diagnose root causes.",
+  "System Design":
+    "Designs scalable, resilient services and articulates trade-offs across components.",
+  "Code Quality":
+    "Writes maintainable, well-tested code and raises the bar through reviews.",
+  Communication:
+    "Listens and communicates openly, honestly, and respectfully with different audiences.",
+  Leadership:
+    "Influences direction, mentors peers, and drives alignment across teams.",
+  "Engineering for UX":
+    "Partners with design to deliver thoughtful, accessible, and performant user experiences.",
+  Security:
+    "Anticipates threats and embeds secure-by-default practices into the SDLC.",
+  Delivery:
+    "Breaks down complex work and ships reliably with predictable cadence.",
+};
+
+const EFFECTIVENESS_SCALE: { value: number; label: string; tone: "danger" | "warning" | "info" | "success" }[] = [
+  { value: 1, label: "Limited Effectiveness", tone: "danger" },
+  { value: 2, label: "Somewhat Effective", tone: "warning" },
+  { value: 3, label: "Fully Effective", tone: "info" },
+  { value: 4, label: "Highly Effective", tone: "success" },
+  { value: 5, label: "Extremely Effective", tone: "success" },
+];
+
 /* ---------- Primitives ---------- */
 function Card({
   children,
