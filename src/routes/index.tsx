@@ -2973,6 +2973,8 @@ function EvidenceSlideover({
   onClose: () => void;
   onDelete: (id: string) => void;
 }) {
+  const [rating, setRating] = useState<number>(4);
+  const scale = EFFECTIVENESS_SCALE[rating - 1];
   return (
     <motion.div
       initial={{ opacity: 0 }}
