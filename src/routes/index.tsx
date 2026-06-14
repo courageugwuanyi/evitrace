@@ -440,6 +440,7 @@ function EvitraceApp() {
   const [showCreateObjective, setShowCreateObjective] = useState(false);
   const [openObjective, setOpenObjective] = useState<Objective | null>(null);
   const [openEvidence, setOpenEvidence] = useState<(typeof initialEvidence)[number] | null>(null);
+  const [openInbox, setOpenInbox] = useState<(typeof initialInbox)[number] | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const pageTitle: Record<Tab, string> = {
@@ -508,7 +509,7 @@ function EvitraceApp() {
                 <DashboardView
                   inbox={inbox}
                   objectives={objectives}
-                  onApprove={approveInbox}
+                  onOpenInbox={setOpenInbox}
                 />
               )}
               {tab === "radar" && (
@@ -651,6 +652,27 @@ function EvitraceApp() {
           />
         )}
       </AnimatePresence>
+
+      {/* Auto-captured inbox slide-over */}
+      <AnimatePresence>
+        {openInbox && (
+          <InboxReviewSlideover
+            item={openInbox}
+            onClose={() => setOpenInbox(null)}
+            onConfirm={(comps) => {
+              approveInbox(openInbox.id, comps);
+              setOpenInbox(null);
+            }}
+            onDismiss={() => {
+              setInbox((x) => x.filter((i) => i.id !== openInbox.id));
+              setOpenInbox(null);
+              flash("Event dismissed");
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+
 
       {/* Toast */}
       <AnimatePresence>
@@ -831,11 +853,11 @@ function TopHeader({ title, onCapture }: { title: string; onCapture: () => void 
 function DashboardView({
   inbox,
   objectives,
-  onApprove,
+  onOpenInbox,
 }: {
   inbox: typeof initialInbox;
   objectives: Objective[];
-  onApprove: (id: string, comps: string[]) => void;
+  onOpenInbox: (item: (typeof initialInbox)[number]) => void;
 }) {
   const active = objectives.filter((o) => o.status === "In Progress");
   return (
@@ -884,7 +906,7 @@ function DashboardView({
               </div>
             ) : (
               inbox.map((it) => (
-                <InboxRow key={it.id} item={it} onApprove={onApprove} />
+                <InboxRow key={it.id} item={it} onOpen={() => onOpenInbox(it)} />
               ))
             )}
           </div>
@@ -994,18 +1016,17 @@ function SectionHeader({
 
 function InboxRow({
   item,
-  onApprove,
+  onOpen,
 }: {
   item: (typeof initialInbox)[number];
-  onApprove: (id: string, comps: string[]) => void;
+  onOpen: () => void;
 }) {
-  const [selected, setSelected] = useState<string[]>(item.suggestion);
   const Icon = item.icon;
-  function toggle(c: string) {
-    setSelected((s) => (s.includes(c) ? s.filter((x) => x !== c) : [...s, c]));
-  }
   return (
-    <div className="py-4 flex items-start gap-3">
+    <button
+      onClick={onOpen}
+      className="w-full text-left py-4 flex items-start gap-3 hover:bg-[#FAFBFC] transition-colors rounded px-2 -mx-2"
+    >
       <div
         className="w-9 h-9 rounded flex items-center justify-center shrink-0"
         style={{ background: "#F4F5F7", color: C.slate }}
@@ -1026,21 +1047,22 @@ function InboxRow({
           <span className="text-[11px] mr-1" style={{ color: C.subtle }}>
             AI suggested:
           </span>
-          {COMPETENCIES.slice(0, 5).map((c) => (
-            <Pill key={c} active={selected.includes(c)} onClick={() => toggle(c)}>
+          {item.suggestion.map((c) => (
+            <span
+              key={c}
+              className="text-[11px] px-2 py-0.5 rounded-full border"
+              style={{ borderColor: C.border, color: C.slate, background: "#F4F5F7" }}
+            >
               {c}
-            </Pill>
+            </span>
           ))}
         </div>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <GhostBtn>Dismiss</GhostBtn>
-        <PrimaryBtn onClick={() => onApprove(item.id, selected)}>
-          Confirm
-          <ArrowUpRight size={14} />
-        </PrimaryBtn>
+      <div className="shrink-0 self-center flex items-center gap-1 text-xs font-medium" style={{ color: C.primary }}>
+        Review
+        <ChevronRight size={14} />
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -3000,3 +3022,170 @@ function ObjectiveColumn({
     </div>
   );
 }
+
+/* ============================================================ */
+/*       SLIDE-OVER 3: REVIEW & EDIT AUTO-CAPTURED EVIDENCE     */
+/* ============================================================ */
+
+function InboxReviewSlideover({
+  item,
+  onClose,
+  onConfirm,
+  onDismiss,
+}: {
+  item: (typeof initialInbox)[number];
+  onClose: () => void;
+  onConfirm: (comps: string[]) => void;
+  onDismiss: () => void;
+}) {
+  const [title, setTitle] = useState(item.title);
+  const [description, setDescription] = useState("");
+  const [selected, setSelected] = useState<string[]>(item.suggestion);
+  const Icon = item.icon;
+  function toggle(c: string) {
+    setSelected((s) => (s.includes(c) ? s.filter((x) => x !== c) : [...s, c]));
+  }
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.15 }}
+      className="fixed inset-0 z-50"
+      style={{ background: "rgba(9, 30, 66, 0.45)" }}
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ x: "100%" }}
+        animate={{ x: 0 }}
+        exit={{ x: "100%" }}
+        transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+        className="absolute top-0 right-0 h-full w-full md:w-[44%] bg-white shadow-2xl flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="px-6 py-5 border-b" style={{ borderColor: C.border }}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs" style={{ color: C.subtle }}>
+              <Sparkles size={12} style={{ color: C.primary }} />
+              <span className="font-semibold uppercase tracking-wider" style={{ color: C.slate }}>
+                Review Auto-Captured Event
+              </span>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded hover:bg-[#F4F5F7]"
+              style={{ color: C.slate }}
+            >
+              <X size={18} />
+            </button>
+          </div>
+          <div className="text-[13px] mt-2" style={{ color: C.subtle }}>
+            The AI captured this event {item.when}. Confirm details before saving to your evidence log.
+          </div>
+        </div>
+
+        {/* Scrollable */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+          <section>
+            <label className="text-xs font-bold uppercase tracking-wider mb-1.5 block" style={{ color: C.subtle }}>
+              Evidence Title
+            </label>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full px-3 h-10 rounded border text-sm bg-[#FAFBFC] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0052CC]/30 focus:border-[#0052CC] transition"
+              style={{ borderColor: C.border, color: C.navy }}
+            />
+          </section>
+
+          <section>
+            <label className="text-xs font-bold uppercase tracking-wider mb-1.5 block" style={{ color: C.subtle }}>
+              Source Link
+            </label>
+            <div
+              className="flex items-center justify-between gap-2 px-3 py-2 rounded border"
+              style={{ borderColor: C.border, background: "#FAFBFC" }}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <div
+                  className="w-7 h-7 rounded flex items-center justify-center shrink-0"
+                  style={{ background: "#FFFFFF", color: C.slate, border: `1px solid ${C.border}` }}
+                >
+                  <Icon size={14} />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold" style={{ color: C.navy }}>
+                    {item.source}
+                  </div>
+                  <div className="text-[11px] truncate" style={{ color: C.subtle }}>
+                    {item.title}
+                  </div>
+                </div>
+              </div>
+              <button
+                className="shrink-0 inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded hover:bg-white"
+                style={{ color: C.primary }}
+              >
+                Open
+                <ExternalLink size={12} />
+              </button>
+            </div>
+          </section>
+
+          <section>
+            <label className="text-xs font-bold uppercase tracking-wider mb-1.5 block" style={{ color: C.subtle }}>
+              Description & Context
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={6}
+              placeholder="The AI captured this event, but please add context. What did you learn? What was the technical challenge?"
+              className="w-full px-3 py-2 rounded border text-sm bg-[#FAFBFC] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0052CC]/30 focus:border-[#0052CC] transition resize-none"
+              style={{ borderColor: C.border, color: C.navy }}
+            />
+          </section>
+
+          <section>
+            <div className="flex items-center gap-2 mb-2">
+              <Sparkles size={13} style={{ color: C.primary }} />
+              <label className="text-xs font-bold uppercase tracking-wider" style={{ color: C.subtle }}>
+                AI Competency Mapping
+              </label>
+            </div>
+            <div className="text-[11px] mb-2" style={{ color: C.subtle }}>
+              Click to toggle. Deselect what doesn't fit, add what does.
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {COMPETENCIES.map((c) => (
+                <Pill key={c} active={selected.includes(c)} onClick={() => toggle(c)}>
+                  {c}
+                </Pill>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        {/* Footer */}
+        <div
+          className="px-6 py-4 border-t flex items-center justify-between"
+          style={{ borderColor: C.border, background: "#FAFBFC" }}
+        >
+          <button
+            onClick={onDismiss}
+            className="px-3 h-9 rounded text-sm font-medium hover:bg-[#FFEBE6] transition-colors"
+            style={{ color: C.red }}
+          >
+            Dismiss Event
+          </button>
+          <PrimaryBtn onClick={() => onConfirm(selected)} disabled={selected.length === 0}>
+            <CheckCircle size={14} />
+            Confirm & Save
+          </PrimaryBtn>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
