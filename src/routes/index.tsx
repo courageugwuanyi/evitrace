@@ -1502,11 +1502,12 @@ function RadarView({
       </div>
 
       {/* Competency Matrix */}
-      <div className="grid grid-cols-5 gap-6">
-        <Card className="col-span-2 p-6">
+      <div className="grid grid-cols-5 gap-6 items-start">
+        <div className="col-span-2 space-y-6">
+        <Card className="p-6">
           <SectionHeader
             title="Competency Radar"
-            sub="Current score vs Level 4 target"
+            sub="Most recent assessment vs Level 4 target"
             right={
               <div className="flex items-center gap-3 text-xs" style={{ color: C.slate }}>
                 <span className="flex items-center gap-1.5">
@@ -1523,7 +1524,7 @@ function RadarView({
               </div>
             }
           />
-          <div className="h-[420px] mt-4">
+          <div className="h-[360px] mt-4">
             <ResponsiveContainer width="100%" height="100%">
               <RadarChart data={data} outerRadius="78%">
                 <PolarGrid stroke={C.border} />
@@ -1563,6 +1564,53 @@ function RadarView({
             </ResponsiveContainer>
           </div>
         </Card>
+
+        <Card className="p-6">
+          <SectionHeader
+            title="Progress Since Last Assessment"
+            sub="Previous vs current score per category"
+            right={
+              <div className="flex items-center gap-3 text-xs" style={{ color: C.slate }}>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-sm" style={{ background: "#A5ADBA" }} />
+                  Previous
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-sm" style={{ background: C.primary }} />
+                  Current
+                </span>
+              </div>
+            }
+          />
+          <div className="h-[260px] mt-4">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={data} margin={{ top: 8, right: 8, left: -16, bottom: 0 }} barCategoryGap={12}>
+                <CartesianGrid stroke={C.border} strokeDasharray="3 3" vertical={false} />
+                <XAxis
+                  dataKey="competency"
+                  tick={{ fill: C.slate, fontSize: 10 }}
+                  interval={0}
+                  angle={-20}
+                  textAnchor="end"
+                  height={50}
+                />
+                <YAxis domain={[0, 4]} tick={{ fill: C.subtle, fontSize: 10 }} />
+                <RTooltip
+                  contentStyle={{
+                    background: "#fff",
+                    border: `1px solid ${C.border}`,
+                    borderRadius: 6,
+                    fontSize: 12,
+                  }}
+                  formatter={(v: number) => `${Number(v).toFixed(2)} / 4`}
+                />
+                <Bar dataKey="previous" name="Previous" fill="#A5ADBA" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="current" name="Current" fill={C.primary} radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+        </div>
 
         <Card className="col-span-3 p-0 overflow-hidden">
           <div className="p-5 border-b" style={{ borderColor: C.border }}>
