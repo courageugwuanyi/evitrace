@@ -1581,7 +1581,14 @@ function HierarchicalMatrix({
             const subs = SUBCATEGORIES[canonical] ?? [];
             const isOpen = !!open[row.competency];
             const g = +(row.target - row.current).toFixed(2);
-            const tone = g >= 1 ? C.red : g >= 0.5 ? C.amber : C.green;
+            const lozenge =
+              g <= 0
+                ? "bg-green-100 text-green-800"
+                : g >= 1
+                  ? "bg-red-100 text-red-800"
+                  : g >= 0.5
+                    ? "bg-amber-100 text-amber-800"
+                    : "bg-slate-100 text-slate-800";
             return (
               <React.Fragment key={row.competency}>
                 <tr
@@ -1603,7 +1610,7 @@ function HierarchicalMatrix({
                   <Td style={{ color: C.slate }}>{row.current.toFixed(2)}</Td>
                   <Td style={{ color: C.slate }}>{row.target.toFixed(2)}</Td>
                   <Td>
-                    <span className="font-semibold" style={{ color: tone }}>
+                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${lozenge}`}>
                       {g > 0 ? `+${g}` : g}
                     </span>
                   </Td>
@@ -1622,7 +1629,14 @@ function HierarchicalMatrix({
                   const rating = subRating(canonical, sub);
                   const scale = EFFECTIVENESS_SCALE[rating - 1];
                   const subGap = +(row.target - rating).toFixed(2);
-                  const subTone = subGap >= 1 ? C.red : subGap >= 0.5 ? C.amber : C.green;
+                  const subLozenge =
+                    subGap <= 0
+                      ? "bg-green-100 text-green-800"
+                      : subGap >= 1
+                        ? "bg-red-100 text-red-800"
+                        : subGap >= 0.5
+                          ? "bg-amber-100 text-amber-800"
+                          : "bg-slate-100 text-slate-800";
                   return (
                     <tr
                       key={canonical + sub}
@@ -1638,7 +1652,7 @@ function HierarchicalMatrix({
                       <Td style={{ color: C.slate }}>{rating}</Td>
                       <Td style={{ color: C.slate }}>{row.target.toFixed(0)}</Td>
                       <Td>
-                        <span className="font-semibold" style={{ color: subTone }}>
+                        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${subLozenge}`}>
                           {subGap > 0 ? `+${subGap}` : subGap}
                         </span>
                       </Td>
