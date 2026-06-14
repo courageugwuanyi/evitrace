@@ -70,13 +70,13 @@ import {
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Evitrace — Engineering Competency & Promotion Tracking" },
+      { title: "Evitrace - Engineering Competency & Promotion Tracking" },
       {
         name: "description",
         content:
           "Capture evidence of your work, map it to competencies, and close the gap to your next promotion.",
       },
-      { property: "og:title", content: "Evitrace — Promotion Radar for Engineers" },
+      { property: "og:title", content: "Evitrace - Promotion Radar for Engineers" },
       {
         property: "og:description",
         content: "Track competency, evidence, and SMART objectives in one trusted workspace.",
@@ -432,7 +432,7 @@ const initialAssessments: Assessment[] = [
       Security: [[1, 2], [1, 2], [1, 1]],
       Delivery: [[2, 3], [2, 3], [2, 2]],
     },
-    topics: ["Set focus areas for Q1 — System Design, Security"],
+    topics: ["Set focus areas for Q1 - System Design, Security"],
   }),
 ];
 
@@ -1635,7 +1635,7 @@ function RadarView({
   void onStartReview;
   void onOpenHistory;
 
-  // Latest + previous finalized assessments — used for "previous" series + per-question rows
+  // Latest + previous finalized assessments - used for "previous" series + per-question rows
   const latest = assessments[0];
   const prior = assessments[1];
 
@@ -1989,7 +1989,7 @@ function HierarchicalMatrix({
                     </span>
                   </Td>
                   <Td style={{ color: C.subtle }}>
-                    <span className="text-[11px]">{latestCat ? "Rollup" : "—"}</span>
+                    <span className="text-[11px]">{latestCat ? "Rollup" : "-"}</span>
                   </Td>
                   <Td>
                     <button
@@ -2048,7 +2048,7 @@ function HierarchicalMatrix({
                             Note
                           </span>
                         ) : (
-                          <span className="text-[11px]" style={{ color: C.subtle }}>—</span>
+                          <span className="text-[11px]" style={{ color: C.subtle }}>-</span>
                         )}
                       </Td>
                       <Td>
@@ -2227,7 +2227,7 @@ function EvidenceView({
                       Open
                     </a>
                   ) : (
-                    <span style={{ color: C.subtle }}>—</span>
+                    <span style={{ color: C.subtle }}>-</span>
                   )}
                 </Td>
                 <Td>
@@ -2648,7 +2648,7 @@ function CreateObjectiveModal({
               value={r}
               onChange={setR}
             />
-            <Field label="T — Time-bound">
+            <Field label="T - Time-bound">
               <Input type="date" value={t} onChange={(e) => setT(e.target.value)} icon={<Calendar size={14} />} />
               <div className="text-[11px] mt-1.5" style={{ color: C.subtle }}>
                 Specific timeframe or deadline.
@@ -2673,7 +2673,7 @@ function CreateObjectiveModal({
               style={{ background: C.primarySoft, borderColor: "transparent" }}
             >
               <div className="text-[11px] font-bold uppercase tracking-wider mb-1" style={{ color: C.primary }}>
-                Pro Tip — Bloom's Taxonomy
+                Pro Tip - Bloom's Taxonomy
               </div>
               <div className="text-xs leading-relaxed" style={{ color: C.navy }}>
                 Rely on observable action verbs (identify, analyze, demonstrate). Instead of
@@ -2866,7 +2866,7 @@ function ObjectiveSlideover({
                     ).map(([k, n, v]) => (
                       <div key={k}>
                         <div className="text-[11px] font-bold uppercase tracking-wider" style={{ color: C.primary }}>
-                          {k} — {n}
+                          {k} - {n}
                         </div>
                         <div className="mt-0.5">{v || <span style={{ color: C.subtle }}>Not provided</span>}</div>
                       </div>
@@ -2897,7 +2897,7 @@ function ObjectiveSlideover({
             </section>
           )}
 
-          {/* Success Criteria — Learn / Demonstrate / Share */}
+          {/* Success Criteria - Learn / Demonstrate / Share */}
           {objective.successCriteria && (
             <section>
               <div className="flex items-center gap-2 mb-3">
@@ -3300,7 +3300,7 @@ function ProfileSettings() {
             Jordan Mills
           </div>
           <div className="text-sm" style={{ color: C.subtle }}>
-            Senior Engineer L3 — Payments
+            Senior Engineer L3 - Payments
           </div>
         </div>
         <div className="ml-auto">
@@ -4641,7 +4641,7 @@ function ReviewWizard({
                           >
                             {EFFECTIVENESS_SCALE.map((s) => (
                               <option key={s.value} value={s.value}>
-                                {s.value} — {s.label}
+                                {s.value} - {s.label}
                               </option>
                             ))}
                           </Select>
