@@ -806,6 +806,7 @@ function EvitraceApp() {
                   onFlash={flash}
                   review={review}
                   onStartReview={() => setShowWizard(true)}
+                  onOpenHistory={() => setShowHistory(true)}
                 />
               )}
               {tab === "settings" && <SettingsView />}
@@ -1406,26 +1407,9 @@ function RadarView({
 
   return (
     <div className="space-y-6">
-      {/* Page header with primary actions */}
-      <div className="flex items-end justify-between">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight" style={{ color: C.navy }}>
-            Promotion Readiness
-          </h2>
-          <div className="text-sm mt-0.5" style={{ color: C.subtle }}>
-            Assessment of current scores vs Level 4 target across the competency framework.
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <GhostBtn onClick={onOpenHistory}>
-            <History size={14} />
-            Assessment History
-          </GhostBtn>
-          <PrimaryBtn onClick={onStartReview}>
-            <ClipboardList size={14} />
-            Start Performance Review
-          </PrimaryBtn>
-        </div>
+      {/* Subtitle */}
+      <div className="text-sm" style={{ color: C.subtle }}>
+        Assessment of current scores vs Level 4 target across the competency framework.
       </div>
 
       {/* Executive Summary */}
@@ -1488,22 +1472,22 @@ function RadarView({
         </Card>
       </div>
 
-      {/* Competency Matrix */}
-      <div className="grid grid-cols-5 gap-6">
-        <Card className="col-span-2 p-6">
+      {/* Visual Gap Analysis - centered */}
+      <div className="max-w-3xl mx-auto w-full">
+        <Card className="p-6">
           <SectionHeader
             title="Competency Radar"
             sub="Current score vs Level 4 target"
             right={
               <div className="flex items-center gap-3 text-xs" style={{ color: C.slate }}>
                 <span className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-sm" style={{ background: C.primary }} />
+                  <span className="w-2.5 h-2.5 rounded-sm" style={{ background: "#0052CC" }} />
                   Current
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span
-                    className="w-2.5 h-2.5 rounded-sm border-2"
-                    style={{ borderColor: C.amber, background: "transparent" }}
+                    className="w-2.5 h-2.5 rounded-sm border-2 border-dashed"
+                    style={{ borderColor: "#00B8D9", background: "transparent" }}
                   />
                   Target L4
                 </span>
@@ -1522,18 +1506,18 @@ function RadarView({
                 <Radar
                   name="Target L4"
                   dataKey="target"
-                  stroke={C.amber}
-                  fill={C.amber}
-                  fillOpacity={0.08}
+                  stroke="#00B8D9"
+                  fill="none"
+                  fillOpacity={0}
                   strokeWidth={2}
-                  strokeDasharray="4 4"
+                  strokeDasharray="5 5"
                 />
                 <Radar
                   name="Current"
                   dataKey="current"
-                  stroke={C.primary}
-                  fill={C.primary}
-                  fillOpacity={0.25}
+                  stroke="#0052CC"
+                  fill="#0052CC"
+                  fillOpacity={0.2}
                   strokeWidth={2}
                 />
                 <RTooltip
@@ -1550,8 +1534,11 @@ function RadarView({
             </ResponsiveContainer>
           </div>
         </Card>
+      </div>
 
-        <Card className="col-span-3 p-0 overflow-hidden">
+      {/* Hierarchical Gap Analysis - full width */}
+      <div className="w-full">
+        <Card className="p-0 overflow-hidden">
           <div className="p-5 border-b" style={{ borderColor: C.border }}>
             <SectionHeader title="Hierarchical Gap Analysis" sub="Expand a category to see specific competency questions and their 1-5 effectiveness rating" />
           </div>
@@ -1594,7 +1581,14 @@ function HierarchicalMatrix({
             const subs = SUBCATEGORIES[canonical] ?? [];
             const isOpen = !!open[row.competency];
             const g = +(row.target - row.current).toFixed(2);
-            const tone = g >= 1 ? C.red : g >= 0.5 ? C.amber : C.green;
+            const lozenge =
+              g <= 0
+                ? "bg-green-100 text-green-800"
+                : g >= 1
+                  ? "bg-red-100 text-red-800"
+                  : g >= 0.5
+                    ? "bg-amber-100 text-amber-800"
+                    : "bg-slate-100 text-slate-800";
             return (
               <React.Fragment key={row.competency}>
                 <tr
@@ -1616,7 +1610,7 @@ function HierarchicalMatrix({
                   <Td style={{ color: C.slate }}>{row.current.toFixed(2)}</Td>
                   <Td style={{ color: C.slate }}>{row.target.toFixed(2)}</Td>
                   <Td>
-                    <span className="font-semibold" style={{ color: tone }}>
+                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${lozenge}`}>
                       {g > 0 ? `+${g}` : g}
                     </span>
                   </Td>
@@ -1635,7 +1629,14 @@ function HierarchicalMatrix({
                   const rating = subRating(canonical, sub);
                   const scale = EFFECTIVENESS_SCALE[rating - 1];
                   const subGap = +(row.target - rating).toFixed(2);
-                  const subTone = subGap >= 1 ? C.red : subGap >= 0.5 ? C.amber : C.green;
+                  const subLozenge =
+                    subGap <= 0
+                      ? "bg-green-100 text-green-800"
+                      : subGap >= 1
+                        ? "bg-red-100 text-red-800"
+                        : subGap >= 0.5
+                          ? "bg-amber-100 text-amber-800"
+                          : "bg-slate-100 text-slate-800";
                   return (
                     <tr
                       key={canonical + sub}
@@ -1651,7 +1652,7 @@ function HierarchicalMatrix({
                       <Td style={{ color: C.slate }}>{rating}</Td>
                       <Td style={{ color: C.slate }}>{row.target.toFixed(0)}</Td>
                       <Td>
-                        <span className="font-semibold" style={{ color: subTone }}>
+                        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${subLozenge}`}>
                           {subGap > 0 ? `+${subGap}` : subGap}
                         </span>
                       </Td>
@@ -1902,13 +1903,8 @@ function ObjectivesView({
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-bold" style={{ color: C.navy }}>
-            Career Objectives
-          </h2>
-          <div className="text-sm mt-0.5" style={{ color: C.subtle }}>
-            Proactive goals that close competency gaps outside your daily work
-          </div>
+        <div className="text-sm" style={{ color: C.subtle }}>
+          Proactive goals that close competency gaps outside your daily work
         </div>
         <PrimaryBtn onClick={onCreate}>
           <Plus size={16} />
@@ -3311,6 +3307,7 @@ function ReportView({
   onFlash,
   review,
   onStartReview,
+  onOpenHistory,
 }: {
   evidence: typeof initialEvidence;
   objectives: Objective[];
@@ -3318,6 +3315,7 @@ function ReportView({
   onFlash: (m: string) => void;
   review: ReviewSession | null;
   onStartReview: () => void;
+  onOpenHistory: () => void;
 }) {
   const approved = evidence.filter((e) => e.status === "Approved");
   const completed = objectives.filter((o) => o.status === "Completed");
@@ -3397,28 +3395,39 @@ function ReportView({
   // Empty state when no review has been finalized
   if (!review) {
     return (
-      <div className="max-w-2xl mx-auto mt-12">
-        <Card className="p-10 text-center">
+      <div className="space-y-6">
+        {/* Action Hub bar */}
+        <div className="flex items-center justify-between">
+          <div className="text-sm" style={{ color: C.subtle }}>
+            The action hub for performance reviews. Start a new session or revisit past assessments.
+          </div>
+          <div className="flex items-center gap-2">
+            <GhostBtn onClick={onOpenHistory}>
+              <History size={14} />
+              Assessment History
+            </GhostBtn>
+            <PrimaryBtn onClick={onStartReview}>
+              <ClipboardList size={14} />
+              Start Performance Review
+            </PrimaryBtn>
+          </div>
+        </div>
+
+        <Card className="p-10 text-center max-w-2xl mx-auto">
           <div
             className="w-14 h-14 rounded-full mx-auto flex items-center justify-center mb-4"
             style={{ background: C.primarySoft, color: C.primary }}
           >
             <FileCheck2 size={26} />
           </div>
-          <h2 className="text-xl font-bold tracking-tight" style={{ color: C.navy }}>
+          <h3 className="text-lg font-bold tracking-tight" style={{ color: C.navy }}>
             No finalized performance review yet
-          </h2>
+          </h3>
           <p className="mt-2 text-sm leading-relaxed" style={{ color: C.slate }}>
-            Start a Performance Review session from the Promotion Readiness tab. Once you finalize the
-            wizard, this page will auto-generate a shareable summary with the competency delta,
-            justification notes, highlighted evidence, and a 1-on-1 talking points checklist.
+            Click "Start Performance Review" above to launch the wizard. Once finalized, this page
+            auto-generates a shareable summary with the competency delta, justification notes,
+            highlighted evidence, and a 1-on-1 talking points checklist.
           </p>
-          <div className="mt-6">
-            <PrimaryBtn onClick={onStartReview}>
-              <ClipboardList size={14} />
-              Start Performance Review
-            </PrimaryBtn>
-          </div>
         </Card>
       </div>
     );
@@ -3426,6 +3435,23 @@ function ReportView({
 
   return (
     <div>
+      {/* Action Hub bar */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="text-sm" style={{ color: C.subtle }}>
+          The action hub for performance reviews. Start a new session or revisit past assessments.
+        </div>
+        <div className="flex items-center gap-2">
+          <GhostBtn onClick={onOpenHistory}>
+            <History size={14} />
+            Assessment History
+          </GhostBtn>
+          <PrimaryBtn onClick={onStartReview}>
+            <ClipboardList size={14} />
+            Start Performance Review
+          </PrimaryBtn>
+        </div>
+      </div>
+
       {/* Sticky action bar */}
       <div
         className="sticky top-0 z-20 -mx-8 px-8 py-3 mb-6 border-b flex items-center justify-between"
