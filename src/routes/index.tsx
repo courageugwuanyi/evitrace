@@ -3706,6 +3706,9 @@ function ReportView({
   radarData: _radarData,
   onFlash,
   review,
+  assessments,
+  onOpenAssessment,
+  onClearReview,
   onStartReview,
   onOpenHistory,
 }: {
@@ -3714,6 +3717,9 @@ function ReportView({
   radarData: typeof initialRadar;
   onFlash: (m: string) => void;
   review: ReviewSession | null;
+  assessments: Assessment[];
+  onOpenAssessment: (a: Assessment) => void;
+  onClearReview: () => void;
   onStartReview: () => void;
   onOpenHistory: () => void;
 }) {
