@@ -192,6 +192,14 @@ function subRating(cat: string, sub: string): number {
   return 1 + (key % 5);
 }
 
+function subPrevious(cat: string, sub: string): number {
+  // previous assessment score: typically 0-1 below current, clamped to 1
+  const cur = subRating(cat, sub);
+  const key = (cat + sub + "_prev").split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+  const drop = (key % 2) + 1; // drop by 1 or 2
+  return Math.max(1, cur - drop);
+}
+
 /* ---------- Shared category helpers ---------- */
 const ALL_CATEGORIES = Object.keys(SUBCATEGORIES);
 function radarLabelToCategory(label: string): string {
