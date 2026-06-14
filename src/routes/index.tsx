@@ -48,6 +48,8 @@ import {
   Save,
   FileCheck2,
   ClipboardList,
+  BarChartHorizontal,
+  ArrowLeft,
 } from "lucide-react";
 import {
   Radar,
