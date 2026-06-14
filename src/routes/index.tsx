@@ -509,7 +509,7 @@ function EvitraceApp() {
                 <DashboardView
                   inbox={inbox}
                   objectives={objectives}
-                  onApprove={approveInbox}
+                  onOpenInbox={setOpenInbox}
                 />
               )}
               {tab === "radar" && (
