@@ -3266,23 +3266,61 @@ function ReportView({
   objectives,
   radarData: _radarData,
   onFlash,
+  review,
+  onStartReview,
 }: {
   evidence: typeof initialEvidence;
   objectives: Objective[];
   radarData: typeof initialRadar;
   onFlash: (m: string) => void;
+  review: ReviewSession | null;
+  onStartReview: () => void;
 }) {
   const approved = evidence.filter((e) => e.status === "Approved");
-  const topThree = approved.slice(0, 3);
   const completed = objectives.filter((o) => o.status === "Completed");
   const upcoming = objectives.filter((o) => o.status !== "Completed");
 
-  const deltas = [
-    { name: "Engineering Quality", from: 2.0, to: 2.5 },
-    { name: "Analytical Thinking", from: 1.5, to: 2.0 },
-    { name: "System Design", from: 2.4, to: 2.8 },
-    { name: "Communication", from: 2.7, to: 3.0 },
-  ];
+  // Build deltas / justification log strictly from the wizard-captured review.
+  const deltas = useMemo(() => {
+    if (!review) return [] as { name: string; from: number; to: number }[];
+    return Object.entries(review.scores)
+      .map(([cat, subs]) => {
+        const entries = Object.values(subs);
+        if (entries.length === 0) return null;
+        const from = +(entries.reduce((s, q) => s + q.prev, 0) / entries.length).toFixed(2);
+        const to = +(entries.reduce((s, q) => s + q.next, 0) / entries.length).toFixed(2);
+        return { name: cat, from, to };
+      })
+      .filter((d): d is { name: string; from: number; to: number } => !!d && d.to !== d.from);
+  }, [review]);
+
+  const justification = useMemo(() => {
+    if (!review) return [] as { cat: string; sub: string; q: ReviewQuestion }[];
+    const out: { cat: string; sub: string; q: ReviewQuestion }[] = [];
+    Object.entries(review.scores).forEach(([cat, subs]) => {
+      Object.entries(subs).forEach(([sub, q]) => {
+        if (q.next !== q.prev && q.notes.trim().length > 0) out.push({ cat, sub, q });
+      });
+    });
+    return out;
+  }, [review]);
+
+  const highlightedEvidence = useMemo(() => {
+    if (!review) return [] as typeof approved;
+    const ids = new Set<string>();
+    Object.values(review.scores).forEach((subs) =>
+      Object.values(subs).forEach((q) => q.evidenceIds.forEach((id) => ids.add(id))),
+    );
+    return evidence.filter((e) => ids.has(e.id)).slice(0, 3);
+  }, [review, evidence]);
+
+  const overallReadiness = useMemo(() => {
+    if (!review) return null;
+    const all = Object.values(review.scores).flatMap((s) => Object.values(s));
+    if (all.length === 0) return null;
+    const avg = all.reduce((s, q) => s + q.next, 0) / all.length;
+    return Math.round((avg / 4) * 100);
+  }, [review]);
 
   const [topics, setTopics] = useState<string[]>([
     "Discuss timeline for the formal L4 promotion panel.",
@@ -3298,6 +3336,10 @@ function ReportView({
     setDraft("");
   }
 
+  function removeTopic(i: number) {
+    setTopics((x) => x.filter((_, idx) => idx !== i));
+  }
+
   function copyLink() {
     if (typeof navigator !== "undefined" && navigator.clipboard) {
       navigator.clipboard.writeText(window.location.href + "?report=q3-2026").catch(() => {});
@@ -3307,6 +3349,36 @@ function ReportView({
 
   function exportPdf() {
     if (typeof window !== "undefined") window.print();
+  }
+
+  // Empty state when no review has been finalized
+  if (!review) {
+    return (
+      <div className="max-w-2xl mx-auto mt-12">
+        <Card className="p-10 text-center">
+          <div
+            className="w-14 h-14 rounded-full mx-auto flex items-center justify-center mb-4"
+            style={{ background: C.primarySoft, color: C.primary }}
+          >
+            <FileCheck2 size={26} />
+          </div>
+          <h2 className="text-xl font-bold tracking-tight" style={{ color: C.navy }}>
+            No finalized performance review yet
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed" style={{ color: C.slate }}>
+            Start a Performance Review session from the Promotion Readiness tab. Once you finalize the
+            wizard, this page will auto-generate a shareable summary with the competency delta,
+            justification notes, highlighted evidence, and a 1-on-1 talking points checklist.
+          </p>
+          <div className="mt-6">
+            <PrimaryBtn onClick={onStartReview}>
+              <ClipboardList size={14} />
+              Start Performance Review
+            </PrimaryBtn>
+          </div>
+        </Card>
+      </div>
+    );
   }
 
   return (
@@ -3346,19 +3418,19 @@ function ReportView({
             className="text-3xl font-bold tracking-tight"
             style={{ color: C.navy }}
           >
-            Q3 Performance & Growth Summary
+            Performance & Growth Summary
           </h1>
           <div className="mt-3 space-y-1 text-sm" style={{ color: C.slate }}>
             <div>
-              Engineer: <span style={{ color: C.navy, fontWeight: 600 }}>Courage U.</span>
+              Engineer: <span style={{ color: C.navy, fontWeight: 600 }}>{review.engineer}</span>
               {"  |  "}Role: L3 Engineer{"  |  "}Target: L4 Senior Engineer
             </div>
             <div>
-              Manager: <span style={{ color: C.navy, fontWeight: 600 }}>Alex M.</span>
+              Manager: <span style={{ color: C.navy, fontWeight: 600 }}>{review.manager}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <Calendar size={14} style={{ color: C.subtle }} />
-              Period: July 1, 2026 — Sept 30, 2026
+              Period: {review.period} · Finalized {review.date}
             </div>
           </div>
           <div className="mt-6 border-t" style={{ borderColor: C.border }} />
@@ -3366,24 +3438,46 @@ function ReportView({
 
         {/* 2. Executive summary */}
         <section className="mt-8">
-          <SectionHeading icon={<Target size={18} />} title="Quarterly Overview" />
+          <SectionHeading icon={<Target size={18} />} title="Executive Summary" />
           <p className="mt-3 text-[15px] leading-relaxed" style={{ color: C.slate }}>
-            This quarter, Courage demonstrated strong growth in{" "}
-            <span style={{ color: C.navy, fontWeight: 600 }}>Engineering Quality</span> and{" "}
-            <span style={{ color: C.navy, fontWeight: 600 }}>Analytical Thinking</span>.{" "}
+            This review captured updated effectiveness scores across{" "}
+            <span style={{ color: C.navy, fontWeight: 600 }}>{Object.keys(review.scores).length}</span>{" "}
+            competency categories.{" "}
+            {deltas.filter((d) => d.to > d.from).length > 0 && (
+              <>
+                Notable growth was recorded in{" "}
+                <span style={{ color: C.navy, fontWeight: 600 }}>
+                  {deltas
+                    .filter((d) => d.to > d.from)
+                    .slice(0, 2)
+                    .map((d) => d.name)
+                    .join(" and ")}
+                </span>
+                .{" "}
+              </>
+            )}
             <span style={{ color: C.navy, fontWeight: 600 }}>{approved.length}</span> pieces of
-            evidence were verified, closing the gap in System Design. Current readiness for L4 is at{" "}
-            <span style={{ color: C.primary, fontWeight: 700 }}>85%</span>.
+            evidence are verified in the log. Current readiness for L4 is at{" "}
+            <span style={{ color: C.primary, fontWeight: 700 }}>{overallReadiness ?? 0}%</span>.
           </p>
         </section>
 
         {/* 3. Competency delta */}
         <section className="mt-10">
-          <SectionHeading icon={<TrendingUp size={18} />} title="Competency Growth" />
+          <SectionHeading icon={<TrendingUp size={18} />} title="Competency Delta" />
+          {deltas.length === 0 ? (
+            <div
+              className="mt-3 text-sm p-4 rounded border border-dashed"
+              style={{ color: C.subtle, borderColor: C.border }}
+            >
+              No score changes were recorded in this review.
+            </div>
+          ) : (
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
             {deltas.map((d) => {
-              const pct = Math.round(((d.to - d.from) / d.from) * 100);
+              const pct = d.from === 0 ? 0 : Math.round(((d.to - d.from) / d.from) * 100);
               const width = Math.min(100, (d.to / 4) * 100);
+              const positive = d.to >= d.from;
               return (
                 <div key={d.name}>
                   <div className="flex items-baseline justify-between mb-1.5">
@@ -3392,7 +3486,12 @@ function ReportView({
                     </div>
                     <div className="text-xs font-medium" style={{ color: C.slate }}>
                       {d.from.toFixed(2)} → {d.to.toFixed(2)}{" "}
-                      <span style={{ color: C.green, fontWeight: 700 }}>+{pct}%</span>
+                      <span
+                        style={{ color: positive ? C.green : C.red, fontWeight: 700 }}
+                      >
+                        {positive ? "+" : ""}
+                        {pct}%
+                      </span>
                     </div>
                   </div>
                   <div
@@ -3401,20 +3500,65 @@ function ReportView({
                   >
                     <div
                       className="h-full rounded-full"
-                      style={{ width: `${width}%`, background: C.green }}
+                      style={{ width: `${width}%`, background: positive ? C.green : C.red }}
                     />
                   </div>
                 </div>
               );
             })}
           </div>
+          )}
         </section>
 
-        {/* 4. Highlighted evidence */}
+        {/* 4. Justification notes log */}
         <section className="mt-10">
-          <SectionHeading icon={<Award size={18} />} title="Top Verified Contributions" />
+          <SectionHeading icon={<AlignLeft size={18} />} title="Justification Notes Log" />
+          {justification.length === 0 ? (
+            <div
+              className="mt-3 text-sm p-4 rounded border border-dashed"
+              style={{ color: C.subtle, borderColor: C.border }}
+            >
+              No justification notes were attached to changed scores.
+            </div>
+          ) : (
+            <ul className="mt-4 space-y-3">
+              {justification.map(({ cat, sub, q }, i) => (
+                <li
+                  key={i}
+                  className="p-4 rounded border"
+                  style={{ borderColor: C.border, background: "#FFFFFF" }}
+                >
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge tone="info">{cat}</Badge>
+                    <span className="text-xs font-semibold" style={{ color: C.navy }}>
+                      {sub}
+                    </span>
+                    <span className="text-xs" style={{ color: C.subtle }}>
+                      {q.prev} → {q.next}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm leading-relaxed" style={{ color: C.slate }}>
+                    {q.notes}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {/* 5. Highlighted evidence */}
+        <section className="mt-10">
+          <SectionHeading icon={<Award size={18} />} title="Highlighted Evidence" />
+          {highlightedEvidence.length === 0 ? (
+            <div
+              className="mt-3 text-sm p-4 rounded border border-dashed"
+              style={{ color: C.subtle, borderColor: C.border }}
+            >
+              No evidence was attached during the review.
+            </div>
+          ) : (
           <div className="mt-4 space-y-3">
-            {topThree.map((e) => (
+            {highlightedEvidence.map((e) => (
               <div
                 key={e.id}
                 className="border-l-4 pl-4 py-3 pr-4 rounded-sm"
@@ -3439,20 +3583,21 @@ function ReportView({
               </div>
             ))}
           </div>
+          )}
         </section>
 
-        {/* 5. Objectives */}
+        {/* 6. Objectives */}
         <section className="mt-10">
-          <SectionHeading icon={<ListTodo size={18} />} title="SMART Objectives" />
+          <SectionHeading icon={<ListTodo size={18} />} title="Active Objectives" />
           <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
             <ObjectiveColumn
-              label="Completed This Quarter"
+              label="Completed This Period"
               tone="success"
               items={completed}
               emptyText="No objectives completed this period."
             />
             <ObjectiveColumn
-              label="Focus for Next Quarter"
+              label="Focus for Next Period"
               tone="info"
               items={upcoming}
               emptyText="No active objectives planned."
@@ -3460,23 +3605,31 @@ function ReportView({
           </div>
         </section>
 
-        {/* 6. Talking points */}
+        {/* 7. Talking points */}
         <section className="mt-10">
-          <SectionHeading icon={<MessageSquare size={18} />} title="Talking Points for 1-on-1" />
+          <SectionHeading icon={<MessageSquare size={18} />} title="1-on-1 Discussion Topics" />
           <div
             className="mt-4 p-5 rounded border"
             style={{ background: C.bg, borderColor: C.border }}
           >
             <ol className="space-y-2.5">
               {topics.map((t, i) => (
-                <li key={i} className="flex items-start gap-3 text-sm" style={{ color: C.slate }}>
+                <li key={i} className="group flex items-start gap-3 text-sm" style={{ color: C.slate }}>
                   <span
                     className="shrink-0 w-5 h-5 rounded-full text-[11px] font-bold flex items-center justify-center"
                     style={{ background: C.primarySoft, color: C.primary }}
                   >
                     {i + 1}
                   </span>
-                  <span className="leading-relaxed">{t}</span>
+                  <span className="leading-relaxed flex-1">{t}</span>
+                  <button
+                    onClick={() => removeTopic(i)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity"
+                    style={{ color: C.subtle }}
+                    aria-label="Remove topic"
+                  >
+                    <X size={14} />
+                  </button>
                 </li>
               ))}
             </ol>
@@ -3505,7 +3658,7 @@ function ReportView({
           style={{ borderColor: C.border, color: C.subtle }}
         >
           <span>Generated by Evitrace · Confidential</span>
-          <span>Report ID · EVT-RPT-Q3-2026</span>
+          <span>Report ID · {review.id}</span>
         </footer>
       </article>
     </div>
