@@ -1631,11 +1631,23 @@ function HierarchicalMatrix({
   onCreateObjective: () => void;
 }) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [notes, setNotes] = useState<Record<string, string>>({});
   // Map short radar label -> canonical category name in SUBCATEGORIES
   const mapToCanonical = (label: string): string => {
     if (label === "Analytical") return "Analytical Thinking";
     if (label === "UX Eng") return "Engineering for UX";
     return label;
+  };
+  const fmtChange = (prev: number, curr: number) => {
+    const delta = +(curr - prev).toFixed(2);
+    if (prev === 0) return { text: "—", tone: C.subtle, delta };
+    const pct = Math.round(((curr - prev) / prev) * 100);
+    const sign = delta > 0 ? "+" : "";
+    return {
+      text: `${sign}${delta.toFixed(2)} (${sign}${pct}%)`,
+      tone: delta > 0 ? C.green : delta < 0 ? C.red : C.subtle,
+      delta,
+    };
   };
   return (
     <div className="overflow-x-auto">
@@ -1643,7 +1655,9 @@ function HierarchicalMatrix({
         <thead style={{ background: "#F4F5F7", color: C.subtle }}>
           <tr className="text-left text-[11px] uppercase tracking-wider">
             <Th>Category / Question</Th>
+            <Th>Previous</Th>
             <Th>Current</Th>
+            <Th>Δ Change</Th>
             <Th>Target</Th>
             <Th>Gap</Th>
             <Th>Action</Th>
@@ -1654,8 +1668,18 @@ function HierarchicalMatrix({
             const canonical = mapToCanonical(row.competency);
             const subs = SUBCATEGORIES[canonical] ?? [];
             const isOpen = !!open[row.competency];
-            const g = +(row.target - row.current).toFixed(2);
+            // Roll up sub-question scores (1-5) into category score on 0-4 scale
+            const subCurrAvg = subs.length
+              ? subs.reduce((s, sub) => s + subRating(canonical, sub), 0) / subs.length
+              : row.current * (5 / 4);
+            const subPrevAvg = subs.length
+              ? subs.reduce((s, sub) => s + subPrevious(canonical, sub), 0) / subs.length
+              : row.previous * (5 / 4);
+            const catCurrent = +(subCurrAvg * (4 / 5)).toFixed(2);
+            const catPrevious = +(subPrevAvg * (4 / 5)).toFixed(2);
+            const g = +(row.target - catCurrent).toFixed(2);
             const tone = g >= 1 ? C.red : g >= 0.5 ? C.amber : C.green;
+            const catChange = fmtChange(catPrevious, catCurrent);
             return (
               <React.Fragment key={row.competency}>
                 <tr
@@ -1674,7 +1698,13 @@ function HierarchicalMatrix({
                       </span>
                     </span>
                   </Td>
-                  <Td style={{ color: C.slate }}>{row.current.toFixed(2)}</Td>
+                  <Td style={{ color: C.subtle }}>{catPrevious.toFixed(2)}</Td>
+                  <Td className="font-semibold" style={{ color: C.navy }}>{catCurrent.toFixed(2)}</Td>
+                  <Td>
+                    <span className="font-semibold text-xs" style={{ color: catChange.tone }}>
+                      {catChange.text}
+                    </span>
+                  </Td>
                   <Td style={{ color: C.slate }}>{row.target.toFixed(2)}</Td>
                   <Td>
                     <span className="font-semibold" style={{ color: tone }}>
@@ -1694,9 +1724,12 @@ function HierarchicalMatrix({
                 </tr>
                 {isOpen && subs.map((sub) => {
                   const rating = subRating(canonical, sub);
+                  const prev = subPrevious(canonical, sub);
                   const scale = EFFECTIVENESS_SCALE[rating - 1];
                   const subGap = +(row.target - rating).toFixed(2);
                   const subTone = subGap >= 1 ? C.red : subGap >= 0.5 ? C.amber : C.green;
+                  const change = fmtChange(prev, rating);
+                  const noteKey = canonical + "::" + sub;
                   return (
                     <tr
                       key={canonical + sub}
@@ -1708,8 +1741,22 @@ function HierarchicalMatrix({
                         <div className="text-[11px] mt-0.5" style={{ color: C.subtle }}>
                           Score: {rating} &mdash; {scale.label}
                         </div>
+                        <textarea
+                          value={notes[noteKey] ?? ""}
+                          onChange={(e) => setNotes((n) => ({ ...n, [noteKey]: e.target.value }))}
+                          placeholder="Add justification or notes for this score (cite evidence, agreed reasoning)…"
+                          rows={2}
+                          className="mt-2 w-full text-[11px] px-2 py-1.5 rounded border bg-white outline-none focus:border-[#0052CC] transition-colors resize-none"
+                          style={{ borderColor: C.border, color: C.navy }}
+                        />
                       </Td>
+                      <Td style={{ color: C.subtle }}>{prev}</Td>
                       <Td style={{ color: C.slate }}>{rating}</Td>
+                      <Td>
+                        <span className="font-semibold text-[11px]" style={{ color: change.tone }}>
+                          {change.text}
+                        </span>
+                      </Td>
                       <Td style={{ color: C.slate }}>{row.target.toFixed(0)}</Td>
                       <Td>
                         <span className="font-semibold" style={{ color: subTone }}>
