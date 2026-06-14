@@ -397,14 +397,14 @@ function Select({
 
 /* ---------- Mock data ---------- */
 const initialRadar = [
-  { competency: "Analytical", current: 3.2, target: 4 },
-  { competency: "System Design", current: 2.8, target: 4 },
-  { competency: "Code Quality", current: 3.6, target: 4 },
-  { competency: "Communication", current: 3.0, target: 4 },
-  { competency: "Leadership", current: 2.4, target: 4 },
-  { competency: "UX Eng", current: 2.6, target: 4 },
-  { competency: "Security", current: 2.9, target: 4 },
-  { competency: "Delivery", current: 3.4, target: 4 },
+  { competency: "Analytical", previous: 2.8, current: 3.2, target: 4 },
+  { competency: "System Design", previous: 2.4, current: 2.8, target: 4 },
+  { competency: "Code Quality", previous: 3.1, current: 3.6, target: 4 },
+  { competency: "Communication", previous: 2.7, current: 3.0, target: 4 },
+  { competency: "Leadership", previous: 2.0, current: 2.4, target: 4 },
+  { competency: "UX Eng", previous: 2.5, current: 2.6, target: 4 },
+  { competency: "Security", previous: 2.6, current: 2.9, target: 4 },
+  { competency: "Delivery", previous: 3.0, current: 3.4, target: 4 },
 ];
 
 const initialEvidence = [
