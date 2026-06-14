@@ -1609,11 +1609,13 @@ function InboxRow({
 
 function RadarView({
   data,
+  assessments,
   onCreateObjective,
   onStartReview,
   onOpenHistory,
 }: {
   data: typeof initialRadar;
+  assessments: Assessment[];
   onCreateObjective: () => void;
   onStartReview: () => void;
   onOpenHistory: () => void;
@@ -1625,6 +1627,33 @@ function RadarView({
   const readiness = Math.round((current / 4) * 100);
   const top = [...data].sort((a, b) => b.current - a.current)[0];
   const gap = [...data].sort((a, b) => b.target - b.current - (a.target - a.current))[0];
+
+  const [chartMode, setChartMode] = useState<"radar" | "bar">("radar");
+  void onStartReview;
+  void onOpenHistory;
+
+  // Latest + previous finalized assessments — used for "previous" series + per-question rows
+  const latest = assessments[0];
+  const prior = assessments[1];
+
+  // Build a unified per-category dataset that combines the radar/data ordering
+  // with previous-cycle averages drawn from prior assessment.
+  const chartData = useMemo(() => {
+    return data.map((r) => {
+      const cat = radarLabelToCategory(r.competency);
+      const priorCat = prior?.categories.find((c) => c.categoryName === cat);
+      // assessments use 1-5 scale; radar uses 0-4. Map by (x/5)*4.
+      const previous = priorCat
+        ? +Math.min(4, (priorCat.categoryCurrentAvg / 5) * 4).toFixed(2)
+        : +Math.max(0, r.current - 0.4).toFixed(2);
+      return {
+        competency: r.competency,
+        previous,
+        current: r.current,
+        target: r.target,
+      };
+    });
+  }, [data, prior]);
 
   return (
     <div className="space-y-6">
@@ -1693,79 +1722,171 @@ function RadarView({
         </Card>
       </div>
 
-      {/* Visual Gap Analysis + Hierarchical Table - side by side */}
-      <div className="grid grid-cols-1 xl:grid-cols-5 gap-4 items-start">
-        <div className="xl:col-span-2 xl:sticky xl:top-4 self-start">
-        <Card className="p-6">
+      {/* Chart card - centered, height-bounded so it never stretches */}
+      <div className="max-w-4xl mx-auto w-full">
+        <Card className="p-6 h-fit">
           <SectionHeader
-            title="Competency Radar"
-            sub="Current score vs Level 4 target"
+            title="Visual Gap Analysis"
+            sub={
+              chartMode === "radar"
+                ? "Holistic shape: current score vs Level 4 target"
+                : "Side-by-side comparison: previous, current, and target per category"
+            }
             right={
-              <div className="flex items-center gap-3 text-xs" style={{ color: C.slate }}>
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-sm" style={{ background: "#0052CC" }} />
-                  Current
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span
-                    className="w-2.5 h-2.5 rounded-sm border-2 border-dashed"
-                    style={{ borderColor: "#00B8D9", background: "transparent" }}
-                  />
-                  Target L4
-                </span>
+              <div className="inline-flex items-center rounded border overflow-hidden" style={{ borderColor: C.border }}>
+                <button
+                  type="button"
+                  onClick={() => setChartMode("radar")}
+                  aria-pressed={chartMode === "radar"}
+                  className="inline-flex items-center gap-1.5 px-2.5 h-8 text-xs font-semibold transition-colors"
+                  style={{
+                    background: chartMode === "radar" ? C.primarySoft : "#fff",
+                    color: chartMode === "radar" ? C.primary : C.slate,
+                  }}
+                >
+                  <RadarIcon size={13} />
+                  Radar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChartMode("bar")}
+                  aria-pressed={chartMode === "bar"}
+                  className="inline-flex items-center gap-1.5 px-2.5 h-8 text-xs font-semibold transition-colors border-l"
+                  style={{
+                    borderColor: C.border,
+                    background: chartMode === "bar" ? C.primarySoft : "#fff",
+                    color: chartMode === "bar" ? C.primary : C.slate,
+                  }}
+                >
+                  <BarChartHorizontal size={13} />
+                  Bar
+                </button>
               </div>
             }
           />
+          <div className="flex items-center gap-4 text-xs mt-3" style={{ color: C.slate }}>
+            {chartMode === "bar" && (
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: C.slate }} />
+                Previous
+              </span>
+            )}
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-sm" style={{ background: "#0052CC" }} />
+              Current
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span
+                className="w-2.5 h-2.5 rounded-sm border-2 border-dashed"
+                style={{ borderColor: "#00B8D9", background: "transparent" }}
+              />
+              Target L4
+            </span>
+          </div>
           <div className="h-[420px] mt-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <RadarChart data={data} outerRadius="78%">
-                <PolarGrid stroke={C.border} />
-                <PolarAngleAxis
-                  dataKey="competency"
-                  tick={{ fill: C.navy, fontSize: 11, fontWeight: 600 }}
-                />
-                <PolarRadiusAxis angle={90} domain={[0, 4]} tick={{ fill: C.subtle, fontSize: 10 }} />
-                <Radar
-                  name="Target L4"
-                  dataKey="target"
-                  stroke="#00B8D9"
-                  fill="none"
-                  fillOpacity={0}
-                  strokeWidth={2}
-                  strokeDasharray="5 5"
-                />
-                <Radar
-                  name="Current"
-                  dataKey="current"
-                  stroke="#0052CC"
-                  fill="#0052CC"
-                  fillOpacity={0.2}
-                  strokeWidth={2}
-                />
-                <RTooltip
-                  contentStyle={{
-                    background: "#fff",
-                    border: `1px solid ${C.border}`,
-                    borderRadius: 6,
-                    fontSize: 12,
-                  }}
-                  formatter={(v) => `${Number(v).toFixed(2)} / 4`}
-                />
-                <Legend wrapperStyle={{ display: "none" }} />
-              </RadarChart>
-            </ResponsiveContainer>
+            {chartMode === "radar" ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart data={data} outerRadius="78%">
+                  <PolarGrid stroke={C.border} />
+                  <PolarAngleAxis
+                    dataKey="competency"
+                    tick={{ fill: C.navy, fontSize: 11, fontWeight: 600 }}
+                  />
+                  <PolarRadiusAxis angle={90} domain={[0, 4]} tick={{ fill: C.subtle, fontSize: 10 }} />
+                  <Radar
+                    name="Target L4"
+                    dataKey="target"
+                    stroke="#00B8D9"
+                    fill="none"
+                    fillOpacity={0}
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                  />
+                  <Radar
+                    name="Current"
+                    dataKey="current"
+                    stroke="#0052CC"
+                    fill="#0052CC"
+                    fillOpacity={0.2}
+                    strokeWidth={2}
+                  />
+                  <RTooltip
+                    contentStyle={{
+                      background: "#fff",
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 6,
+                      fontSize: 12,
+                    }}
+                    formatter={(v) => `${Number(v).toFixed(2)} / 4`}
+                  />
+                  <Legend wrapperStyle={{ display: "none" }} />
+                </RadarChart>
+              </ResponsiveContainer>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={chartData}
+                  layout="vertical"
+                  margin={{ top: 8, right: 24, bottom: 8, left: 16 }}
+                  barCategoryGap="22%"
+                >
+                  <CartesianGrid horizontal={false} stroke={C.border} />
+                  <XAxis
+                    type="number"
+                    domain={[0, 4]}
+                    tick={{ fill: C.subtle, fontSize: 10 }}
+                    stroke={C.border}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="competency"
+                    width={110}
+                    tick={{ fill: C.navy, fontSize: 11, fontWeight: 600 }}
+                    stroke={C.border}
+                  />
+                  <RTooltip
+                    contentStyle={{
+                      background: "#fff",
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 6,
+                      fontSize: 12,
+                    }}
+                    formatter={(v) => `${Number(v).toFixed(2)} / 4`}
+                  />
+                  <Legend wrapperStyle={{ display: "none" }} />
+                  <Bar dataKey="previous" name="Previous" fill={C.slate} radius={[0, 2, 2, 0]} />
+                  <Bar dataKey="current" name="Current" fill="#0052CC" radius={[0, 2, 2, 0]} />
+                  <Bar
+                    dataKey="target"
+                    name="Target L4"
+                    fill="transparent"
+                    stroke="#00B8D9"
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    radius={[0, 2, 2, 0]}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </Card>
-        </div>
+      </div>
 
-        <div className="xl:col-span-3 min-w-0">
-          <Card className="p-0 overflow-hidden">
-            <div className="p-5 border-b" style={{ borderColor: C.border }}>
-              <SectionHeader title="Hierarchical Gap Analysis" sub="Expand a category to see specific competency questions and their 1-5 effectiveness rating" />
-            </div>
-            <HierarchicalMatrix data={data} onCreateObjective={onCreateObjective} />
-          </Card>
-        </div>
+      {/* Hierarchical Gap Analysis - full width below */}
+      <div className="w-full">
+        <Card className="p-0 overflow-hidden">
+          <div className="p-5 border-b" style={{ borderColor: C.border }}>
+            <SectionHeader
+              title="Hierarchical Gap Analysis"
+              sub="Expand a category to see specific competency questions and their 1-5 effectiveness rating"
+            />
+          </div>
+          <HierarchicalMatrix
+            data={data}
+            latest={latest}
+            onCreateObjective={onCreateObjective}
+          />
+        </Card>
       </div>
     </div>
   );
