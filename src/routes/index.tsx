@@ -44,6 +44,10 @@ import {
   BookOpen,
   Wrench,
   Share2,
+  History,
+  Save,
+  FileCheck2,
+  ClipboardList,
 } from "lucide-react";
 import {
   Radar,
@@ -182,6 +186,41 @@ function subRating(cat: string, sub: string): number {
   const key = (cat + sub).split("").reduce((a, c) => a + c.charCodeAt(0), 0);
   return 1 + (key % 5);
 }
+
+/* ---------- Shared category helpers ---------- */
+const ALL_CATEGORIES = Object.keys(SUBCATEGORIES);
+function radarLabelToCategory(label: string): string {
+  if (label === "Analytical") return "Analytical Thinking";
+  if (label === "UX Eng") return "Engineering for UX";
+  return label;
+}
+function categoryToRadarLabel(cat: string): string {
+  if (cat === "Analytical Thinking") return "Analytical";
+  if (cat === "Engineering for UX") return "UX Eng";
+  return cat;
+}
+
+/* ---------- Review session types ---------- */
+type ReviewQuestion = {
+  prev: number;
+  next: number;
+  notes: string;
+  evidenceIds: string[];
+};
+type ReviewSession = {
+  id: string;
+  date: string;
+  period: string;
+  engineer: string;
+  manager: string;
+  scores: Record<string, Record<string, ReviewQuestion>>;
+};
+
+const initialHistory: { id: string; period: string; date: string; readiness: number }[] = [
+  { id: "REV-2026-Q2", period: "Q2 2026", date: "Jun 28, 2026", readiness: 72 },
+  { id: "REV-2026-Q1", period: "Q1 2026", date: "Mar 30, 2026", readiness: 64 },
+  { id: "REV-2025-Q4", period: "Q4 2025", date: "Dec 22, 2025", readiness: 58 },
+];
 
 /* ---------- Primitives ---------- */
 function Card({
@@ -668,6 +707,9 @@ function EvitraceApp() {
   const [openEvidence, setOpenEvidence] = useState<(typeof initialEvidence)[number] | null>(null);
   const [openInbox, setOpenInbox] = useState<(typeof initialInbox)[number] | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [showWizard, setShowWizard] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [review, setReview] = useState<ReviewSession | null>(null);
 
   const pageTitle: Record<Tab, string> = {
     dashboard: "Dashboard",
@@ -742,6 +784,8 @@ function EvitraceApp() {
                 <RadarView
                   data={radarData}
                   onCreateObjective={() => setShowCreateObjective(true)}
+                  onStartReview={() => setShowWizard(true)}
+                  onOpenHistory={() => setShowHistory(true)}
                 />
               )}
               {tab === "evidence" && (
@@ -760,6 +804,8 @@ function EvitraceApp() {
                   objectives={objectives}
                   radarData={radarData}
                   onFlash={flash}
+                  review={review}
+                  onStartReview={() => setShowWizard(true)}
                 />
               )}
               {tab === "settings" && <SettingsView />}
@@ -893,6 +939,49 @@ function EvitraceApp() {
               setInbox((x) => x.filter((i) => i.id !== openInbox.id));
               setOpenInbox(null);
               flash("Event dismissed");
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Performance Review wizard */}
+      <AnimatePresence>
+        {showWizard && (
+          <ReviewWizard
+            evidence={evidence}
+            onClose={() => setShowWizard(false)}
+            onFinalize={(session: ReviewSession) => {
+              setReview(session);
+              // Roll up averaged "next" scores into the radarData for matrix + radar chart
+              setRadarData((rows) =>
+                rows.map((r) => {
+                  const cat = radarLabelToCategory(r.competency);
+                  const subs = session.scores[cat];
+                  if (!subs) return r;
+                  const vals = (Object.values(subs) as ReviewQuestion[]).map((q) => q.next);
+                  if (vals.length === 0) return r;
+                  const avg = vals.reduce((s, v) => s + v, 0) / vals.length;
+                  // radar uses 0-4 scale, scores use 1-5; map by clamp
+                  return { ...r, current: +Math.min(4, (avg / 5) * 4).toFixed(2) };
+                }),
+              );
+              setShowWizard(false);
+              setTab("report");
+              flash("Assessment finalized · Report generated");
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Assessment history modal */}
+      <AnimatePresence>
+        {showHistory && (
+          <AssessmentHistoryModal
+            current={review}
+            onClose={() => setShowHistory(false)}
+            onOpenCurrent={() => {
+              setShowHistory(false);
+              setTab("report");
             }}
           />
         )}
@@ -1299,9 +1388,13 @@ function InboxRow({
 function RadarView({
   data,
   onCreateObjective,
+  onStartReview,
+  onOpenHistory,
 }: {
   data: typeof initialRadar;
   onCreateObjective: () => void;
+  onStartReview: () => void;
+  onOpenHistory: () => void;
 }) {
   const current = useMemo(
     () => +(data.reduce((s, d) => s + d.current, 0) / data.length).toFixed(2),
@@ -1313,6 +1406,28 @@ function RadarView({
 
   return (
     <div className="space-y-6">
+      {/* Page header with primary actions */}
+      <div className="flex items-end justify-between">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight" style={{ color: C.navy }}>
+            Promotion Readiness
+          </h2>
+          <div className="text-sm mt-0.5" style={{ color: C.subtle }}>
+            Assessment of current scores vs Level 4 target across the competency framework.
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <GhostBtn onClick={onOpenHistory}>
+            <History size={14} />
+            Assessment History
+          </GhostBtn>
+          <PrimaryBtn onClick={onStartReview}>
+            <ClipboardList size={14} />
+            Start Performance Review
+          </PrimaryBtn>
+        </div>
+      </div>
+
       {/* Executive Summary */}
       <div className="grid grid-cols-4 gap-4">
         <Card className="p-5">
@@ -3194,23 +3309,61 @@ function ReportView({
   objectives,
   radarData: _radarData,
   onFlash,
+  review,
+  onStartReview,
 }: {
   evidence: typeof initialEvidence;
   objectives: Objective[];
   radarData: typeof initialRadar;
   onFlash: (m: string) => void;
+  review: ReviewSession | null;
+  onStartReview: () => void;
 }) {
   const approved = evidence.filter((e) => e.status === "Approved");
-  const topThree = approved.slice(0, 3);
   const completed = objectives.filter((o) => o.status === "Completed");
   const upcoming = objectives.filter((o) => o.status !== "Completed");
 
-  const deltas = [
-    { name: "Engineering Quality", from: 2.0, to: 2.5 },
-    { name: "Analytical Thinking", from: 1.5, to: 2.0 },
-    { name: "System Design", from: 2.4, to: 2.8 },
-    { name: "Communication", from: 2.7, to: 3.0 },
-  ];
+  // Build deltas / justification log strictly from the wizard-captured review.
+  const deltas = useMemo(() => {
+    if (!review) return [] as { name: string; from: number; to: number }[];
+    return Object.entries(review.scores)
+      .map(([cat, subs]) => {
+        const entries = Object.values(subs);
+        if (entries.length === 0) return null;
+        const from = +(entries.reduce((s, q) => s + q.prev, 0) / entries.length).toFixed(2);
+        const to = +(entries.reduce((s, q) => s + q.next, 0) / entries.length).toFixed(2);
+        return { name: cat, from, to };
+      })
+      .filter((d): d is { name: string; from: number; to: number } => !!d && d.to !== d.from);
+  }, [review]);
+
+  const justification = useMemo(() => {
+    if (!review) return [] as { cat: string; sub: string; q: ReviewQuestion }[];
+    const out: { cat: string; sub: string; q: ReviewQuestion }[] = [];
+    Object.entries(review.scores).forEach(([cat, subs]) => {
+      Object.entries(subs).forEach(([sub, q]) => {
+        if (q.next !== q.prev && q.notes.trim().length > 0) out.push({ cat, sub, q });
+      });
+    });
+    return out;
+  }, [review]);
+
+  const highlightedEvidence = useMemo(() => {
+    if (!review) return [] as typeof approved;
+    const ids = new Set<string>();
+    Object.values(review.scores).forEach((subs) =>
+      Object.values(subs).forEach((q) => q.evidenceIds.forEach((id) => ids.add(id))),
+    );
+    return evidence.filter((e) => ids.has(e.id)).slice(0, 3);
+  }, [review, evidence]);
+
+  const overallReadiness = useMemo(() => {
+    if (!review) return null;
+    const all = Object.values(review.scores).flatMap((s) => Object.values(s));
+    if (all.length === 0) return null;
+    const avg = all.reduce((s, q) => s + q.next, 0) / all.length;
+    return Math.round((avg / 4) * 100);
+  }, [review]);
 
   const [topics, setTopics] = useState<string[]>([
     "Discuss timeline for the formal L4 promotion panel.",
@@ -3226,6 +3379,10 @@ function ReportView({
     setDraft("");
   }
 
+  function removeTopic(i: number) {
+    setTopics((x) => x.filter((_, idx) => idx !== i));
+  }
+
   function copyLink() {
     if (typeof navigator !== "undefined" && navigator.clipboard) {
       navigator.clipboard.writeText(window.location.href + "?report=q3-2026").catch(() => {});
@@ -3235,6 +3392,36 @@ function ReportView({
 
   function exportPdf() {
     if (typeof window !== "undefined") window.print();
+  }
+
+  // Empty state when no review has been finalized
+  if (!review) {
+    return (
+      <div className="max-w-2xl mx-auto mt-12">
+        <Card className="p-10 text-center">
+          <div
+            className="w-14 h-14 rounded-full mx-auto flex items-center justify-center mb-4"
+            style={{ background: C.primarySoft, color: C.primary }}
+          >
+            <FileCheck2 size={26} />
+          </div>
+          <h2 className="text-xl font-bold tracking-tight" style={{ color: C.navy }}>
+            No finalized performance review yet
+          </h2>
+          <p className="mt-2 text-sm leading-relaxed" style={{ color: C.slate }}>
+            Start a Performance Review session from the Promotion Readiness tab. Once you finalize the
+            wizard, this page will auto-generate a shareable summary with the competency delta,
+            justification notes, highlighted evidence, and a 1-on-1 talking points checklist.
+          </p>
+          <div className="mt-6">
+            <PrimaryBtn onClick={onStartReview}>
+              <ClipboardList size={14} />
+              Start Performance Review
+            </PrimaryBtn>
+          </div>
+        </Card>
+      </div>
+    );
   }
 
   return (
@@ -3274,19 +3461,19 @@ function ReportView({
             className="text-3xl font-bold tracking-tight"
             style={{ color: C.navy }}
           >
-            Q3 Performance & Growth Summary
+            Performance & Growth Summary
           </h1>
           <div className="mt-3 space-y-1 text-sm" style={{ color: C.slate }}>
             <div>
-              Engineer: <span style={{ color: C.navy, fontWeight: 600 }}>Courage U.</span>
+              Engineer: <span style={{ color: C.navy, fontWeight: 600 }}>{review.engineer}</span>
               {"  |  "}Role: L3 Engineer{"  |  "}Target: L4 Senior Engineer
             </div>
             <div>
-              Manager: <span style={{ color: C.navy, fontWeight: 600 }}>Alex M.</span>
+              Manager: <span style={{ color: C.navy, fontWeight: 600 }}>{review.manager}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <Calendar size={14} style={{ color: C.subtle }} />
-              Period: July 1, 2026 — Sept 30, 2026
+              Period: {review.period} · Finalized {review.date}
             </div>
           </div>
           <div className="mt-6 border-t" style={{ borderColor: C.border }} />
@@ -3294,24 +3481,46 @@ function ReportView({
 
         {/* 2. Executive summary */}
         <section className="mt-8">
-          <SectionHeading icon={<Target size={18} />} title="Quarterly Overview" />
+          <SectionHeading icon={<Target size={18} />} title="Executive Summary" />
           <p className="mt-3 text-[15px] leading-relaxed" style={{ color: C.slate }}>
-            This quarter, Courage demonstrated strong growth in{" "}
-            <span style={{ color: C.navy, fontWeight: 600 }}>Engineering Quality</span> and{" "}
-            <span style={{ color: C.navy, fontWeight: 600 }}>Analytical Thinking</span>.{" "}
+            This review captured updated effectiveness scores across{" "}
+            <span style={{ color: C.navy, fontWeight: 600 }}>{Object.keys(review.scores).length}</span>{" "}
+            competency categories.{" "}
+            {deltas.filter((d) => d.to > d.from).length > 0 && (
+              <>
+                Notable growth was recorded in{" "}
+                <span style={{ color: C.navy, fontWeight: 600 }}>
+                  {deltas
+                    .filter((d) => d.to > d.from)
+                    .slice(0, 2)
+                    .map((d) => d.name)
+                    .join(" and ")}
+                </span>
+                .{" "}
+              </>
+            )}
             <span style={{ color: C.navy, fontWeight: 600 }}>{approved.length}</span> pieces of
-            evidence were verified, closing the gap in System Design. Current readiness for L4 is at{" "}
-            <span style={{ color: C.primary, fontWeight: 700 }}>85%</span>.
+            evidence are verified in the log. Current readiness for L4 is at{" "}
+            <span style={{ color: C.primary, fontWeight: 700 }}>{overallReadiness ?? 0}%</span>.
           </p>
         </section>
 
         {/* 3. Competency delta */}
         <section className="mt-10">
-          <SectionHeading icon={<TrendingUp size={18} />} title="Competency Growth" />
+          <SectionHeading icon={<TrendingUp size={18} />} title="Competency Delta" />
+          {deltas.length === 0 ? (
+            <div
+              className="mt-3 text-sm p-4 rounded border border-dashed"
+              style={{ color: C.subtle, borderColor: C.border }}
+            >
+              No score changes were recorded in this review.
+            </div>
+          ) : (
           <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
             {deltas.map((d) => {
-              const pct = Math.round(((d.to - d.from) / d.from) * 100);
+              const pct = d.from === 0 ? 0 : Math.round(((d.to - d.from) / d.from) * 100);
               const width = Math.min(100, (d.to / 4) * 100);
+              const positive = d.to >= d.from;
               return (
                 <div key={d.name}>
                   <div className="flex items-baseline justify-between mb-1.5">
@@ -3320,7 +3529,12 @@ function ReportView({
                     </div>
                     <div className="text-xs font-medium" style={{ color: C.slate }}>
                       {d.from.toFixed(2)} → {d.to.toFixed(2)}{" "}
-                      <span style={{ color: C.green, fontWeight: 700 }}>+{pct}%</span>
+                      <span
+                        style={{ color: positive ? C.green : C.red, fontWeight: 700 }}
+                      >
+                        {positive ? "+" : ""}
+                        {pct}%
+                      </span>
                     </div>
                   </div>
                   <div
@@ -3329,20 +3543,65 @@ function ReportView({
                   >
                     <div
                       className="h-full rounded-full"
-                      style={{ width: `${width}%`, background: C.green }}
+                      style={{ width: `${width}%`, background: positive ? C.green : C.red }}
                     />
                   </div>
                 </div>
               );
             })}
           </div>
+          )}
         </section>
 
-        {/* 4. Highlighted evidence */}
+        {/* 4. Justification notes log */}
         <section className="mt-10">
-          <SectionHeading icon={<Award size={18} />} title="Top Verified Contributions" />
+          <SectionHeading icon={<AlignLeft size={18} />} title="Justification Notes Log" />
+          {justification.length === 0 ? (
+            <div
+              className="mt-3 text-sm p-4 rounded border border-dashed"
+              style={{ color: C.subtle, borderColor: C.border }}
+            >
+              No justification notes were attached to changed scores.
+            </div>
+          ) : (
+            <ul className="mt-4 space-y-3">
+              {justification.map(({ cat, sub, q }, i) => (
+                <li
+                  key={i}
+                  className="p-4 rounded border"
+                  style={{ borderColor: C.border, background: "#FFFFFF" }}
+                >
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <Badge tone="info">{cat}</Badge>
+                    <span className="text-xs font-semibold" style={{ color: C.navy }}>
+                      {sub}
+                    </span>
+                    <span className="text-xs" style={{ color: C.subtle }}>
+                      {q.prev} → {q.next}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm leading-relaxed" style={{ color: C.slate }}>
+                    {q.notes}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {/* 5. Highlighted evidence */}
+        <section className="mt-10">
+          <SectionHeading icon={<Award size={18} />} title="Highlighted Evidence" />
+          {highlightedEvidence.length === 0 ? (
+            <div
+              className="mt-3 text-sm p-4 rounded border border-dashed"
+              style={{ color: C.subtle, borderColor: C.border }}
+            >
+              No evidence was attached during the review.
+            </div>
+          ) : (
           <div className="mt-4 space-y-3">
-            {topThree.map((e) => (
+            {highlightedEvidence.map((e) => (
               <div
                 key={e.id}
                 className="border-l-4 pl-4 py-3 pr-4 rounded-sm"
@@ -3367,20 +3626,21 @@ function ReportView({
               </div>
             ))}
           </div>
+          )}
         </section>
 
-        {/* 5. Objectives */}
+        {/* 6. Objectives */}
         <section className="mt-10">
-          <SectionHeading icon={<ListTodo size={18} />} title="SMART Objectives" />
+          <SectionHeading icon={<ListTodo size={18} />} title="Active Objectives" />
           <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
             <ObjectiveColumn
-              label="Completed This Quarter"
+              label="Completed This Period"
               tone="success"
               items={completed}
               emptyText="No objectives completed this period."
             />
             <ObjectiveColumn
-              label="Focus for Next Quarter"
+              label="Focus for Next Period"
               tone="info"
               items={upcoming}
               emptyText="No active objectives planned."
@@ -3388,23 +3648,31 @@ function ReportView({
           </div>
         </section>
 
-        {/* 6. Talking points */}
+        {/* 7. Talking points */}
         <section className="mt-10">
-          <SectionHeading icon={<MessageSquare size={18} />} title="Talking Points for 1-on-1" />
+          <SectionHeading icon={<MessageSquare size={18} />} title="1-on-1 Discussion Topics" />
           <div
             className="mt-4 p-5 rounded border"
             style={{ background: C.bg, borderColor: C.border }}
           >
             <ol className="space-y-2.5">
               {topics.map((t, i) => (
-                <li key={i} className="flex items-start gap-3 text-sm" style={{ color: C.slate }}>
+                <li key={i} className="group flex items-start gap-3 text-sm" style={{ color: C.slate }}>
                   <span
                     className="shrink-0 w-5 h-5 rounded-full text-[11px] font-bold flex items-center justify-center"
                     style={{ background: C.primarySoft, color: C.primary }}
                   >
                     {i + 1}
                   </span>
-                  <span className="leading-relaxed">{t}</span>
+                  <span className="leading-relaxed flex-1">{t}</span>
+                  <button
+                    onClick={() => removeTopic(i)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity"
+                    style={{ color: C.subtle }}
+                    aria-label="Remove topic"
+                  >
+                    <X size={14} />
+                  </button>
                 </li>
               ))}
             </ol>
@@ -3433,7 +3701,7 @@ function ReportView({
           style={{ borderColor: C.border, color: C.subtle }}
         >
           <span>Generated by Evitrace · Confidential</span>
-          <span>Report ID · EVT-RPT-Q3-2026</span>
+          <span>Report ID · {review.id}</span>
         </footer>
       </article>
     </div>
@@ -3722,6 +3990,451 @@ function InboxReviewSlideover({
             <CheckCircle size={14} />
             Confirm & Save
           </PrimaryBtn>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+/* ============================================================ */
+/*           OVERLAY: PERFORMANCE REVIEW WIZARD                 */
+/* ============================================================ */
+
+function ReviewWizard({
+  evidence,
+  onClose,
+  onFinalize,
+}: {
+  evidence: typeof initialEvidence;
+  onClose: () => void;
+  onFinalize: (s: ReviewSession) => void;
+}) {
+  const categories = ALL_CATEGORIES;
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [scores, setScores] = useState<Record<string, Record<string, ReviewQuestion>>>(() => {
+    const init: Record<string, Record<string, ReviewQuestion>> = {};
+    categories.forEach((cat) => {
+      init[cat] = {};
+      SUBCATEGORIES[cat].forEach((sub) => {
+        const prev = subRating(cat, sub);
+        init[cat][sub] = { prev, next: prev, notes: "", evidenceIds: [] };
+      });
+    });
+    return init;
+  });
+  const [attachOpenFor, setAttachOpenFor] = useState<string | null>(null);
+
+  const activeCat = categories[activeIdx];
+  const isLast = activeIdx === categories.length - 1;
+
+  function updateQ(cat: string, sub: string, patch: Partial<ReviewQuestion>) {
+    setScores((s) => ({
+      ...s,
+      [cat]: { ...s[cat], [sub]: { ...s[cat][sub], ...patch } },
+    }));
+  }
+
+  function toggleEvidence(cat: string, sub: string, id: string) {
+    setScores((s) => {
+      const existing = s[cat][sub].evidenceIds;
+      const next = existing.includes(id)
+        ? existing.filter((x) => x !== id)
+        : [...existing, id];
+      return { ...s, [cat]: { ...s[cat], [sub]: { ...s[cat][sub], evidenceIds: next } } };
+    });
+  }
+
+  function categoryProgress(cat: string): number {
+    const subs = scores[cat] ?? {};
+    const total = Object.keys(subs).length;
+    if (total === 0) return 0;
+    const touched = Object.values(subs).filter(
+      (q) => q.next !== q.prev || q.notes.trim().length > 0,
+    ).length;
+    return Math.round((touched / total) * 100);
+  }
+
+  function finalize() {
+    const today = new Date();
+    const session: ReviewSession = {
+      id: `REV-${today.getFullYear()}-Q${Math.ceil((today.getMonth() + 1) / 3)}`,
+      date: today.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" }),
+      period: `${today.toLocaleString("en-US", { month: "long" })} ${today.getFullYear()}`,
+      engineer: "Courage U.",
+      manager: "Alex M.",
+      scores,
+    };
+    onFinalize(session);
+  }
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-50 flex"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      style={{ background: "rgba(9, 30, 66, 0.54)" }}
+    >
+      <motion.div
+        className="w-full h-full flex flex-col"
+        initial={{ scale: 0.98, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.98, opacity: 0 }}
+        transition={{ duration: 0.18 }}
+        style={{ background: C.bg }}
+      >
+        {/* Top bar */}
+        <div
+          className="h-14 px-6 flex items-center justify-between border-b bg-white"
+          style={{ borderColor: C.border }}
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className="w-8 h-8 rounded flex items-center justify-center"
+              style={{ background: C.primarySoft, color: C.primary }}
+            >
+              <ClipboardList size={16} />
+            </div>
+            <div>
+              <div className="text-sm font-bold tracking-tight" style={{ color: C.navy }}>
+                Performance Review Session
+              </div>
+              <div className="text-[11px]" style={{ color: C.subtle }}>
+                Score each subcategory on the 1–5 effectiveness scale and add justification notes.
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded flex items-center justify-center hover:bg-[#F4F5F7]"
+            style={{ color: C.subtle }}
+            aria-label="Close wizard"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="flex-1 min-h-0 flex max-w-6xl w-full mx-auto p-6 gap-6">
+          {/* Left stepper */}
+          <aside
+            className="w-64 shrink-0 bg-white border rounded shadow-sm flex flex-col"
+            style={{ borderColor: C.border }}
+          >
+            <div
+              className="px-4 py-3 border-b text-[11px] uppercase tracking-wider font-bold"
+              style={{ borderColor: C.border, color: C.subtle }}
+            >
+              Categories
+            </div>
+            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+              {categories.map((cat, i) => {
+                const active = i === activeIdx;
+                const pct = categoryProgress(cat);
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => setActiveIdx(i)}
+                    className="w-full text-left px-3 py-2.5 rounded transition-colors"
+                    style={{
+                      background: active ? C.primarySoft : "transparent",
+                      color: active ? C.primary : C.slate,
+                    }}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wider opacity-70">
+                        Step {i + 1}
+                      </span>
+                      {pct === 100 && <CheckCircle size={13} style={{ color: C.green }} />}
+                    </div>
+                    <div className="text-sm font-semibold mt-0.5 leading-snug">{cat}</div>
+                    <div
+                      className="mt-1.5 h-1 rounded-full overflow-hidden"
+                      style={{ background: "#EBECF0" }}
+                    >
+                      <div
+                        className="h-full rounded-full"
+                        style={{ width: `${pct}%`, background: active ? C.primary : C.green }}
+                      />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </aside>
+
+          {/* Main content */}
+          <div className="flex-1 flex flex-col min-w-0">
+            <div className="flex-1 overflow-y-auto pr-1">
+              <div className="mb-4">
+                <div className="text-[11px] font-bold uppercase tracking-wider" style={{ color: C.subtle }}>
+                  Category {activeIdx + 1} of {categories.length}
+                </div>
+                <h2 className="text-2xl font-bold tracking-tight mt-1" style={{ color: C.navy }}>
+                  {activeCat}
+                </h2>
+                <p className="text-sm mt-1 leading-relaxed" style={{ color: C.slate }}>
+                  {COMPETENCY_DESC[activeCat]}
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                {SUBCATEGORIES[activeCat].map((sub) => {
+                  const q = scores[activeCat][sub];
+                  const attachOpen = attachOpenFor === `${activeCat}::${sub}`;
+                  return (
+                    <Card key={sub} className="p-5">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1">
+                          <div className="text-xs font-bold uppercase tracking-wider" style={{ color: C.subtle }}>
+                            Question
+                          </div>
+                          <div className="text-[15px] font-semibold mt-1" style={{ color: C.navy }}>
+                            {sub}
+                          </div>
+                        </div>
+                        <Badge tone="neutral">Previous Score: {q.prev}</Badge>
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-2 gap-4">
+                        <Field label="New score (1-5)">
+                          <Select
+                            value={String(q.next)}
+                            onChange={(e) => updateQ(activeCat, sub, { next: Number(e.target.value) })}
+                          >
+                            {EFFECTIVENESS_SCALE.map((s) => (
+                              <option key={s.value} value={s.value}>
+                                {s.value} — {s.label}
+                              </option>
+                            ))}
+                          </Select>
+                        </Field>
+                        <Field label="Change vs previous">
+                          <div
+                            className="h-9 px-3 flex items-center text-sm rounded border"
+                            style={{
+                              background: "#F4F5F7",
+                              borderColor: C.border,
+                              color:
+                                q.next > q.prev ? C.green : q.next < q.prev ? C.red : C.subtle,
+                              fontWeight: 600,
+                            }}
+                          >
+                            {q.next === q.prev
+                              ? "No change"
+                              : `${q.prev} → ${q.next} (${q.next > q.prev ? "+" : ""}${q.next - q.prev})`}
+                          </div>
+                        </Field>
+                      </div>
+
+                      <div className="mt-4">
+                        <Field label="Manager & Engineer notes / justification">
+                          <Textarea
+                            rows={3}
+                            placeholder="Document examples, behaviors, and rationale for this score..."
+                            value={q.notes}
+                            onChange={(e) => updateQ(activeCat, sub, { notes: e.target.value })}
+                          />
+                        </Field>
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-between gap-3">
+                        <button
+                          onClick={() =>
+                            setAttachOpenFor(attachOpen ? null : `${activeCat}::${sub}`)
+                          }
+                          className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded border hover:border-[#0052CC] transition-colors"
+                          style={{ borderColor: C.border, color: C.primary }}
+                        >
+                          <Paperclip size={13} />
+                          Attach Evidence{q.evidenceIds.length > 0 ? ` (${q.evidenceIds.length})` : ""}
+                        </button>
+                        {q.evidenceIds.length > 0 && (
+                          <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                            {q.evidenceIds.map((id) => {
+                              const ev = evidence.find((e) => e.id === id);
+                              if (!ev) return null;
+                              return (
+                                <Badge key={id} tone="info">
+                                  {ev.id}
+                                </Badge>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+
+                      <AnimatePresence>
+                        {attachOpen && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="mt-3 border-t pt-3 space-y-1.5 max-h-56 overflow-y-auto"
+                            style={{ borderColor: C.border }}
+                          >
+                            {evidence.slice(0, 8).map((ev) => {
+                              const checked = q.evidenceIds.includes(ev.id);
+                              return (
+                                <label
+                                  key={ev.id}
+                                  className="flex items-start gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-[#F4F5F7]"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => toggleEvidence(activeCat, sub, ev.id)}
+                                    className="mt-1"
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-[13px] font-semibold truncate" style={{ color: C.navy }}>
+                                      {ev.title}
+                                    </div>
+                                    <div className="text-[11px]" style={{ color: C.subtle }}>
+                                      {ev.id} · {ev.source} · {ev.date}
+                                    </div>
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Sticky footer */}
+            <div
+              className="mt-4 -mx-6 px-6 py-3 border-t bg-white flex items-center justify-between"
+              style={{ borderColor: C.border }}
+            >
+              <div className="flex items-center gap-2">
+                <GhostBtn onClick={onClose}>
+                  <X size={14} />
+                  Cancel
+                </GhostBtn>
+                <GhostBtn onClick={() => { /* draft is in-memory */ onClose(); }}>
+                  <Save size={14} />
+                  Save Draft
+                </GhostBtn>
+              </div>
+              <div className="flex items-center gap-2">
+                <GhostBtn
+                  onClick={() => setActiveIdx((i) => Math.max(0, i - 1))}
+                  disabled={activeIdx === 0}
+                >
+                  <ChevronRight size={14} style={{ transform: "rotate(180deg)" }} />
+                  Previous
+                </GhostBtn>
+                {!isLast && (
+                  <PrimaryBtn onClick={() => setActiveIdx((i) => Math.min(categories.length - 1, i + 1))}>
+                    Next Category
+                    <ChevronRight size={14} />
+                  </PrimaryBtn>
+                )}
+                {isLast && (
+                  <PrimaryBtn onClick={finalize}>
+                    <FileCheck2 size={14} />
+                    Complete & Finalize Assessment
+                  </PrimaryBtn>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+/* ============================================================ */
+/*               MODAL: ASSESSMENT HISTORY                      */
+/* ============================================================ */
+
+function AssessmentHistoryModal({
+  current,
+  onClose,
+  onOpenCurrent,
+}: {
+  current: ReviewSession | null;
+  onClose: () => void;
+  onOpenCurrent: () => void;
+}) {
+  return (
+    <motion.div
+      className="fixed inset-0 z-50 flex items-center justify-center p-6"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      style={{ background: "rgba(9, 30, 66, 0.54)" }}
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ y: 12, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 12, opacity: 0 }}
+        className="w-full max-w-lg bg-white rounded-md shadow-xl border"
+        style={{ borderColor: C.border }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-5 h-14 flex items-center justify-between border-b" style={{ borderColor: C.border }}>
+          <div className="flex items-center gap-2">
+            <History size={16} style={{ color: C.primary }} />
+            <h3 className="text-base font-bold tracking-tight" style={{ color: C.navy }}>
+              Assessment History
+            </h3>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded flex items-center justify-center hover:bg-[#F4F5F7]"
+            style={{ color: C.subtle }}
+            aria-label="Close"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <div className="p-5 space-y-2 max-h-[60vh] overflow-y-auto">
+          {current && (
+            <button
+              onClick={onOpenCurrent}
+              className="w-full text-left p-3 rounded border hover:border-[#0052CC] transition-colors"
+              style={{ borderColor: C.primary, background: C.primarySoft }}
+            >
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-bold" style={{ color: C.navy }}>
+                  {current.period}
+                </div>
+                <Badge tone="info">Current</Badge>
+              </div>
+              <div className="text-xs mt-1" style={{ color: C.slate }}>
+                Finalized {current.date} · {current.id}
+              </div>
+            </button>
+          )}
+          {initialHistory.map((h) => (
+            <div
+              key={h.id}
+              className="p-3 rounded border"
+              style={{ borderColor: C.border, background: "#FAFBFC" }}
+            >
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold" style={{ color: C.navy }}>
+                  {h.period}
+                </div>
+                <div className="text-xs font-bold" style={{ color: C.primary }}>
+                  {h.readiness}% readiness
+                </div>
+              </div>
+              <div className="text-xs mt-1" style={{ color: C.subtle }}>
+                Finalized {h.date} · {h.id}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="px-5 h-14 flex items-center justify-end border-t" style={{ borderColor: C.border }}>
+          <GhostBtn onClick={onClose}>Close</GhostBtn>
         </div>
       </motion.div>
     </motion.div>
