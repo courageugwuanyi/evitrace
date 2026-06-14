@@ -44,6 +44,10 @@ import {
   BookOpen,
   Wrench,
   Share2,
+  History,
+  Save,
+  FileCheck2,
+  ClipboardList,
 } from "lucide-react";
 import {
   Radar,
