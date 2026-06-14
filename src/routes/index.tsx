@@ -41,6 +41,9 @@ import {
   Users,
   Puzzle,
   Layers,
+  BookOpen,
+  Wrench,
+  Share2,
 } from "lucide-react";
 import {
   Radar,
