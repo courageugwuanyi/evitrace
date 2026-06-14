@@ -3996,3 +3996,448 @@ function InboxReviewSlideover({
   );
 }
 
+/* ============================================================ */
+/*           OVERLAY: PERFORMANCE REVIEW WIZARD                 */
+/* ============================================================ */
+
+function ReviewWizard({
+  evidence,
+  onClose,
+  onFinalize,
+}: {
+  evidence: typeof initialEvidence;
+  onClose: () => void;
+  onFinalize: (s: ReviewSession) => void;
+}) {
+  const categories = ALL_CATEGORIES;
+  const [activeIdx, setActiveIdx] = useState(0);
+  const [scores, setScores] = useState<Record<string, Record<string, ReviewQuestion>>>(() => {
+    const init: Record<string, Record<string, ReviewQuestion>> = {};
+    categories.forEach((cat) => {
+      init[cat] = {};
+      SUBCATEGORIES[cat].forEach((sub) => {
+        const prev = subRating(cat, sub);
+        init[cat][sub] = { prev, next: prev, notes: "", evidenceIds: [] };
+      });
+    });
+    return init;
+  });
+  const [attachOpenFor, setAttachOpenFor] = useState<string | null>(null);
+
+  const activeCat = categories[activeIdx];
+  const isLast = activeIdx === categories.length - 1;
+
+  function updateQ(cat: string, sub: string, patch: Partial<ReviewQuestion>) {
+    setScores((s) => ({
+      ...s,
+      [cat]: { ...s[cat], [sub]: { ...s[cat][sub], ...patch } },
+    }));
+  }
+
+  function toggleEvidence(cat: string, sub: string, id: string) {
+    setScores((s) => {
+      const existing = s[cat][sub].evidenceIds;
+      const next = existing.includes(id)
+        ? existing.filter((x) => x !== id)
+        : [...existing, id];
+      return { ...s, [cat]: { ...s[cat], [sub]: { ...s[cat][sub], evidenceIds: next } } };
+    });
+  }
+
+  function categoryProgress(cat: string): number {
+    const subs = scores[cat] ?? {};
+    const total = Object.keys(subs).length;
+    if (total === 0) return 0;
+    const touched = Object.values(subs).filter(
+      (q) => q.next !== q.prev || q.notes.trim().length > 0,
+    ).length;
+    return Math.round((touched / total) * 100);
+  }
+
+  function finalize() {
+    const today = new Date();
+    const session: ReviewSession = {
+      id: `REV-${today.getFullYear()}-Q${Math.ceil((today.getMonth() + 1) / 3)}`,
+      date: today.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" }),
+      period: `${today.toLocaleString("en-US", { month: "long" })} ${today.getFullYear()}`,
+      engineer: "Courage U.",
+      manager: "Alex M.",
+      scores,
+    };
+    onFinalize(session);
+  }
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-50 flex"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      style={{ background: "rgba(9, 30, 66, 0.54)" }}
+    >
+      <motion.div
+        className="w-full h-full flex flex-col"
+        initial={{ scale: 0.98, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={{ scale: 0.98, opacity: 0 }}
+        transition={{ duration: 0.18 }}
+        style={{ background: C.bg }}
+      >
+        {/* Top bar */}
+        <div
+          className="h-14 px-6 flex items-center justify-between border-b bg-white"
+          style={{ borderColor: C.border }}
+        >
+          <div className="flex items-center gap-3">
+            <div
+              className="w-8 h-8 rounded flex items-center justify-center"
+              style={{ background: C.primarySoft, color: C.primary }}
+            >
+              <ClipboardList size={16} />
+            </div>
+            <div>
+              <div className="text-sm font-bold tracking-tight" style={{ color: C.navy }}>
+                Performance Review Session
+              </div>
+              <div className="text-[11px]" style={{ color: C.subtle }}>
+                Score each subcategory on the 1–5 effectiveness scale and add justification notes.
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded flex items-center justify-center hover:bg-[#F4F5F7]"
+            style={{ color: C.subtle }}
+            aria-label="Close wizard"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="flex-1 min-h-0 flex max-w-6xl w-full mx-auto p-6 gap-6">
+          {/* Left stepper */}
+          <aside
+            className="w-64 shrink-0 bg-white border rounded shadow-sm flex flex-col"
+            style={{ borderColor: C.border }}
+          >
+            <div
+              className="px-4 py-3 border-b text-[11px] uppercase tracking-wider font-bold"
+              style={{ borderColor: C.border, color: C.subtle }}
+            >
+              Categories
+            </div>
+            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+              {categories.map((cat, i) => {
+                const active = i === activeIdx;
+                const pct = categoryProgress(cat);
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => setActiveIdx(i)}
+                    className="w-full text-left px-3 py-2.5 rounded transition-colors"
+                    style={{
+                      background: active ? C.primarySoft : "transparent",
+                      color: active ? C.primary : C.slate,
+                    }}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-bold uppercase tracking-wider opacity-70">
+                        Step {i + 1}
+                      </span>
+                      {pct === 100 && <CheckCircle size={13} style={{ color: C.green }} />}
+                    </div>
+                    <div className="text-sm font-semibold mt-0.5 leading-snug">{cat}</div>
+                    <div
+                      className="mt-1.5 h-1 rounded-full overflow-hidden"
+                      style={{ background: "#EBECF0" }}
+                    >
+                      <div
+                        className="h-full rounded-full"
+                        style={{ width: `${pct}%`, background: active ? C.primary : C.green }}
+                      />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </aside>
+
+          {/* Main content */}
+          <div className="flex-1 flex flex-col min-w-0">
+            <div className="flex-1 overflow-y-auto pr-1">
+              <div className="mb-4">
+                <div className="text-[11px] font-bold uppercase tracking-wider" style={{ color: C.subtle }}>
+                  Category {activeIdx + 1} of {categories.length}
+                </div>
+                <h2 className="text-2xl font-bold tracking-tight mt-1" style={{ color: C.navy }}>
+                  {activeCat}
+                </h2>
+                <p className="text-sm mt-1 leading-relaxed" style={{ color: C.slate }}>
+                  {COMPETENCY_DESC[activeCat]}
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                {SUBCATEGORIES[activeCat].map((sub) => {
+                  const q = scores[activeCat][sub];
+                  const attachOpen = attachOpenFor === `${activeCat}::${sub}`;
+                  return (
+                    <Card key={sub} className="p-5">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1">
+                          <div className="text-xs font-bold uppercase tracking-wider" style={{ color: C.subtle }}>
+                            Question
+                          </div>
+                          <div className="text-[15px] font-semibold mt-1" style={{ color: C.navy }}>
+                            {sub}
+                          </div>
+                        </div>
+                        <Badge tone="neutral">Previous Score: {q.prev}</Badge>
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-2 gap-4">
+                        <Field label="New score (1-5)">
+                          <Select
+                            value={String(q.next)}
+                            onChange={(e) => updateQ(activeCat, sub, { next: Number(e.target.value) })}
+                          >
+                            {EFFECTIVENESS_SCALE.map((s) => (
+                              <option key={s.value} value={s.value}>
+                                {s.value} — {s.label}
+                              </option>
+                            ))}
+                          </Select>
+                        </Field>
+                        <Field label="Change vs previous">
+                          <div
+                            className="h-9 px-3 flex items-center text-sm rounded border"
+                            style={{
+                              background: "#F4F5F7",
+                              borderColor: C.border,
+                              color:
+                                q.next > q.prev ? C.green : q.next < q.prev ? C.red : C.subtle,
+                              fontWeight: 600,
+                            }}
+                          >
+                            {q.next === q.prev
+                              ? "No change"
+                              : `${q.prev} → ${q.next} (${q.next > q.prev ? "+" : ""}${q.next - q.prev})`}
+                          </div>
+                        </Field>
+                      </div>
+
+                      <div className="mt-4">
+                        <Field label="Manager & Engineer notes / justification">
+                          <Textarea
+                            rows={3}
+                            placeholder="Document examples, behaviors, and rationale for this score..."
+                            value={q.notes}
+                            onChange={(e) => updateQ(activeCat, sub, { notes: e.target.value })}
+                          />
+                        </Field>
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-between gap-3">
+                        <button
+                          onClick={() =>
+                            setAttachOpenFor(attachOpen ? null : `${activeCat}::${sub}`)
+                          }
+                          className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1.5 rounded border hover:border-[#0052CC] transition-colors"
+                          style={{ borderColor: C.border, color: C.primary }}
+                        >
+                          <Paperclip size={13} />
+                          Attach Evidence{q.evidenceIds.length > 0 ? ` (${q.evidenceIds.length})` : ""}
+                        </button>
+                        {q.evidenceIds.length > 0 && (
+                          <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                            {q.evidenceIds.map((id) => {
+                              const ev = evidence.find((e) => e.id === id);
+                              if (!ev) return null;
+                              return (
+                                <Badge key={id} tone="info">
+                                  {ev.id}
+                                </Badge>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+
+                      <AnimatePresence>
+                        {attachOpen && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="mt-3 border-t pt-3 space-y-1.5 max-h-56 overflow-y-auto"
+                            style={{ borderColor: C.border }}
+                          >
+                            {evidence.slice(0, 8).map((ev) => {
+                              const checked = q.evidenceIds.includes(ev.id);
+                              return (
+                                <label
+                                  key={ev.id}
+                                  className="flex items-start gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-[#F4F5F7]"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => toggleEvidence(activeCat, sub, ev.id)}
+                                    className="mt-1"
+                                  />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="text-[13px] font-semibold truncate" style={{ color: C.navy }}>
+                                      {ev.title}
+                                    </div>
+                                    <div className="text-[11px]" style={{ color: C.subtle }}>
+                                      {ev.id} · {ev.source} · {ev.date}
+                                    </div>
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Sticky footer */}
+            <div
+              className="mt-4 -mx-6 px-6 py-3 border-t bg-white flex items-center justify-between"
+              style={{ borderColor: C.border }}
+            >
+              <div className="flex items-center gap-2">
+                <GhostBtn onClick={onClose}>
+                  <X size={14} />
+                  Cancel
+                </GhostBtn>
+                <GhostBtn onClick={() => { /* draft is in-memory */ onClose(); }}>
+                  <Save size={14} />
+                  Save Draft
+                </GhostBtn>
+              </div>
+              <div className="flex items-center gap-2">
+                <GhostBtn
+                  onClick={() => setActiveIdx((i) => Math.max(0, i - 1))}
+                  disabled={activeIdx === 0}
+                >
+                  <ChevronRight size={14} style={{ transform: "rotate(180deg)" }} />
+                  Previous
+                </GhostBtn>
+                {!isLast && (
+                  <PrimaryBtn onClick={() => setActiveIdx((i) => Math.min(categories.length - 1, i + 1))}>
+                    Next Category
+                    <ChevronRight size={14} />
+                  </PrimaryBtn>
+                )}
+                {isLast && (
+                  <PrimaryBtn onClick={finalize}>
+                    <FileCheck2 size={14} />
+                    Complete & Finalize Assessment
+                  </PrimaryBtn>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+/* ============================================================ */
+/*               MODAL: ASSESSMENT HISTORY                      */
+/* ============================================================ */
+
+function AssessmentHistoryModal({
+  current,
+  onClose,
+  onOpenCurrent,
+}: {
+  current: ReviewSession | null;
+  onClose: () => void;
+  onOpenCurrent: () => void;
+}) {
+  return (
+    <motion.div
+      className="fixed inset-0 z-50 flex items-center justify-center p-6"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      style={{ background: "rgba(9, 30, 66, 0.54)" }}
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ y: 12, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 12, opacity: 0 }}
+        className="w-full max-w-lg bg-white rounded-md shadow-xl border"
+        style={{ borderColor: C.border }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-5 h-14 flex items-center justify-between border-b" style={{ borderColor: C.border }}>
+          <div className="flex items-center gap-2">
+            <History size={16} style={{ color: C.primary }} />
+            <h3 className="text-base font-bold tracking-tight" style={{ color: C.navy }}>
+              Assessment History
+            </h3>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded flex items-center justify-center hover:bg-[#F4F5F7]"
+            style={{ color: C.subtle }}
+            aria-label="Close"
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <div className="p-5 space-y-2 max-h-[60vh] overflow-y-auto">
+          {current && (
+            <button
+              onClick={onOpenCurrent}
+              className="w-full text-left p-3 rounded border hover:border-[#0052CC] transition-colors"
+              style={{ borderColor: C.primary, background: C.primarySoft }}
+            >
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-bold" style={{ color: C.navy }}>
+                  {current.period}
+                </div>
+                <Badge tone="info">Current</Badge>
+              </div>
+              <div className="text-xs mt-1" style={{ color: C.slate }}>
+                Finalized {current.date} · {current.id}
+              </div>
+            </button>
+          )}
+          {initialHistory.map((h) => (
+            <div
+              key={h.id}
+              className="p-3 rounded border"
+              style={{ borderColor: C.border, background: "#FAFBFC" }}
+            >
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold" style={{ color: C.navy }}>
+                  {h.period}
+                </div>
+                <div className="text-xs font-bold" style={{ color: C.primary }}>
+                  {h.readiness}% readiness
+                </div>
+              </div>
+              <div className="text-xs mt-1" style={{ color: C.subtle }}>
+                Finalized {h.date} · {h.id}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="px-5 h-14 flex items-center justify-end border-t" style={{ borderColor: C.border }}>
+          <GhostBtn onClick={onClose}>Close</GhostBtn>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
