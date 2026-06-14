@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Radar as RadarIcon,
@@ -132,6 +132,56 @@ const EFFECTIVENESS_SCALE: { value: number; label: string; tone: "danger" | "war
   { value: 4, label: "Highly Effective", tone: "success" },
   { value: 5, label: "Extremely Effective", tone: "success" },
 ];
+
+// 3-tier framework: Category -> Subcategory/Question -> 1-5 Effectiveness
+const SUBCATEGORIES: Record<string, string[]> = {
+  "Analytical Thinking": [
+    "Draws logical conclusions based on in-depth analysis of information",
+    "Diagnoses root causes vs. symptoms in production incidents",
+    "Synthesizes data from multiple sources to frame complex problems",
+  ],
+  "System Design": [
+    "Designs scalable services with clear failure modes and SLOs",
+    "Articulates trade-offs across consistency, availability, and cost",
+    "Reviews and improves architecture proposals across the team",
+  ],
+  "Code Quality": [
+    "Describes what code smells are and refactors to remove them",
+    "Conversant in the language's syntax, idioms, and standard library",
+    "Writes meaningful unit, integration, and system tests",
+  ],
+  Communication: [
+    "Listens actively and communicates respectfully with different audiences",
+    "Writes clear technical documents (RFCs, runbooks, postmortems)",
+    "Adapts the message and depth to the audience",
+  ],
+  Leadership: [
+    "Influences direction and drives alignment across teams",
+    "Mentors peers and grows engineers around them",
+    "Takes ownership of cross-team outcomes",
+  ],
+  "Engineering for UX": [
+    "Applies UX heuristics and accessibility standards to shipped features",
+    "Partners with design through the full delivery lifecycle",
+    "Instruments and learns from real user behavior",
+  ],
+  Security: [
+    "Anticipates threats and embeds secure-by-default practices in the SDLC",
+    "Identifies and remediates common vulnerability classes (OWASP Top 10)",
+    "Reviews code and designs through a security lens",
+  ],
+  Delivery: [
+    "Breaks down complex work into shippable, predictable increments",
+    "Ships reliably with a sustainable cadence",
+    "Coordinates dependencies across squads to unblock outcomes",
+  ],
+};
+
+function subRating(cat: string, sub: string): number {
+  // deterministic pseudo-rating for the mock matrix
+  const key = (cat + sub).split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+  return 1 + (key % 5);
+}
 
 /* ---------- Primitives ---------- */
 function Card({
@@ -1388,57 +1438,126 @@ function RadarView({
 
         <Card className="col-span-3 p-0 overflow-hidden">
           <div className="p-5 border-b" style={{ borderColor: C.border }}>
-            <SectionHeader title="Real-Time Gap Analysis" sub="Targeted actions to close each gap" />
+            <SectionHeader title="Hierarchical Gap Analysis" sub="Expand a category to see specific competency questions and their 1-5 effectiveness rating" />
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead style={{ background: "#F4F5F7", color: C.subtle }}>
-                <tr className="text-left text-[11px] uppercase tracking-wider">
-                  <Th>Competency</Th>
-                  <Th>Current</Th>
-                  <Th>Target</Th>
-                  <Th>Gap</Th>
-                  <Th>Action</Th>
+          <HierarchicalMatrix data={data} onCreateObjective={onCreateObjective} />
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function HierarchicalMatrix({
+  data,
+  onCreateObjective,
+}: {
+  data: typeof initialRadar;
+  onCreateObjective: () => void;
+}) {
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  // Map short radar label -> canonical category name in SUBCATEGORIES
+  const mapToCanonical = (label: string): string => {
+    if (label === "Analytical") return "Analytical Thinking";
+    if (label === "UX Eng") return "Engineering for UX";
+    return label;
+  };
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead style={{ background: "#F4F5F7", color: C.subtle }}>
+          <tr className="text-left text-[11px] uppercase tracking-wider">
+            <Th>Category / Question</Th>
+            <Th>Current</Th>
+            <Th>Target</Th>
+            <Th>Gap</Th>
+            <Th>Action</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((row) => {
+            const canonical = mapToCanonical(row.competency);
+            const subs = SUBCATEGORIES[canonical] ?? [];
+            const isOpen = !!open[row.competency];
+            const g = +(row.target - row.current).toFixed(2);
+            const tone = g >= 1 ? C.red : g >= 0.5 ? C.amber : C.green;
+            return (
+              <React.Fragment key={row.competency}>
+                <tr
+                  className="border-t hover:bg-[#FAFBFC] transition-colors cursor-pointer"
+                  style={{ borderColor: C.border }}
+                  onClick={() => setOpen((s) => ({ ...s, [row.competency]: !s[row.competency] }))}
+                >
+                  <Td className="font-semibold" style={{ color: C.navy }}>
+                    <span className="inline-flex items-center gap-2">
+                      <motion.span animate={{ rotate: isOpen ? 0 : -90 }} transition={{ duration: 0.15 }}>
+                        <ChevronDown size={14} style={{ color: C.subtle }} />
+                      </motion.span>
+                      {canonical}
+                      <span className="text-[10px] font-normal px-1.5 py-0.5 rounded" style={{ background: "#F4F5F7", color: C.subtle }}>
+                        {subs.length} questions
+                      </span>
+                    </span>
+                  </Td>
+                  <Td style={{ color: C.slate }}>{row.current.toFixed(2)}</Td>
+                  <Td style={{ color: C.slate }}>{row.target.toFixed(2)}</Td>
+                  <Td>
+                    <span className="font-semibold" style={{ color: tone }}>
+                      {g > 0 ? `+${g}` : g}
+                    </span>
+                  </Td>
+                  <Td>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onCreateObjective(); }}
+                      className="text-xs font-semibold inline-flex items-center gap-1 px-2.5 py-1 rounded border hover:border-[#0052CC] transition-colors"
+                      style={{ borderColor: C.border, color: C.primary }}
+                    >
+                      <Plus size={12} />
+                      Create Objective
+                    </button>
+                  </Td>
                 </tr>
-              </thead>
-              <tbody>
-                {data.map((row) => {
-                  const g = +(row.target - row.current).toFixed(2);
-                  const tone = g >= 1 ? C.red : g >= 0.5 ? C.amber : C.green;
+                {isOpen && subs.map((sub) => {
+                  const rating = subRating(canonical, sub);
+                  const scale = EFFECTIVENESS_SCALE[rating - 1];
+                  const subGap = +(row.target - rating).toFixed(2);
+                  const subTone = subGap >= 1 ? C.red : subGap >= 0.5 ? C.amber : C.green;
                   return (
                     <tr
-                      key={row.competency}
-                      className="border-t hover:bg-[#FAFBFC] transition-colors"
-                      style={{ borderColor: C.border }}
+                      key={canonical + sub}
+                      className="border-t"
+                      style={{ borderColor: C.border, background: "#FAFBFC" }}
                     >
-                      <Td className="font-semibold" style={{ color: C.navy }}>
-                        {row.competency}
+                      <Td className="pl-12" style={{ color: C.slate }}>
+                        <div className="text-[13px] leading-snug" style={{ color: C.navy }}>{sub}</div>
+                        <div className="text-[11px] mt-0.5" style={{ color: C.subtle }}>
+                          Score: {rating} &mdash; {scale.label}
+                        </div>
                       </Td>
-                      <Td style={{ color: C.slate }}>{row.current.toFixed(2)}</Td>
-                      <Td style={{ color: C.slate }}>{row.target.toFixed(2)}</Td>
+                      <Td style={{ color: C.slate }}>{rating}</Td>
+                      <Td style={{ color: C.slate }}>{row.target.toFixed(0)}</Td>
                       <Td>
-                        <span className="font-semibold" style={{ color: tone }}>
-                          {g > 0 ? `+${g}` : g}
+                        <span className="font-semibold" style={{ color: subTone }}>
+                          {subGap > 0 ? `+${subGap}` : subGap}
                         </span>
                       </Td>
                       <Td>
                         <button
                           onClick={onCreateObjective}
-                          className="text-xs font-semibold inline-flex items-center gap-1 px-2.5 py-1 rounded border hover:border-[#0052CC] transition-colors"
+                          className="text-[11px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded border hover:border-[#0052CC] transition-colors"
                           style={{ borderColor: C.border, color: C.primary }}
                         >
-                          <Plus size={12} />
+                          <Plus size={11} />
                           Create Objective
                         </button>
                       </Td>
                     </tr>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      </div>
+              </React.Fragment>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -1769,11 +1888,19 @@ function CaptureModal({
   onClose: () => void;
   onSave: (title: string, comps: string[], link: string, reflection: string) => void;
 }) {
+  const categories = Object.keys(SUBCATEGORIES);
   const [title, setTitle] = useState("");
   const [reflection, setReflection] = useState("");
   const [link, setLink] = useState("");
-  const [comps, setComps] = useState<string[]>(["Code Quality"]);
+  const [category, setCategory] = useState(categories[2]); // Code Quality
+  const [subcategory, setSubcategory] = useState(SUBCATEGORIES[categories[2]][0]);
   const linkValid = !link || /^https?:\/\/\S+\.\S+/i.test(link);
+
+  function onCategoryChange(v: string) {
+    setCategory(v);
+    setSubcategory(SUBCATEGORIES[v][0]);
+  }
+
   return (
     <Backdrop onClose={onClose}>
       <motion.div
@@ -1798,8 +1925,8 @@ function CaptureModal({
             <X size={18} />
           </button>
         </div>
-        <div className="p-5 space-y-4">
-          <Field label="Title">
+        <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+          <Field label="Evidence Title">
             <Input
               autoFocus
               value={title}
@@ -1807,7 +1934,7 @@ function CaptureModal({
               placeholder="e.g. Led RFC review for payments cutover"
             />
           </Field>
-          <Field label="Source link (optional)">
+          <Field label="Source link(s)">
             <div className="relative">
               <LinkIcon
                 size={14}
@@ -1823,11 +1950,11 @@ function CaptureModal({
             </div>
             <div className="text-[11px] mt-1" style={{ color: linkValid ? C.subtle : C.red }}>
               {linkValid
-                ? "Paste a PR, Jira ticket, doc, or Slack thread for traceability."
+                ? "Add URL to a Jira ticket, PR, or Confluence page."
                 : "Enter a valid URL starting with http:// or https://"}
             </div>
           </Field>
-          <Field label="Reflection">
+          <Field label="Reflection & Context">
             <Textarea
               value={reflection}
               onChange={(e) => setReflection(e.target.value)}
@@ -1835,26 +1962,28 @@ function CaptureModal({
               rows={4}
             />
           </Field>
-          <Field label="Tag competencies">
-            <div className="flex flex-wrap gap-1.5">
-              {COMPETENCIES.map((c) => (
-                <Pill
-                  key={c}
-                  active={comps.includes(c)}
-                  onClick={() =>
-                    setComps((s) => (s.includes(c) ? s.filter((x) => x !== c) : [...s, c]))
-                  }
-                >
-                  {c}
-                </Pill>
+          <Field label="Competency Category">
+            <Select value={category} onChange={(e) => onCategoryChange(e.target.value)}>
+              {categories.map((c) => (
+                <option key={c}>{c}</option>
               ))}
+            </Select>
+            <div className="text-[11px] mt-1.5 leading-relaxed" style={{ color: C.subtle }}>
+              {COMPETENCY_DESC[category]}
             </div>
+          </Field>
+          <Field label="Subcategory / Question">
+            <Select value={subcategory} onChange={(e) => setSubcategory(e.target.value)}>
+              {SUBCATEGORIES[category].map((s) => (
+                <option key={s}>{s}</option>
+              ))}
+            </Select>
           </Field>
         </div>
         <div className="p-4 border-t flex items-center justify-end gap-2" style={{ borderColor: C.border }}>
           <GhostBtn onClick={onClose}>Cancel</GhostBtn>
-          <PrimaryBtn disabled={!title || !linkValid} onClick={() => onSave(title, comps, link, reflection)}>
-            Save Evidence
+          <PrimaryBtn disabled={!title || !linkValid} onClick={() => onSave(title, [category], link, reflection)}>
+            Save to Log
           </PrimaryBtn>
         </div>
       </motion.div>
@@ -1926,12 +2055,19 @@ function CreateObjectiveModal({
   onClose: () => void;
   onSubmit: (o: Omit<Objective, "id" | "status">) => void;
 }) {
-  const [competency, setCompetency] = useState(COMPETENCIES[0]);
+  const objCategories = Object.keys(SUBCATEGORIES);
+  const [competency, setCompetency] = useState(objCategories[0]);
+  const [subcategory, setSubcategory] = useState(SUBCATEGORIES[objCategories[0]][0]);
   const [s, setS] = useState("");
   const [m, setM] = useState("");
   const [a, setA] = useState("");
   const [r, setR] = useState("");
   const [t, setT] = useState("");
+
+  function onCatChange(v: string) {
+    setCompetency(v);
+    setSubcategory(SUBCATEGORIES[v][0]);
+  }
 
   return (
     <Backdrop onClose={onClose}>
@@ -1961,10 +2097,20 @@ function CreateObjectiveModal({
         <div className="grid grid-cols-5 flex-1 overflow-hidden">
           {/* Form */}
           <div className="col-span-3 p-6 overflow-y-auto space-y-4">
-            <Field label="Target Competency">
-              <Select value={competency} onChange={(e) => setCompetency(e.target.value)}>
-                {COMPETENCIES.map((c) => (
+            <Field label="Target Category">
+              <Select value={competency} onChange={(e) => onCatChange(e.target.value)}>
+                {objCategories.map((c) => (
                   <option key={c}>{c}</option>
+                ))}
+              </Select>
+              <div className="text-[11px] mt-1.5 leading-relaxed" style={{ color: C.subtle }}>
+                {COMPETENCY_DESC[competency]}
+              </div>
+            </Field>
+            <Field label="Target Subcategory / Question">
+              <Select value={subcategory} onChange={(e) => setSubcategory(e.target.value)}>
+                {SUBCATEGORIES[competency].map((sc) => (
+                  <option key={sc}>{sc}</option>
                 ))}
               </Select>
             </Field>
@@ -2827,6 +2973,8 @@ function EvidenceSlideover({
   onClose: () => void;
   onDelete: (id: string) => void;
 }) {
+  const [rating, setRating] = useState<number>(4);
+  const scale = EFFECTIVENESS_SCALE[rating - 1];
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -2968,13 +3116,20 @@ function EvidenceSlideover({
                 style={{ borderColor: C.border, background: C.bg }}
               >
                 <div>
-                  <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>
+                  <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: C.subtle }}>
                     Effectiveness Rating
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Badge tone="success">4 / 5</Badge>
+                  <Select value={String(rating)} onChange={(e) => setRating(Number(e.target.value))}>
+                    {EFFECTIVENESS_SCALE.map((s) => (
+                      <option key={s.value} value={s.value}>
+                        {s.value} &mdash; {s.label}
+                      </option>
+                    ))}
+                  </Select>
+                  <div className="mt-2 flex items-center gap-2">
+                    <Badge tone={scale.tone}>{rating} / 5</Badge>
                     <span className="text-sm font-semibold" style={{ color: C.navy }}>
-                      Highly Effective
+                      {scale.label}
                     </span>
                   </div>
                   <div className="mt-2 flex gap-1">
@@ -2984,7 +3139,7 @@ function EvidenceSlideover({
                         title={`${s.value}: ${s.label}`}
                         className="flex-1 h-1.5 rounded-full"
                         style={{
-                          background: s.value <= 4 ? C.green : C.border,
+                          background: s.value <= rating ? C.green : C.border,
                         }}
                       />
                     ))}
@@ -3374,12 +3529,20 @@ function InboxReviewSlideover({
   onConfirm: (comps: string[]) => void;
   onDismiss: () => void;
 }) {
+  const inboxCats = Object.keys(SUBCATEGORIES);
+  const initialCat = inboxCats.find((c) => item.suggestion.includes(c)) ?? inboxCats[0];
   const [title, setTitle] = useState(item.title);
   const [description, setDescription] = useState("");
   const [selected, setSelected] = useState<string[]>(item.suggestion);
+  const [category, setCategory] = useState(initialCat);
+  const [subcategory, setSubcategory] = useState(SUBCATEGORIES[initialCat][0]);
   const Icon = item.icon;
   function toggle(c: string) {
     setSelected((s) => (s.includes(c) ? s.filter((x) => x !== c) : [...s, c]));
+  }
+  function onCatChange(v: string) {
+    setCategory(v);
+    setSubcategory(SUBCATEGORIES[v][0]);
   }
   return (
     <motion.div
@@ -3491,7 +3654,31 @@ function InboxReviewSlideover({
               </label>
             </div>
             <div className="text-[11px] mb-2" style={{ color: C.subtle }}>
-              Click to toggle. Deselect what doesn't fit, add what does.
+              The AI suggested this Category and Subcategory. Change either dropdown to remap.
+            </div>
+            <div className="grid grid-cols-1 gap-3">
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Category</div>
+                <Select value={category} onChange={(e) => onCatChange(e.target.value)}>
+                  {inboxCats.map((c) => (
+                    <option key={c}>{c}</option>
+                  ))}
+                </Select>
+                <div className="text-[11px] mt-1.5 leading-relaxed" style={{ color: C.subtle }}>
+                  {COMPETENCY_DESC[category]}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Subcategory / Question</div>
+                <Select value={subcategory} onChange={(e) => setSubcategory(e.target.value)}>
+                  {SUBCATEGORIES[category].map((s) => (
+                    <option key={s}>{s}</option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+            <div className="text-[11px] mt-3 mb-1" style={{ color: C.subtle }}>
+              Additional related competencies (optional):
             </div>
             <div className="flex flex-wrap gap-1.5">
               {COMPETENCIES.map((c) => (
