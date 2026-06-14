@@ -3803,14 +3803,14 @@ function ReportView({
     return (
       <div className="space-y-6">
         {/* Action Hub bar */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between print-hide">
           <div className="text-sm" style={{ color: C.subtle }}>
-            The action hub for performance reviews. Start a new session or revisit past assessments.
+            Archive of all performance assessments. Click any row to load its full report.
           </div>
           <div className="flex items-center gap-2">
             <GhostBtn onClick={onOpenHistory}>
               <History size={14} />
-              Assessment History
+              Open in modal
             </GhostBtn>
             <PrimaryBtn onClick={onStartReview}>
               <ClipboardList size={14} />
@@ -3819,22 +3819,29 @@ function ReportView({
           </div>
         </div>
 
-        <Card className="p-10 text-center max-w-2xl mx-auto">
-          <div
-            className="w-14 h-14 rounded-full mx-auto flex items-center justify-center mb-4"
-            style={{ background: C.primarySoft, color: C.primary }}
-          >
-            <FileCheck2 size={26} />
-          </div>
-          <h3 className="text-lg font-bold tracking-tight" style={{ color: C.navy }}>
-            No finalized performance review yet
-          </h3>
-          <p className="mt-2 text-sm leading-relaxed" style={{ color: C.slate }}>
-            Click "Start Performance Review" above to launch the wizard. Once finalized, this page
-            auto-generates a shareable summary with the competency delta, justification notes,
-            highlighted evidence, and a 1-on-1 talking points checklist.
-          </p>
-        </Card>
+        <AssessmentsArchiveTable
+          assessments={assessments}
+          onOpen={onOpenAssessment}
+        />
+
+        {assessments.length === 0 && (
+          <Card className="p-10 text-center max-w-2xl mx-auto">
+            <div
+              className="w-14 h-14 rounded-full mx-auto flex items-center justify-center mb-4"
+              style={{ background: C.primarySoft, color: C.primary }}
+            >
+              <FileCheck2 size={26} />
+            </div>
+            <h3 className="text-lg font-bold tracking-tight" style={{ color: C.navy }}>
+              No finalized performance review yet
+            </h3>
+            <p className="mt-2 text-sm leading-relaxed" style={{ color: C.slate }}>
+              Click "Start Performance Review" above to launch the wizard. Once finalized, this page
+              auto-generates a shareable summary with the competency delta, justification notes,
+              highlighted evidence, and a 1-on-1 talking points checklist.
+            </p>
+          </Card>
+        )}
       </div>
     );
   }
@@ -3842,11 +3849,15 @@ function ReportView({
   return (
     <div>
       {/* Action Hub bar */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 print-hide">
         <div className="text-sm" style={{ color: C.subtle }}>
-          The action hub for performance reviews. Start a new session or revisit past assessments.
+          Viewing report {review.id}. Use the archive to switch between historical assessments.
         </div>
         <div className="flex items-center gap-2">
+          <GhostBtn onClick={onClearReview}>
+            <ArrowLeft size={14} />
+            Back to archive
+          </GhostBtn>
           <GhostBtn onClick={onOpenHistory}>
             <History size={14} />
             Assessment History
@@ -3860,14 +3871,14 @@ function ReportView({
 
       {/* Sticky action bar */}
       <div
-        className="sticky top-0 z-20 -mx-8 px-8 py-3 mb-6 border-b flex items-center justify-between"
+        className="sticky top-0 z-20 -mx-8 px-8 py-3 mb-6 border-b flex items-center justify-between print-hide"
         style={{ background: C.bg, borderColor: C.border }}
       >
         <nav className="flex items-center gap-1.5 text-xs" style={{ color: C.subtle }}>
-          <span>Promotion Readiness</span>
+          <span>Reviews &amp; Reports</span>
           <ChevronRight size={12} />
           <span className="font-semibold" style={{ color: C.navy }}>
-            Generate Report
+            {review.period}
           </span>
         </nav>
         <div className="flex items-center gap-2">
@@ -3884,7 +3895,7 @@ function ReportView({
 
       {/* Document */}
       <article
-        className="max-w-4xl mx-auto bg-white border rounded shadow-md p-10"
+        className="max-w-4xl mx-auto bg-white border rounded shadow-md p-10 print-document"
         style={{ borderColor: C.border }}
       >
         {/* 1. Header */}
