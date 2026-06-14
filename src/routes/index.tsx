@@ -1438,57 +1438,126 @@ function RadarView({
 
         <Card className="col-span-3 p-0 overflow-hidden">
           <div className="p-5 border-b" style={{ borderColor: C.border }}>
-            <SectionHeader title="Real-Time Gap Analysis" sub="Targeted actions to close each gap" />
+            <SectionHeader title="Hierarchical Gap Analysis" sub="Expand a category to see specific competency questions and their 1-5 effectiveness rating" />
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead style={{ background: "#F4F5F7", color: C.subtle }}>
-                <tr className="text-left text-[11px] uppercase tracking-wider">
-                  <Th>Competency</Th>
-                  <Th>Current</Th>
-                  <Th>Target</Th>
-                  <Th>Gap</Th>
-                  <Th>Action</Th>
+          <HierarchicalMatrix data={data} onCreateObjective={onCreateObjective} />
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function HierarchicalMatrix({
+  data,
+  onCreateObjective,
+}: {
+  data: typeof initialRadar;
+  onCreateObjective: () => void;
+}) {
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  // Map short radar label -> canonical category name in SUBCATEGORIES
+  const mapToCanonical = (label: string): string => {
+    if (label === "Analytical") return "Analytical Thinking";
+    if (label === "UX Eng") return "Engineering for UX";
+    return label;
+  };
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead style={{ background: "#F4F5F7", color: C.subtle }}>
+          <tr className="text-left text-[11px] uppercase tracking-wider">
+            <Th>Category / Question</Th>
+            <Th>Current</Th>
+            <Th>Target</Th>
+            <Th>Gap</Th>
+            <Th>Action</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.map((row) => {
+            const canonical = mapToCanonical(row.competency);
+            const subs = SUBCATEGORIES[canonical] ?? [];
+            const isOpen = !!open[row.competency];
+            const g = +(row.target - row.current).toFixed(2);
+            const tone = g >= 1 ? C.red : g >= 0.5 ? C.amber : C.green;
+            return (
+              <React.Fragment key={row.competency}>
+                <tr
+                  className="border-t hover:bg-[#FAFBFC] transition-colors cursor-pointer"
+                  style={{ borderColor: C.border }}
+                  onClick={() => setOpen((s) => ({ ...s, [row.competency]: !s[row.competency] }))}
+                >
+                  <Td className="font-semibold" style={{ color: C.navy }}>
+                    <span className="inline-flex items-center gap-2">
+                      <motion.span animate={{ rotate: isOpen ? 0 : -90 }} transition={{ duration: 0.15 }}>
+                        <ChevronDown size={14} style={{ color: C.subtle }} />
+                      </motion.span>
+                      {canonical}
+                      <span className="text-[10px] font-normal px-1.5 py-0.5 rounded" style={{ background: "#F4F5F7", color: C.subtle }}>
+                        {subs.length} questions
+                      </span>
+                    </span>
+                  </Td>
+                  <Td style={{ color: C.slate }}>{row.current.toFixed(2)}</Td>
+                  <Td style={{ color: C.slate }}>{row.target.toFixed(2)}</Td>
+                  <Td>
+                    <span className="font-semibold" style={{ color: tone }}>
+                      {g > 0 ? `+${g}` : g}
+                    </span>
+                  </Td>
+                  <Td>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onCreateObjective(); }}
+                      className="text-xs font-semibold inline-flex items-center gap-1 px-2.5 py-1 rounded border hover:border-[#0052CC] transition-colors"
+                      style={{ borderColor: C.border, color: C.primary }}
+                    >
+                      <Plus size={12} />
+                      Create Objective
+                    </button>
+                  </Td>
                 </tr>
-              </thead>
-              <tbody>
-                {data.map((row) => {
-                  const g = +(row.target - row.current).toFixed(2);
-                  const tone = g >= 1 ? C.red : g >= 0.5 ? C.amber : C.green;
+                {isOpen && subs.map((sub) => {
+                  const rating = subRating(canonical, sub);
+                  const scale = EFFECTIVENESS_SCALE[rating - 1];
+                  const subGap = +(row.target - rating).toFixed(2);
+                  const subTone = subGap >= 1 ? C.red : subGap >= 0.5 ? C.amber : C.green;
                   return (
                     <tr
-                      key={row.competency}
-                      className="border-t hover:bg-[#FAFBFC] transition-colors"
-                      style={{ borderColor: C.border }}
+                      key={canonical + sub}
+                      className="border-t"
+                      style={{ borderColor: C.border, background: "#FAFBFC" }}
                     >
-                      <Td className="font-semibold" style={{ color: C.navy }}>
-                        {row.competency}
+                      <Td className="pl-12" style={{ color: C.slate }}>
+                        <div className="text-[13px] leading-snug" style={{ color: C.navy }}>{sub}</div>
+                        <div className="text-[11px] mt-0.5" style={{ color: C.subtle }}>
+                          Score: {rating} &mdash; {scale.label}
+                        </div>
                       </Td>
-                      <Td style={{ color: C.slate }}>{row.current.toFixed(2)}</Td>
-                      <Td style={{ color: C.slate }}>{row.target.toFixed(2)}</Td>
+                      <Td style={{ color: C.slate }}>{rating}</Td>
+                      <Td style={{ color: C.slate }}>{row.target.toFixed(0)}</Td>
                       <Td>
-                        <span className="font-semibold" style={{ color: tone }}>
-                          {g > 0 ? `+${g}` : g}
+                        <span className="font-semibold" style={{ color: subTone }}>
+                          {subGap > 0 ? `+${subGap}` : subGap}
                         </span>
                       </Td>
                       <Td>
                         <button
                           onClick={onCreateObjective}
-                          className="text-xs font-semibold inline-flex items-center gap-1 px-2.5 py-1 rounded border hover:border-[#0052CC] transition-colors"
+                          className="text-[11px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded border hover:border-[#0052CC] transition-colors"
                           style={{ borderColor: C.border, color: C.primary }}
                         >
-                          <Plus size={12} />
+                          <Plus size={11} />
                           Create Objective
                         </button>
                       </Td>
                     </tr>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      </div>
+              </React.Fragment>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
