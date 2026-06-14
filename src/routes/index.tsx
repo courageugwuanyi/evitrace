@@ -58,6 +58,11 @@ import {
   ResponsiveContainer,
   Tooltip as RTooltip,
   Legend,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
 } from "recharts";
 
 export const Route = createFileRoute("/")({
