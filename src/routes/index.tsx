@@ -1411,6 +1411,16 @@ function DashboardView({
 }) {
   const active = objectives.filter((o) => o.status === "In Progress");
   const recentEvidence = evidence.slice(0, 4);
+  function relativeDate(dateStr: string) {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr;
+    const diffDays = Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
+    if (diffDays <= 0) return "Today";
+    if (diffDays === 1) return "Yesterday";
+    if (diffDays < 7) return `${diffDays} days ago`;
+    if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
+    return dateStr;
+  }
   return (
     <div className="space-y-6">
       {/* Widget A */}
