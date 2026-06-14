@@ -3653,8 +3653,39 @@ function InboxReviewSlideover({
                 AI Competency Mapping
               </label>
             </div>
+          <section>
+            <div className="flex items-center gap-2 mb-2">
+              <Sparkles size={13} style={{ color: C.primary }} />
+              <label className="text-xs font-bold uppercase tracking-wider" style={{ color: C.subtle }}>
+                AI Competency Mapping
+              </label>
+            </div>
             <div className="text-[11px] mb-2" style={{ color: C.subtle }}>
-              Click to toggle. Deselect what doesn't fit, add what does.
+              The AI suggested this Category and Subcategory. Change either dropdown to remap.
+            </div>
+            <div className="grid grid-cols-1 gap-3">
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Category</div>
+                <Select value={category} onChange={(e) => onCatChange(e.target.value)}>
+                  {inboxCats.map((c) => (
+                    <option key={c}>{c}</option>
+                  ))}
+                </Select>
+                <div className="text-[11px] mt-1.5 leading-relaxed" style={{ color: C.subtle }}>
+                  {COMPETENCY_DESC[category]}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Subcategory / Question</div>
+                <Select value={subcategory} onChange={(e) => setSubcategory(e.target.value)}>
+                  {SUBCATEGORIES[category].map((s) => (
+                    <option key={s}>{s}</option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+            <div className="text-[11px] mt-3 mb-1" style={{ color: C.subtle }}>
+              Additional related competencies (optional):
             </div>
             <div className="flex flex-wrap gap-1.5">
               {COMPETENCIES.map((c) => (
