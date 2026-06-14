@@ -998,6 +998,7 @@ function EvitraceApp() {
               {tab === "radar" && (
                 <RadarView
                   data={radarData}
+                  assessments={assessments}
                   onCreateObjective={() => setShowCreateObjective(true)}
                   onStartReview={() => setShowWizard(true)}
                   onOpenHistory={() => setShowHistory(true)}
