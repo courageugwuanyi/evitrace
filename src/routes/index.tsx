@@ -931,7 +931,7 @@ function EvitraceApp() {
     radar: "Promotion Readiness",
     evidence: "Evidence Log",
     objectives: "Objectives",
-    report: "Performance Report",
+    report: "Reviews & Reports",
     settings: "Settings",
   };
 
