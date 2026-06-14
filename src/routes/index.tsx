@@ -979,7 +979,7 @@ function EvitraceApp() {
       <div className="flex-1 flex flex-col min-w-0">
         <TopHeader title={pageTitle[tab]} onCapture={() => setShowCapture(true)} />
 
-        <main className="flex-1 px-8 py-6">
+        <main className="flex-1 px-8 py-6 print-main">
           <AnimatePresence mode="wait">
             <motion.div
               key={tab}
