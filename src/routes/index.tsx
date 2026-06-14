@@ -2194,6 +2194,97 @@ function ObjectiveSlideover({
             </AnimatePresence>
           </div>
 
+          {/* Objective Statement */}
+          {objective.statement && (
+            <section
+              className="p-4 rounded border"
+              style={{ borderColor: C.border, background: "#FAFBFC" }}
+            >
+              <div className="text-[11px] font-bold uppercase tracking-wider mb-1.5" style={{ color: C.subtle }}>
+                Objective Statement
+              </div>
+              <div className="text-sm leading-relaxed" style={{ color: C.navy }}>
+                {objective.statement}
+              </div>
+              {objective.dateAuthored && (
+                <div className="text-[11px] mt-2" style={{ color: C.subtle }}>
+                  Authored {objective.dateAuthored}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* Success Criteria — Learn / Demonstrate / Share */}
+          {objective.successCriteria && (
+            <section>
+              <div className="flex items-center gap-2 mb-3">
+                <Target size={14} style={{ color: C.slate }} />
+                <div className="text-sm font-bold" style={{ color: C.navy }}>
+                  Success Criteria
+                </div>
+              </div>
+              <div className="space-y-4">
+                {(
+                  [
+                    { key: "learn", label: "Learn", icon: BookOpen, tone: "info" as const },
+                    {
+                      key: "demonstrate",
+                      label: "Demonstrate",
+                      icon: Wrench,
+                      tone: "warning" as const,
+                    },
+                    { key: "share", label: "Share", icon: Share2, tone: "success" as const },
+                  ] as const
+                ).map(({ key, label, icon: Icon, tone }) => {
+                  const rows = objective.successCriteria![key];
+                  return (
+                    <div
+                      key={key}
+                      className="rounded border overflow-hidden"
+                      style={{ borderColor: C.border }}
+                    >
+                      <div
+                        className="px-4 py-2.5 flex items-center justify-between border-b"
+                        style={{ borderColor: C.border, background: "#FAFBFC" }}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Icon size={14} style={{ color: C.primary }} />
+                          <span className="text-sm font-semibold" style={{ color: C.navy }}>
+                            {label}
+                          </span>
+                        </div>
+                        <Badge tone={tone}>{rows.length} criteria</Badge>
+                      </div>
+                      <div className="divide-y" style={{ borderColor: C.border }}>
+                        {rows.map((r, i) => (
+                          <div
+                            key={i}
+                            className="px-4 py-3 grid grid-cols-[1fr_auto] gap-3 items-start"
+                            style={{ borderColor: C.border }}
+                          >
+                            <div>
+                              <div className="text-sm leading-snug" style={{ color: C.navy }}>
+                                {r.criteria}
+                              </div>
+                              <div className="text-[11px] mt-1 flex items-center gap-1" style={{ color: C.subtle }}>
+                                <Paperclip size={11} />
+                                Evidence: {r.evidence}
+                              </div>
+                            </div>
+                            <Badge tone={r.done ? "success" : "neutral"}>
+                              {r.done ? "Done" : "Open"}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+
           {/* Links */}
           <section>
             <div className="flex items-center gap-2 mb-2">
