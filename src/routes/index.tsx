@@ -440,6 +440,7 @@ function EvitraceApp() {
   const [showCreateObjective, setShowCreateObjective] = useState(false);
   const [openObjective, setOpenObjective] = useState<Objective | null>(null);
   const [openEvidence, setOpenEvidence] = useState<(typeof initialEvidence)[number] | null>(null);
+  const [openInbox, setOpenInbox] = useState<(typeof initialInbox)[number] | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const pageTitle: Record<Tab, string> = {
