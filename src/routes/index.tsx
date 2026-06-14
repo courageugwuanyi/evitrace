@@ -1602,7 +1602,7 @@ function RadarView({
                     borderRadius: 6,
                     fontSize: 12,
                   }}
-                  formatter={(v: number) => `${Number(v).toFixed(2)} / 4`}
+                  formatter={(v) => `${Number(v).toFixed(2)} / 4`}
                 />
                 <Bar dataKey="previous" name="Previous" fill="#A5ADBA" radius={[3, 3, 0, 0]} />
                 <Bar dataKey="current" name="Current" fill={C.primary} radius={[3, 3, 0, 0]} />
