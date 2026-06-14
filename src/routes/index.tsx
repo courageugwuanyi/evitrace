@@ -2055,12 +2055,19 @@ function CreateObjectiveModal({
   onClose: () => void;
   onSubmit: (o: Omit<Objective, "id" | "status">) => void;
 }) {
-  const [competency, setCompetency] = useState(COMPETENCIES[0]);
+  const objCategories = Object.keys(SUBCATEGORIES);
+  const [competency, setCompetency] = useState(objCategories[0]);
+  const [subcategory, setSubcategory] = useState(SUBCATEGORIES[objCategories[0]][0]);
   const [s, setS] = useState("");
   const [m, setM] = useState("");
   const [a, setA] = useState("");
   const [r, setR] = useState("");
   const [t, setT] = useState("");
+
+  function onCatChange(v: string) {
+    setCompetency(v);
+    setSubcategory(SUBCATEGORIES[v][0]);
+  }
 
   return (
     <Backdrop onClose={onClose}>
@@ -2090,10 +2097,20 @@ function CreateObjectiveModal({
         <div className="grid grid-cols-5 flex-1 overflow-hidden">
           {/* Form */}
           <div className="col-span-3 p-6 overflow-y-auto space-y-4">
-            <Field label="Target Competency">
-              <Select value={competency} onChange={(e) => setCompetency(e.target.value)}>
-                {COMPETENCIES.map((c) => (
+            <Field label="Target Category">
+              <Select value={competency} onChange={(e) => onCatChange(e.target.value)}>
+                {objCategories.map((c) => (
                   <option key={c}>{c}</option>
+                ))}
+              </Select>
+              <div className="text-[11px] mt-1.5 leading-relaxed" style={{ color: C.subtle }}>
+                {COMPETENCY_DESC[competency]}
+              </div>
+            </Field>
+            <Field label="Target Subcategory / Question">
+              <Select value={subcategory} onChange={(e) => setSubcategory(e.target.value)}>
+                {SUBCATEGORIES[competency].map((sc) => (
+                  <option key={sc}>{sc}</option>
                 ))}
               </Select>
             </Field>
