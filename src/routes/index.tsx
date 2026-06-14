@@ -1173,6 +1173,7 @@ function EvitraceApp() {
         {showWizard && (
           <ReviewWizard
             evidence={evidence}
+            onOpenEvidence={setOpenEvidence}
             onClose={() => setShowWizard(false)}
             onFinalize={(session: ReviewSession) => {
               setReview(session);
