@@ -1889,13 +1889,8 @@ function ObjectivesView({
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-bold" style={{ color: C.navy }}>
-            Career Objectives
-          </h2>
-          <div className="text-sm mt-0.5" style={{ color: C.subtle }}>
-            Proactive goals that close competency gaps outside your daily work
-          </div>
+        <div className="text-sm" style={{ color: C.subtle }}>
+          Proactive goals that close competency gaps outside your daily work
         </div>
         <PrimaryBtn onClick={onCreate}>
           <Plus size={16} />
