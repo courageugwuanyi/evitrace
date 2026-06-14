@@ -653,6 +653,24 @@ function EvitraceApp() {
         )}
       </AnimatePresence>
 
+      {/* Auto-captured inbox slide-over */}
+      <AnimatePresence>
+        {openInbox && (
+          <InboxReviewSlideover
+            item={openInbox}
+            onClose={() => setOpenInbox(null)}
+            onConfirm={(comps) => {
+              approveInbox(openInbox.id, comps);
+              setOpenInbox(null);
+            }}
+            onDismiss={() => {
+              setInbox((x) => x.filter((i) => i.id !== openInbox.id));
+              setOpenInbox(null);
+              flash("Event dismissed");
+            }}
+          />
+        )}
+
       {/* Toast */}
       <AnimatePresence>
         {toast && (
