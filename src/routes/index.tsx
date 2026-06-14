@@ -806,6 +806,7 @@ function EvitraceApp() {
                   onFlash={flash}
                   review={review}
                   onStartReview={() => setShowWizard(true)}
+                  onOpenHistory={() => setShowHistory(true)}
                 />
               )}
               {tab === "settings" && <SettingsView />}
