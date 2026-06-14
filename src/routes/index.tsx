@@ -1021,6 +1021,9 @@ function EvitraceApp() {
                   radarData={radarData}
                   onFlash={flash}
                   review={review}
+                  assessments={assessments}
+                  onOpenAssessment={(a) => setReview(assessmentToSession(a))}
+                  onClearReview={() => setReview(null)}
                   onStartReview={() => setShowWizard(true)}
                   onOpenHistory={() => setShowHistory(true)}
                 />
