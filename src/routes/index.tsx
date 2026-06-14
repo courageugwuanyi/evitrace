@@ -3466,6 +3466,22 @@ function InboxReviewSlideover({
                 </Pill>
               ))}
             </div>
+            {selected.length > 0 && (
+              <div
+                className="mt-3 p-3 rounded border space-y-1.5"
+                style={{ borderColor: C.border, background: "#FAFBFC" }}
+              >
+                <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: C.subtle }}>
+                  Why these were suggested
+                </div>
+                {selected.map((c) => (
+                  <div key={c} className="text-[12px] leading-snug" style={{ color: C.slate }}>
+                    <span className="font-semibold" style={{ color: C.navy }}>{c}:</span>{" "}
+                    {COMPETENCY_DESC[c]}
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         </div>
 
