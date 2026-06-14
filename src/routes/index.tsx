@@ -216,10 +216,217 @@ type ReviewSession = {
   scores: Record<string, Record<string, ReviewQuestion>>;
 };
 
-const initialHistory: { id: string; period: string; date: string; readiness: number }[] = [
-  { id: "REV-2026-Q2", period: "Q2 2026", date: "Jun 28, 2026", readiness: 72 },
-  { id: "REV-2026-Q1", period: "Q1 2026", date: "Mar 30, 2026", readiness: 64 },
-  { id: "REV-2025-Q4", period: "Q4 2025", date: "Dec 22, 2025", readiness: 58 },
+/* ---------- Historical Assessments (strict schema) ----------
+ * Category.categoryCurrentAvg MUST equal the arithmetic mean of its questions'
+ * currentScore values. Use `withDerivedAverages()` to enforce that invariant.
+ */
+export type AssessmentQuestion = {
+  questionId: string;
+  questionText: string;
+  previousScore: number;
+  currentScore: number;
+  targetScore: number;
+  justification: string;
+  attachedEvidenceIds: string[];
+};
+export type AssessmentCategory = {
+  categoryId: string;
+  categoryName: string;
+  summary: string;
+  categoryCurrentAvg: number;
+  categoryTarget: number;
+  questions: AssessmentQuestion[];
+};
+export type Assessment = {
+  id: string;
+  dateCompleted: string; // ISO
+  reviewPeriod: string;
+  status: "Finalized" | "Draft" | "In Review";
+  engineerName: string;
+  managerName: string;
+  overallReadinessScore: number; // 0-100
+  categories: AssessmentCategory[];
+  oneOnOneTopics: string[];
+};
+
+function avg(nums: number[]): number {
+  if (nums.length === 0) return 0;
+  return +(nums.reduce((s, n) => s + n, 0) / nums.length).toFixed(2);
+}
+
+/** Recomputes every categoryCurrentAvg from its questions and the overall
+ *  readiness score (0-100, mapped from the 1-5 effectiveness scale). */
+function withDerivedAverages(a: Assessment): Assessment {
+  const categories = a.categories.map((c) => ({
+    ...c,
+    categoryCurrentAvg: avg(c.questions.map((q) => q.currentScore)),
+  }));
+  const allScores = categories.flatMap((c) => c.questions.map((q) => q.currentScore));
+  const overall = allScores.length === 0 ? 0 : Math.round((avg(allScores) / 5) * 100);
+  return { ...a, categories, overallReadinessScore: overall };
+}
+
+/** Build a strict Assessment from a wizard-captured ReviewSession. */
+function sessionToAssessment(s: ReviewSession): Assessment {
+  const categories: AssessmentCategory[] = Object.entries(s.scores).map(([catName, subs], ci) => {
+    const questions: AssessmentQuestion[] = Object.entries(subs).map(([sub, q], qi) => ({
+      questionId: `q_${ci + 1}_${qi + 1}`,
+      questionText: sub,
+      previousScore: q.prev,
+      currentScore: q.next,
+      targetScore: 4,
+      justification: q.notes,
+      attachedEvidenceIds: q.evidenceIds,
+    }));
+    return {
+      categoryId: `cat_${String(ci + 1).padStart(2, "0")}`,
+      categoryName: catName,
+      summary: COMPETENCY_DESC[catName] ?? "",
+      categoryCurrentAvg: 0, // derived below
+      categoryTarget: 4,
+      questions,
+    };
+  });
+  return withDerivedAverages({
+    id: s.id,
+    dateCompleted: new Date().toISOString(),
+    reviewPeriod: s.period,
+    status: "Finalized",
+    engineerName: s.engineer,
+    managerName: s.manager,
+    overallReadinessScore: 0, // derived below
+    categories,
+    oneOnOneTopics: [],
+  });
+}
+
+/** Convert a stored Assessment back to the in-memory ReviewSession shape
+ *  that ReportView already consumes. */
+function assessmentToSession(a: Assessment): ReviewSession {
+  const scores: Record<string, Record<string, ReviewQuestion>> = {};
+  a.categories.forEach((c) => {
+    scores[c.categoryName] = {};
+    c.questions.forEach((q) => {
+      scores[c.categoryName][q.questionText] = {
+        prev: q.previousScore,
+        next: q.currentScore,
+        notes: q.justification,
+        evidenceIds: q.attachedEvidenceIds,
+      };
+    });
+  });
+  return {
+    id: a.id,
+    date: new Date(a.dateCompleted).toLocaleDateString("en-US", {
+      month: "short",
+      day: "2-digit",
+      year: "numeric",
+    }),
+    period: a.reviewPeriod,
+    engineer: a.engineerName,
+    manager: a.managerName,
+    scores,
+  };
+}
+
+/** Build a historical Assessment from a compact `[prev, current]` matrix. */
+function buildHistorical(meta: {
+  id: string;
+  dateCompleted: string;
+  reviewPeriod: string;
+  engineerName: string;
+  managerName: string;
+  scores: Record<string, [number, number, string?][]>; // cat -> [prev, current, note?]
+  topics: string[];
+}): Assessment {
+  const categories: AssessmentCategory[] = Object.entries(meta.scores).map(([cat, rows], ci) => {
+    const subs = SUBCATEGORIES[cat] ?? [];
+    const questions: AssessmentQuestion[] = rows.map((r, qi) => ({
+      questionId: `q_${ci + 1}_${qi + 1}`,
+      questionText: subs[qi] ?? `Question ${qi + 1}`,
+      previousScore: r[0],
+      currentScore: r[1],
+      targetScore: 4,
+      justification: r[2] ?? "",
+      attachedEvidenceIds: [],
+    }));
+    return {
+      categoryId: `cat_${String(ci + 1).padStart(2, "0")}`,
+      categoryName: cat,
+      summary: COMPETENCY_DESC[cat] ?? "",
+      categoryCurrentAvg: 0,
+      categoryTarget: 4,
+      questions,
+    };
+  });
+  return withDerivedAverages({
+    id: meta.id,
+    dateCompleted: meta.dateCompleted,
+    reviewPeriod: meta.reviewPeriod,
+    status: "Finalized",
+    engineerName: meta.engineerName,
+    managerName: meta.managerName,
+    overallReadinessScore: 0,
+    categories,
+    oneOnOneTopics: meta.topics,
+  });
+}
+
+const initialAssessments: Assessment[] = [
+  buildHistorical({
+    id: "REV-2026-Q2",
+    dateCompleted: "2026-06-28T15:00:00Z",
+    reviewPeriod: "Q2 2026",
+    engineerName: "Courage Ugwuanyi",
+    managerName: "Alex M.",
+    scores: {
+      "Analytical Thinking": [[2, 3, "Improved root-cause analysis on incident IR-4421."], [2, 3], [2, 3]],
+      "System Design": [[2, 3, "Led RFC for sharded inventory service."], [2, 3], [1, 2]],
+      "Code Quality": [[3, 3], [3, 4, "Drove team-wide refactor of payment module."], [3, 3]],
+      Communication: [[3, 3], [3, 3], [3, 3]],
+      Leadership: [[2, 2], [2, 3, "Mentored two L2 engineers."], [2, 2]],
+      "Engineering for UX": [[2, 3, "Shipped accessibility pass on checkout."], [2, 3], [2, 2]],
+      Security: [[2, 3], [2, 3, "Completed OWASP Top 10 internal cert."], [2, 2]],
+      Delivery: [[3, 3], [3, 4, "Three consecutive on-time releases."], [3, 3]],
+    },
+    topics: ["Discuss certification budget for AWS", "Timeline for Senior promotion panel"],
+  }),
+  buildHistorical({
+    id: "REV-2026-Q1",
+    dateCompleted: "2026-03-30T15:00:00Z",
+    reviewPeriod: "Q1 2026",
+    engineerName: "Courage Ugwuanyi",
+    managerName: "Alex M.",
+    scores: {
+      "Analytical Thinking": [[2, 2], [1, 2], [2, 2]],
+      "System Design": [[1, 2], [2, 2], [1, 1]],
+      "Code Quality": [[3, 3], [3, 3], [2, 3]],
+      Communication: [[3, 3], [2, 3], [3, 3]],
+      Leadership: [[2, 2], [2, 2], [1, 2]],
+      "Engineering for UX": [[2, 2], [2, 2], [2, 2]],
+      Security: [[2, 2], [2, 2], [1, 2]],
+      Delivery: [[3, 3], [3, 3], [2, 3]],
+    },
+    topics: ["Identify a stretch project for System Design"],
+  }),
+  buildHistorical({
+    id: "REV-2025-Q4",
+    dateCompleted: "2025-12-08T14:30:00Z",
+    reviewPeriod: "Q4 2025",
+    engineerName: "Courage Ugwuanyi",
+    managerName: "Alex M.",
+    scores: {
+      "Analytical Thinking": [[1, 2, "Demonstrated excellent root-cause analysis during the multi-node latency incident."], [1, 1, "Starting to identify patterns in logs, but needs more autonomy."], [1, 2]],
+      "System Design": [[1, 1], [1, 2], [1, 1]],
+      "Code Quality": [[2, 3], [2, 3], [2, 2]],
+      Communication: [[2, 3], [2, 2], [2, 3]],
+      Leadership: [[1, 2], [1, 2], [1, 1]],
+      "Engineering for UX": [[2, 2], [2, 2], [1, 2]],
+      Security: [[1, 2], [1, 2], [1, 1]],
+      Delivery: [[2, 3], [2, 3], [2, 2]],
+    },
+    topics: ["Set focus areas for Q1 — System Design, Security"],
+  }),
 ];
 
 /* ---------- Primitives ---------- */
@@ -699,6 +906,7 @@ function EvitraceApp() {
   const [inbox, setInbox] = useState(initialInbox);
   const [radarData, setRadarData] = useState(initialRadar);
   const [objectives, setObjectives] = useState(initialObjectives);
+  const [assessments, setAssessments] = useState<Assessment[]>(initialAssessments);
 
   const [showExtension, setShowExtension] = useState(true);
   const [showCapture, setShowCapture] = useState(false);
@@ -953,6 +1161,9 @@ function EvitraceApp() {
             onClose={() => setShowWizard(false)}
             onFinalize={(session: ReviewSession) => {
               setReview(session);
+              // Persist the finalized session into the historical assessments log
+              const newAssessment = sessionToAssessment(session);
+              setAssessments((prev) => [newAssessment, ...prev]);
               // Roll up averaged "next" scores into the radarData for matrix + radar chart
               setRadarData((rows) =>
                 rows.map((r) => {
@@ -978,9 +1189,11 @@ function EvitraceApp() {
       <AnimatePresence>
         {showHistory && (
           <AssessmentHistoryModal
-            current={review}
+            assessments={assessments}
+            currentId={review?.id ?? null}
             onClose={() => setShowHistory(false)}
-            onOpenCurrent={() => {
+            onOpen={(a) => {
+              setReview(assessmentToSession(a));
               setShowHistory(false);
               setTab("report");
             }}
@@ -1640,8 +1853,8 @@ function HierarchicalMatrix({
                   return (
                     <tr
                       key={canonical + sub}
-                      className="border-t"
-                      style={{ borderColor: C.border, background: "#FAFBFC" }}
+                      className="border-t bg-[#FAFBFC] hover:bg-[#F4F5F7] transition-colors"
+                      style={{ borderColor: C.border }}
                     >
                       <Td className="pl-12" style={{ color: C.slate }}>
                         <div className="text-[13px] leading-snug" style={{ color: C.navy }}>{sub}</div>
@@ -4380,13 +4593,15 @@ function ReviewWizard({
 /* ============================================================ */
 
 function AssessmentHistoryModal({
-  current,
+  assessments,
+  currentId,
   onClose,
-  onOpenCurrent,
+  onOpen,
 }: {
-  current: ReviewSession | null;
+  assessments: Assessment[];
+  currentId: string | null;
   onClose: () => void;
-  onOpenCurrent: () => void;
+  onOpen: (a: Assessment) => void;
 }) {
   return (
     <motion.div
@@ -4422,42 +4637,48 @@ function AssessmentHistoryModal({
           </button>
         </div>
         <div className="p-5 space-y-2 max-h-[60vh] overflow-y-auto">
-          {current && (
-            <button
-              onClick={onOpenCurrent}
-              className="w-full text-left p-3 rounded border hover:border-[#0052CC] transition-colors"
-              style={{ borderColor: C.primary, background: C.primarySoft }}
-            >
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-bold" style={{ color: C.navy }}>
-                  {current.period}
-                </div>
-                <Badge tone="info">Current</Badge>
-              </div>
-              <div className="text-xs mt-1" style={{ color: C.slate }}>
-                Finalized {current.date} · {current.id}
-              </div>
-            </button>
-          )}
-          {initialHistory.map((h) => (
-            <div
-              key={h.id}
-              className="p-3 rounded border"
-              style={{ borderColor: C.border, background: "#FAFBFC" }}
-            >
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-semibold" style={{ color: C.navy }}>
-                  {h.period}
-                </div>
-                <div className="text-xs font-bold" style={{ color: C.primary }}>
-                  {h.readiness}% readiness
-                </div>
-              </div>
-              <div className="text-xs mt-1" style={{ color: C.subtle }}>
-                Finalized {h.date} · {h.id}
-              </div>
+          {assessments.length === 0 && (
+            <div className="text-sm text-center py-8" style={{ color: C.subtle }}>
+              No assessments yet. Finalize a performance review to start the log.
             </div>
-          ))}
+          )}
+          {assessments.map((a) => {
+            const isCurrent = a.id === currentId;
+            const date = new Date(a.dateCompleted).toLocaleDateString("en-US", {
+              month: "short",
+              day: "2-digit",
+              year: "numeric",
+            });
+            return (
+              <button
+                key={a.id}
+                onClick={() => onOpen(a)}
+                className="w-full text-left p-3 rounded border hover:border-[#0052CC] hover:bg-[#F4F5F7] transition-colors"
+                style={{
+                  borderColor: isCurrent ? C.primary : C.border,
+                  background: isCurrent ? C.primarySoft : "#FAFBFC",
+                }}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-sm font-bold" style={{ color: C.navy }}>
+                    {a.reviewPeriod}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {isCurrent && <Badge tone="info">Current</Badge>}
+                    <Badge tone={a.status === "Finalized" ? "success" : "warning"}>{a.status}</Badge>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between mt-1.5">
+                  <div className="text-xs" style={{ color: C.subtle }}>
+                    {date} &middot; {a.id} &middot; Mgr {a.managerName}
+                  </div>
+                  <div className="text-xs font-bold" style={{ color: C.primary }}>
+                    {a.overallReadinessScore}% readiness
+                  </div>
+                </div>
+              </button>
+            );
+          })}
         </div>
         <div className="px-5 h-14 flex items-center justify-end border-t" style={{ borderColor: C.border }}>
           <GhostBtn onClick={onClose}>Close</GhostBtn>
