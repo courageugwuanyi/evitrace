@@ -973,10 +973,10 @@ function EvitraceApp() {
   }
 
   return (
-    <div className="min-h-screen flex" style={{ background: C.bg, color: C.navy, fontFamily: "Inter, system-ui, sans-serif" }}>
+    <div className="min-h-screen" style={{ background: C.bg, color: C.navy, fontFamily: "Inter, system-ui, sans-serif" }}>
       <Sidebar tab={tab} setTab={setTab} />
 
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="lg:ml-64 flex flex-col min-h-screen min-w-0">
         <TopHeader title={pageTitle[tab]} onCapture={() => setShowCapture(true)} />
 
         <main className="flex-1 px-8 py-6 print-main">
@@ -1260,7 +1260,7 @@ function Sidebar({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
   ];
   return (
     <aside
-      className="w-64 shrink-0 border-r flex flex-col print-hide"
+      className="hidden lg:flex fixed inset-y-0 left-0 z-40 w-64 h-screen border-r flex-col print-hide"
       style={{ background: C.card, borderColor: C.border }}
     >
       <div className="h-16 px-5 flex items-center gap-2 border-b" style={{ borderColor: C.border }}>
@@ -1666,7 +1666,7 @@ function RadarView({
       </div>
 
       {/* Executive Summary */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="p-5">
           <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
             Overall Readiness
@@ -1725,9 +1725,10 @@ function RadarView({
         </Card>
       </div>
 
-      {/* Chart card - centered, height-bounded so it never stretches */}
-      <div className="max-w-4xl mx-auto w-full">
-        <Card className="p-6 h-fit">
+      {/* Asymmetric grid: table grows on the left, chart sticks on the right (desktop). Chart first on mobile. */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+        {/* Chart card */}
+        <Card className="p-6 h-fit col-span-1 order-1 lg:order-2 lg:col-span-1 lg:sticky lg:top-24">
           <SectionHeader
             title="Visual Gap Analysis"
             sub={
@@ -1780,8 +1781,8 @@ function RadarView({
             </span>
             <span className="flex items-center gap-1.5">
               <span
-                className="w-2.5 h-2.5 rounded-sm border-2 border-dashed"
-                style={{ borderColor: "#00B8D9", background: "transparent" }}
+                className="w-2.5 h-2.5 rounded-sm"
+                style={{ background: "#00B8D9" }}
               />
               Target L4
             </span>
@@ -1800,10 +1801,9 @@ function RadarView({
                     name="Target L4"
                     dataKey="target"
                     stroke="#00B8D9"
-                    fill="none"
-                    fillOpacity={0}
+                    fill="#00B8D9"
+                    fillOpacity={0.08}
                     strokeWidth={2}
-                    strokeDasharray="5 5"
                   />
                   <Radar
                     name="Current"
@@ -1862,10 +1862,7 @@ function RadarView({
                   <Bar
                     dataKey="target"
                     name="Target L4"
-                    fill="transparent"
-                    stroke="#00B8D9"
-                    strokeWidth={2}
-                    strokeDasharray="5 5"
+                    fill="#00B8D9"
                     radius={[0, 2, 2, 0]}
                   />
                 </BarChart>
@@ -1873,11 +1870,9 @@ function RadarView({
             )}
           </div>
         </Card>
-      </div>
 
-      {/* Hierarchical Gap Analysis - full width below */}
-      <div className="w-full">
-        <Card className="p-0 overflow-hidden">
+        {/* Hierarchical Gap Analysis - left/bottom */}
+        <Card className="p-0 overflow-hidden col-span-1 lg:col-span-2 order-2 lg:order-1">
           <div className="p-5 border-b" style={{ borderColor: C.border }}>
             <SectionHeader
               title="Hierarchical Gap Analysis"
