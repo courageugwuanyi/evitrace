@@ -832,11 +832,11 @@ function TopHeader({ title, onCapture }: { title: string; onCapture: () => void 
 function DashboardView({
   inbox,
   objectives,
-  onApprove,
+  onOpenInbox,
 }: {
   inbox: typeof initialInbox;
   objectives: Objective[];
-  onApprove: (id: string, comps: string[]) => void;
+  onOpenInbox: (item: (typeof initialInbox)[number]) => void;
 }) {
   const active = objectives.filter((o) => o.status === "In Progress");
   return (
