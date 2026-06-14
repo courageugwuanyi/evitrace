@@ -670,6 +670,9 @@ function EvitraceApp() {
             }}
           />
         )}
+      </AnimatePresence>
+
+
 
       {/* Toast */}
       <AnimatePresence>
