@@ -4508,10 +4508,12 @@ function ReviewWizard({
   evidence,
   onClose,
   onFinalize,
+  onOpenEvidence,
 }: {
   evidence: typeof initialEvidence;
   onClose: () => void;
   onFinalize: (s: ReviewSession) => void;
+  onOpenEvidence: (e: (typeof initialEvidence)[number]) => void;
 }) {
   const categories = ALL_CATEGORIES;
   const [activeIdx, setActiveIdx] = useState(0);
