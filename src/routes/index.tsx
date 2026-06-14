@@ -1853,8 +1853,8 @@ function HierarchicalMatrix({
                   return (
                     <tr
                       key={canonical + sub}
-                      className="border-t"
-                      style={{ borderColor: C.border, background: "#FAFBFC" }}
+                      className="border-t bg-[#FAFBFC] hover:bg-[#F4F5F7] transition-colors"
+                      style={{ borderColor: C.border }}
                     >
                       <Td className="pl-12" style={{ color: C.slate }}>
                         <div className="text-[13px] leading-snug" style={{ color: C.navy }}>{sub}</div>
