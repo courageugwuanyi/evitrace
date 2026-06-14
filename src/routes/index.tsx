@@ -973,10 +973,10 @@ function EvitraceApp() {
   }
 
   return (
-    <div className="min-h-screen flex" style={{ background: C.bg, color: C.navy, fontFamily: "Inter, system-ui, sans-serif" }}>
+    <div className="min-h-screen" style={{ background: C.bg, color: C.navy, fontFamily: "Inter, system-ui, sans-serif" }}>
       <Sidebar tab={tab} setTab={setTab} />
 
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="lg:ml-64 flex flex-col min-h-screen min-w-0">
         <TopHeader title={pageTitle[tab]} onCapture={() => setShowCapture(true)} />
 
         <main className="flex-1 px-8 py-6 print-main">
