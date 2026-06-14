@@ -560,7 +560,7 @@ function EvitraceApp() {
         {showCapture && (
           <CaptureModal
             onClose={() => setShowCapture(false)}
-            onSave={(title, comps) => {
+            onSave={(title, comps, link, reflection) => {
               setEvidence((e) => [
                 {
                   id: `EV-${300 + e.length}`,
@@ -573,8 +573,8 @@ function EvitraceApp() {
                   category: "Technical",
                   competency: comps[0] ?? "Delivery",
                   title,
-                  description: "Manually captured reflection",
-                  link: "",
+                  description: reflection || "Manually captured reflection",
+                  link,
                   status: "Pending" as const,
                 },
                 ...e,
@@ -1591,11 +1591,13 @@ function CaptureModal({
   onSave,
 }: {
   onClose: () => void;
-  onSave: (title: string, comps: string[]) => void;
+  onSave: (title: string, comps: string[], link: string, reflection: string) => void;
 }) {
   const [title, setTitle] = useState("");
   const [reflection, setReflection] = useState("");
+  const [link, setLink] = useState("");
   const [comps, setComps] = useState<string[]>(["Code Quality"]);
+  const linkValid = !link || /^https?:\/\/\S+\.\S+/i.test(link);
   return (
     <Backdrop onClose={onClose}>
       <motion.div
@@ -1629,6 +1631,26 @@ function CaptureModal({
               placeholder="e.g. Led RFC review for payments cutover"
             />
           </Field>
+          <Field label="Source link (optional)">
+            <div className="relative">
+              <LinkIcon
+                size={14}
+                className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                style={{ color: C.subtle }}
+              />
+              <Input
+                value={link}
+                onChange={(e) => setLink(e.target.value)}
+                placeholder="https://github.com/org/repo/pull/142"
+                className="pl-8"
+              />
+            </div>
+            <div className="text-[11px] mt-1" style={{ color: linkValid ? C.subtle : C.red }}>
+              {linkValid
+                ? "Paste a PR, Jira ticket, doc, or Slack thread for traceability."
+                : "Enter a valid URL starting with http:// or https://"}
+            </div>
+          </Field>
           <Field label="Reflection">
             <Textarea
               value={reflection}
@@ -1655,7 +1677,7 @@ function CaptureModal({
         </div>
         <div className="p-4 border-t flex items-center justify-end gap-2" style={{ borderColor: C.border }}>
           <GhostBtn onClick={onClose}>Cancel</GhostBtn>
-          <PrimaryBtn disabled={!title} onClick={() => onSave(title, comps)}>
+          <PrimaryBtn disabled={!title || !linkValid} onClick={() => onSave(title, comps, link, reflection)}>
             Save Evidence
           </PrimaryBtn>
         </div>
@@ -1841,7 +1863,7 @@ function CreateObjectiveModal({
               <div className="font-bold mb-1" style={{ color: C.red }}>
                 Weak
               </div>
-              <div style={{ color: C.slate }}>"Students will learn about digital marketing."</div>
+              <div style={{ color: C.slate }}>"Get better at system design."</div>
             </div>
             <div
               className="p-3 rounded border text-xs"
@@ -1851,8 +1873,8 @@ function CreateObjectiveModal({
                 SMART
               </div>
               <div style={{ color: C.slate }}>
-                "By the end of this 4-week module, students will design a targeted social media
-                advertising campaign with a measurable ROI."
+                "By Q1 end, author and present 2 RFCs for the search platform re-architecture,
+                reviewed by a Staff engineer, and reduce p95 query latency by 30% in staging."
               </div>
             </div>
           </aside>
@@ -2293,14 +2315,17 @@ function SettingsView() {
 function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
+      type="button"
+      role="switch"
+      aria-checked={on}
       onClick={() => onChange(!on)}
-      className="relative w-9 h-5 rounded-full transition-colors"
+      className="relative inline-flex w-9 h-5 rounded-full cursor-pointer transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1"
       style={{ background: on ? C.primary : "#C1C7D0" }}
     >
-      <motion.span
-        animate={{ x: on ? 16 : 2 }}
-        transition={{ duration: 0.18 }}
-        className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow"
+      <span
+        aria-hidden
+        className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200"
+        style={{ transform: on ? "translateX(16px)" : "translateX(0px)" }}
       />
     </button>
   );
