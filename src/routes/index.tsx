@@ -906,6 +906,7 @@ function EvitraceApp() {
   const [inbox, setInbox] = useState(initialInbox);
   const [radarData, setRadarData] = useState(initialRadar);
   const [objectives, setObjectives] = useState(initialObjectives);
+  const [assessments, setAssessments] = useState<Assessment[]>(initialAssessments);
 
   const [showExtension, setShowExtension] = useState(true);
   const [showCapture, setShowCapture] = useState(false);
@@ -1160,6 +1161,9 @@ function EvitraceApp() {
             onClose={() => setShowWizard(false)}
             onFinalize={(session: ReviewSession) => {
               setReview(session);
+              // Persist the finalized session into the historical assessments log
+              const newAssessment = sessionToAssessment(session);
+              setAssessments((prev) => [newAssessment, ...prev]);
               // Roll up averaged "next" scores into the radarData for matrix + radar chart
               setRadarData((rows) =>
                 rows.map((r) => {
@@ -1185,9 +1189,11 @@ function EvitraceApp() {
       <AnimatePresence>
         {showHistory && (
           <AssessmentHistoryModal
-            current={review}
+            assessments={assessments}
+            currentId={review?.id ?? null}
             onClose={() => setShowHistory(false)}
-            onOpenCurrent={() => {
+            onOpen={(a) => {
+              setReview(assessmentToSession(a));
               setShowHistory(false);
               setTab("report");
             }}
