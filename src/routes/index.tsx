@@ -885,7 +885,7 @@ function DashboardView({
               </div>
             ) : (
               inbox.map((it) => (
-                <InboxRow key={it.id} item={it} onApprove={onApprove} />
+                <InboxRow key={it.id} item={it} onOpen={() => onOpenInbox(it)} />
               ))
             )}
           </div>
