@@ -3653,13 +3653,6 @@ function InboxReviewSlideover({
                 AI Competency Mapping
               </label>
             </div>
-          <section>
-            <div className="flex items-center gap-2 mb-2">
-              <Sparkles size={13} style={{ color: C.primary }} />
-              <label className="text-xs font-bold uppercase tracking-wider" style={{ color: C.subtle }}>
-                AI Competency Mapping
-              </label>
-            </div>
             <div className="text-[11px] mb-2" style={{ color: C.subtle }}>
               The AI suggested this Category and Subcategory. Change either dropdown to remap.
             </div>
