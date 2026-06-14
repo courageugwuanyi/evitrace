@@ -1894,27 +1894,51 @@ function RadarView({
 
 function HierarchicalMatrix({
   data,
+  latest,
   onCreateObjective,
 }: {
   data: typeof initialRadar;
+  latest: Assessment | undefined;
   onCreateObjective: () => void;
 }) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
-  // Map short radar label -> canonical category name in SUBCATEGORIES
-  const mapToCanonical = (label: string): string => {
-    if (label === "Analytical") return "Analytical Thinking";
-    if (label === "UX Eng") return "Engineering for UX";
-    return label;
+  const mapToCanonical = (label: string): string => radarLabelToCategory(label);
+
+  /** Atlassian lozenge utility for change % values. */
+  const changeLozenge = (pct: number) =>
+    pct > 0
+      ? "bg-green-100 text-green-800"
+      : pct < 0
+        ? "bg-red-100 text-red-800"
+        : "bg-slate-100 text-slate-800";
+
+  /** Lozenge for raw gap value (current minus target). */
+  const gapLozenge = (gap: number) =>
+    gap >= 0
+      ? "bg-green-100 text-green-800"
+      : gap <= -1
+        ? "bg-red-100 text-red-800"
+        : gap <= -0.5
+          ? "bg-amber-100 text-amber-800"
+          : "bg-slate-100 text-slate-800";
+
+  const fmtChange = (prev: number, cur: number) => {
+    if (prev === 0) return cur === 0 ? 0 : 100;
+    return Math.round(((cur - prev) / prev) * 100);
   };
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead style={{ background: "#F4F5F7", color: C.subtle }}>
           <tr className="text-left text-[11px] uppercase tracking-wider">
-            <Th>Category / Question</Th>
+            <Th>Competency / Question</Th>
+            <Th>Previous</Th>
             <Th>Current</Th>
+            <Th>Change</Th>
             <Th>Target</Th>
             <Th>Gap</Th>
+            <Th>Notes</Th>
             <Th>Action</Th>
           </tr>
         </thead>
@@ -1922,16 +1946,19 @@ function HierarchicalMatrix({
           {data.map((row) => {
             const canonical = mapToCanonical(row.competency);
             const subs = SUBCATEGORIES[canonical] ?? [];
+            const latestCat = latest?.categories.find((c) => c.categoryName === canonical);
             const isOpen = !!open[row.competency];
-            const g = +(row.target - row.current).toFixed(2);
-            const lozenge =
-              g <= 0
-                ? "bg-green-100 text-green-800"
-                : g >= 1
-                  ? "bg-red-100 text-red-800"
-                  : g >= 0.5
-                    ? "bg-amber-100 text-amber-800"
-                    : "bg-slate-100 text-slate-800";
+            // Category-level rollups derived strictly from the most recent assessment
+            const prevAvg = latestCat
+              ? +(
+                  latestCat.questions.reduce((s, q) => s + q.previousScore, 0) /
+                  Math.max(latestCat.questions.length, 1)
+                ).toFixed(2)
+              : +Math.max(0, row.current - 0.4).toFixed(2);
+            const curAvg = latestCat ? latestCat.categoryCurrentAvg : row.current;
+            const targetAvg = latestCat ? latestCat.categoryTarget : row.target;
+            const gapAvg = +(curAvg - targetAvg).toFixed(2);
+            const changePct = fmtChange(prevAvg, curAvg);
             return (
               <React.Fragment key={row.competency}>
                 <tr
@@ -1950,12 +1977,21 @@ function HierarchicalMatrix({
                       </span>
                     </span>
                   </Td>
-                  <Td style={{ color: C.slate }}>{row.current.toFixed(2)}</Td>
-                  <Td style={{ color: C.slate }}>{row.target.toFixed(2)}</Td>
+                  <Td style={{ color: C.slate }}>{prevAvg.toFixed(2)}</Td>
+                  <Td style={{ color: C.navy, fontWeight: 600 }}>{curAvg.toFixed(2)}</Td>
                   <Td>
-                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${lozenge}`}>
-                      {g > 0 ? `+${g}` : g}
+                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${changeLozenge(changePct)}`}>
+                      {changePct > 0 ? `+${changePct}%` : `${changePct}%`}
                     </span>
+                  </Td>
+                  <Td style={{ color: C.slate }}>{targetAvg.toFixed(2)}</Td>
+                  <Td>
+                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${gapLozenge(gapAvg)}`}>
+                      {gapAvg > 0 ? `+${gapAvg}` : gapAvg}
+                    </span>
+                  </Td>
+                  <Td style={{ color: C.subtle }}>
+                    <span className="text-[11px]">{latestCat ? "Rollup" : "—"}</span>
                   </Td>
                   <Td>
                     <button
@@ -1969,17 +2005,15 @@ function HierarchicalMatrix({
                   </Td>
                 </tr>
                 {isOpen && subs.map((sub) => {
-                  const rating = subRating(canonical, sub);
-                  const scale = EFFECTIVENESS_SCALE[rating - 1];
-                  const subGap = +(row.target - rating).toFixed(2);
-                  const subLozenge =
-                    subGap <= 0
-                      ? "bg-green-100 text-green-800"
-                      : subGap >= 1
-                        ? "bg-red-100 text-red-800"
-                        : subGap >= 0.5
-                          ? "bg-amber-100 text-amber-800"
-                          : "bg-slate-100 text-slate-800";
+                  // Prefer assessment-backed question data; fall back to mock rating.
+                  const q = latestCat?.questions.find((qq) => qq.questionText === sub);
+                  const prev = q ? q.previousScore : subRating(canonical, sub);
+                  const cur = q ? q.currentScore : subRating(canonical, sub);
+                  const tgt = q ? q.targetScore : 4;
+                  const note = q?.justification ?? "";
+                  const scale = EFFECTIVENESS_SCALE[Math.max(0, Math.min(4, cur - 1))];
+                  const subGap = +(cur - tgt).toFixed(2);
+                  const subChange = fmtChange(prev, cur);
                   return (
                     <tr
                       key={canonical + sub}
@@ -1989,15 +2023,35 @@ function HierarchicalMatrix({
                       <Td className="pl-12" style={{ color: C.slate }}>
                         <div className="text-[13px] leading-snug" style={{ color: C.navy }}>{sub}</div>
                         <div className="text-[11px] mt-0.5" style={{ color: C.subtle }}>
-                          Score: {rating} &mdash; {scale.label}
+                          Score: {cur} &mdash; {scale.label}
                         </div>
                       </Td>
-                      <Td style={{ color: C.slate }}>{rating}</Td>
-                      <Td style={{ color: C.slate }}>{row.target.toFixed(0)}</Td>
+                      <Td style={{ color: C.slate }}>{prev}</Td>
+                      <Td style={{ color: C.navy, fontWeight: 600 }}>{cur}</Td>
                       <Td>
-                        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${subLozenge}`}>
+                        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${changeLozenge(subChange)}`}>
+                          {subChange > 0 ? `+${subChange}%` : `${subChange}%`}
+                        </span>
+                      </Td>
+                      <Td style={{ color: C.slate }}>{tgt}</Td>
+                      <Td>
+                        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${gapLozenge(subGap)}`}>
                           {subGap > 0 ? `+${subGap}` : subGap}
                         </span>
+                      </Td>
+                      <Td>
+                        {note ? (
+                          <span
+                            title={note}
+                            className="inline-flex items-center gap-1 text-[11px] cursor-help"
+                            style={{ color: C.primary }}
+                          >
+                            <MessageSquare size={12} />
+                            Note
+                          </span>
+                        ) : (
+                          <span className="text-[11px]" style={{ color: C.subtle }}>—</span>
+                        )}
                       </Td>
                       <Td>
                         <button
