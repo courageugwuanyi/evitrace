@@ -48,6 +48,8 @@ import {
   Save,
   FileCheck2,
   ClipboardList,
+  BarChartHorizontal,
+  ArrowLeft,
 } from "lucide-react";
 import {
   Radar,
@@ -58,6 +60,11 @@ import {
   ResponsiveContainer,
   Tooltip as RTooltip,
   Legend,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
 } from "recharts";
 
 export const Route = createFileRoute("/")({
@@ -924,7 +931,7 @@ function EvitraceApp() {
     radar: "Promotion Readiness",
     evidence: "Evidence Log",
     objectives: "Objectives",
-    report: "Performance Report",
+    report: "Reviews & Reports",
     settings: "Settings",
   };
 
@@ -972,7 +979,7 @@ function EvitraceApp() {
       <div className="flex-1 flex flex-col min-w-0">
         <TopHeader title={pageTitle[tab]} onCapture={() => setShowCapture(true)} />
 
-        <main className="flex-1 px-8 py-6">
+        <main className="flex-1 px-8 py-6 print-main">
           <AnimatePresence mode="wait">
             <motion.div
               key={tab}
@@ -991,6 +998,7 @@ function EvitraceApp() {
               {tab === "radar" && (
                 <RadarView
                   data={radarData}
+                  assessments={assessments}
                   onCreateObjective={() => setShowCreateObjective(true)}
                   onStartReview={() => setShowWizard(true)}
                   onOpenHistory={() => setShowHistory(true)}
@@ -1013,6 +1021,9 @@ function EvitraceApp() {
                   radarData={radarData}
                   onFlash={flash}
                   review={review}
+                  assessments={assessments}
+                  onOpenAssessment={(a) => setReview(assessmentToSession(a))}
+                  onClearReview={() => setReview(null)}
                   onStartReview={() => setShowWizard(true)}
                   onOpenHistory={() => setShowHistory(true)}
                 />
@@ -1244,12 +1255,12 @@ function Sidebar({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
     { id: "radar", label: "Promotion Readiness", sub: "Assessment & Gaps", icon: TrendingUp },
     { id: "evidence", label: "Evidence Log", sub: "Data Table", icon: TableProperties },
     { id: "objectives", label: "Objectives", sub: "Skill Gap Planning", icon: Target },
-    { id: "report", label: "Performance Report", sub: "1-on-1 Prep", icon: FileText },
+    { id: "report", label: "Reviews & Reports", sub: "Archive & 1-on-1 Prep", icon: FileText },
     { id: "settings", label: "Settings", sub: "App & Profile", icon: SettingsIcon },
   ];
   return (
     <aside
-      className="w-64 shrink-0 border-r flex flex-col"
+      className="w-64 shrink-0 border-r flex flex-col print-hide"
       style={{ background: C.card, borderColor: C.border }}
     >
       <div className="h-16 px-5 flex items-center gap-2 border-b" style={{ borderColor: C.border }}>
@@ -1346,7 +1357,7 @@ function Sidebar({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
 function TopHeader({ title, onCapture }: { title: string; onCapture: () => void }) {
   return (
     <header
-      className="h-16 sticky top-0 z-30 flex items-center justify-between px-8 border-b"
+      className="h-16 sticky top-0 z-30 flex items-center justify-between px-8 border-b print-hide"
       style={{ background: C.card, borderColor: C.border }}
     >
       <h1 className="text-xl font-bold tracking-tight" style={{ color: C.navy }}>
@@ -1601,11 +1612,13 @@ function InboxRow({
 
 function RadarView({
   data,
+  assessments,
   onCreateObjective,
   onStartReview,
   onOpenHistory,
 }: {
   data: typeof initialRadar;
+  assessments: Assessment[];
   onCreateObjective: () => void;
   onStartReview: () => void;
   onOpenHistory: () => void;
@@ -1617,6 +1630,33 @@ function RadarView({
   const readiness = Math.round((current / 4) * 100);
   const top = [...data].sort((a, b) => b.current - a.current)[0];
   const gap = [...data].sort((a, b) => b.target - b.current - (a.target - a.current))[0];
+
+  const [chartMode, setChartMode] = useState<"radar" | "bar">("radar");
+  void onStartReview;
+  void onOpenHistory;
+
+  // Latest + previous finalized assessments — used for "previous" series + per-question rows
+  const latest = assessments[0];
+  const prior = assessments[1];
+
+  // Build a unified per-category dataset that combines the radar/data ordering
+  // with previous-cycle averages drawn from prior assessment.
+  const chartData = useMemo(() => {
+    return data.map((r) => {
+      const cat = radarLabelToCategory(r.competency);
+      const priorCat = prior?.categories.find((c) => c.categoryName === cat);
+      // assessments use 1-5 scale; radar uses 0-4. Map by (x/5)*4.
+      const previous = priorCat
+        ? +Math.min(4, (priorCat.categoryCurrentAvg / 5) * 4).toFixed(2)
+        : +Math.max(0, r.current - 0.4).toFixed(2);
+      return {
+        competency: r.competency,
+        previous,
+        current: r.current,
+        target: r.target,
+      };
+    });
+  }, [data, prior]);
 
   return (
     <div className="space-y-6">
@@ -1685,79 +1725,171 @@ function RadarView({
         </Card>
       </div>
 
-      {/* Visual Gap Analysis + Hierarchical Table - side by side */}
-      <div className="grid grid-cols-1 xl:grid-cols-5 gap-4 items-start">
-        <div className="xl:col-span-2 xl:sticky xl:top-4 self-start">
-        <Card className="p-6">
+      {/* Chart card - centered, height-bounded so it never stretches */}
+      <div className="max-w-4xl mx-auto w-full">
+        <Card className="p-6 h-fit">
           <SectionHeader
-            title="Competency Radar"
-            sub="Current score vs Level 4 target"
+            title="Visual Gap Analysis"
+            sub={
+              chartMode === "radar"
+                ? "Holistic shape: current score vs Level 4 target"
+                : "Side-by-side comparison: previous, current, and target per category"
+            }
             right={
-              <div className="flex items-center gap-3 text-xs" style={{ color: C.slate }}>
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-sm" style={{ background: "#0052CC" }} />
-                  Current
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span
-                    className="w-2.5 h-2.5 rounded-sm border-2 border-dashed"
-                    style={{ borderColor: "#00B8D9", background: "transparent" }}
-                  />
-                  Target L4
-                </span>
+              <div className="inline-flex items-center rounded border overflow-hidden" style={{ borderColor: C.border }}>
+                <button
+                  type="button"
+                  onClick={() => setChartMode("radar")}
+                  aria-pressed={chartMode === "radar"}
+                  className="inline-flex items-center gap-1.5 px-2.5 h-8 text-xs font-semibold transition-colors"
+                  style={{
+                    background: chartMode === "radar" ? C.primarySoft : "#fff",
+                    color: chartMode === "radar" ? C.primary : C.slate,
+                  }}
+                >
+                  <RadarIcon size={13} />
+                  Radar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChartMode("bar")}
+                  aria-pressed={chartMode === "bar"}
+                  className="inline-flex items-center gap-1.5 px-2.5 h-8 text-xs font-semibold transition-colors border-l"
+                  style={{
+                    borderColor: C.border,
+                    background: chartMode === "bar" ? C.primarySoft : "#fff",
+                    color: chartMode === "bar" ? C.primary : C.slate,
+                  }}
+                >
+                  <BarChartHorizontal size={13} />
+                  Bar
+                </button>
               </div>
             }
           />
+          <div className="flex items-center gap-4 text-xs mt-3" style={{ color: C.slate }}>
+            {chartMode === "bar" && (
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: C.slate }} />
+                Previous
+              </span>
+            )}
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-sm" style={{ background: "#0052CC" }} />
+              Current
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span
+                className="w-2.5 h-2.5 rounded-sm border-2 border-dashed"
+                style={{ borderColor: "#00B8D9", background: "transparent" }}
+              />
+              Target L4
+            </span>
+          </div>
           <div className="h-[420px] mt-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <RadarChart data={data} outerRadius="78%">
-                <PolarGrid stroke={C.border} />
-                <PolarAngleAxis
-                  dataKey="competency"
-                  tick={{ fill: C.navy, fontSize: 11, fontWeight: 600 }}
-                />
-                <PolarRadiusAxis angle={90} domain={[0, 4]} tick={{ fill: C.subtle, fontSize: 10 }} />
-                <Radar
-                  name="Target L4"
-                  dataKey="target"
-                  stroke="#00B8D9"
-                  fill="none"
-                  fillOpacity={0}
-                  strokeWidth={2}
-                  strokeDasharray="5 5"
-                />
-                <Radar
-                  name="Current"
-                  dataKey="current"
-                  stroke="#0052CC"
-                  fill="#0052CC"
-                  fillOpacity={0.2}
-                  strokeWidth={2}
-                />
-                <RTooltip
-                  contentStyle={{
-                    background: "#fff",
-                    border: `1px solid ${C.border}`,
-                    borderRadius: 6,
-                    fontSize: 12,
-                  }}
-                  formatter={(v) => `${Number(v).toFixed(2)} / 4`}
-                />
-                <Legend wrapperStyle={{ display: "none" }} />
-              </RadarChart>
-            </ResponsiveContainer>
+            {chartMode === "radar" ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart data={data} outerRadius="78%">
+                  <PolarGrid stroke={C.border} />
+                  <PolarAngleAxis
+                    dataKey="competency"
+                    tick={{ fill: C.navy, fontSize: 11, fontWeight: 600 }}
+                  />
+                  <PolarRadiusAxis angle={90} domain={[0, 4]} tick={{ fill: C.subtle, fontSize: 10 }} />
+                  <Radar
+                    name="Target L4"
+                    dataKey="target"
+                    stroke="#00B8D9"
+                    fill="none"
+                    fillOpacity={0}
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                  />
+                  <Radar
+                    name="Current"
+                    dataKey="current"
+                    stroke="#0052CC"
+                    fill="#0052CC"
+                    fillOpacity={0.2}
+                    strokeWidth={2}
+                  />
+                  <RTooltip
+                    contentStyle={{
+                      background: "#fff",
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 6,
+                      fontSize: 12,
+                    }}
+                    formatter={(v) => `${Number(v).toFixed(2)} / 4`}
+                  />
+                  <Legend wrapperStyle={{ display: "none" }} />
+                </RadarChart>
+              </ResponsiveContainer>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={chartData}
+                  layout="vertical"
+                  margin={{ top: 8, right: 24, bottom: 8, left: 16 }}
+                  barCategoryGap="22%"
+                >
+                  <CartesianGrid horizontal={false} stroke={C.border} />
+                  <XAxis
+                    type="number"
+                    domain={[0, 4]}
+                    tick={{ fill: C.subtle, fontSize: 10 }}
+                    stroke={C.border}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="competency"
+                    width={110}
+                    tick={{ fill: C.navy, fontSize: 11, fontWeight: 600 }}
+                    stroke={C.border}
+                  />
+                  <RTooltip
+                    contentStyle={{
+                      background: "#fff",
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 6,
+                      fontSize: 12,
+                    }}
+                    formatter={(v) => `${Number(v).toFixed(2)} / 4`}
+                  />
+                  <Legend wrapperStyle={{ display: "none" }} />
+                  <Bar dataKey="previous" name="Previous" fill={C.slate} radius={[0, 2, 2, 0]} />
+                  <Bar dataKey="current" name="Current" fill="#0052CC" radius={[0, 2, 2, 0]} />
+                  <Bar
+                    dataKey="target"
+                    name="Target L4"
+                    fill="transparent"
+                    stroke="#00B8D9"
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    radius={[0, 2, 2, 0]}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </Card>
-        </div>
+      </div>
 
-        <div className="xl:col-span-3 min-w-0">
-          <Card className="p-0 overflow-hidden">
-            <div className="p-5 border-b" style={{ borderColor: C.border }}>
-              <SectionHeader title="Hierarchical Gap Analysis" sub="Expand a category to see specific competency questions and their 1-5 effectiveness rating" />
-            </div>
-            <HierarchicalMatrix data={data} onCreateObjective={onCreateObjective} />
-          </Card>
-        </div>
+      {/* Hierarchical Gap Analysis - full width below */}
+      <div className="w-full">
+        <Card className="p-0 overflow-hidden">
+          <div className="p-5 border-b" style={{ borderColor: C.border }}>
+            <SectionHeader
+              title="Hierarchical Gap Analysis"
+              sub="Expand a category to see specific competency questions and their 1-5 effectiveness rating"
+            />
+          </div>
+          <HierarchicalMatrix
+            data={data}
+            latest={latest}
+            onCreateObjective={onCreateObjective}
+          />
+        </Card>
       </div>
     </div>
   );
@@ -1765,27 +1897,51 @@ function RadarView({
 
 function HierarchicalMatrix({
   data,
+  latest,
   onCreateObjective,
 }: {
   data: typeof initialRadar;
+  latest: Assessment | undefined;
   onCreateObjective: () => void;
 }) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
-  // Map short radar label -> canonical category name in SUBCATEGORIES
-  const mapToCanonical = (label: string): string => {
-    if (label === "Analytical") return "Analytical Thinking";
-    if (label === "UX Eng") return "Engineering for UX";
-    return label;
+  const mapToCanonical = (label: string): string => radarLabelToCategory(label);
+
+  /** Atlassian lozenge utility for change % values. */
+  const changeLozenge = (pct: number) =>
+    pct > 0
+      ? "bg-green-100 text-green-800"
+      : pct < 0
+        ? "bg-red-100 text-red-800"
+        : "bg-slate-100 text-slate-800";
+
+  /** Lozenge for raw gap value (current minus target). */
+  const gapLozenge = (gap: number) =>
+    gap >= 0
+      ? "bg-green-100 text-green-800"
+      : gap <= -1
+        ? "bg-red-100 text-red-800"
+        : gap <= -0.5
+          ? "bg-amber-100 text-amber-800"
+          : "bg-slate-100 text-slate-800";
+
+  const fmtChange = (prev: number, cur: number) => {
+    if (prev === 0) return cur === 0 ? 0 : 100;
+    return Math.round(((cur - prev) / prev) * 100);
   };
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead style={{ background: "#F4F5F7", color: C.subtle }}>
           <tr className="text-left text-[11px] uppercase tracking-wider">
-            <Th>Category / Question</Th>
+            <Th>Competency / Question</Th>
+            <Th>Previous</Th>
             <Th>Current</Th>
+            <Th>Change</Th>
             <Th>Target</Th>
             <Th>Gap</Th>
+            <Th>Notes</Th>
             <Th>Action</Th>
           </tr>
         </thead>
@@ -1793,16 +1949,19 @@ function HierarchicalMatrix({
           {data.map((row) => {
             const canonical = mapToCanonical(row.competency);
             const subs = SUBCATEGORIES[canonical] ?? [];
+            const latestCat = latest?.categories.find((c) => c.categoryName === canonical);
             const isOpen = !!open[row.competency];
-            const g = +(row.target - row.current).toFixed(2);
-            const lozenge =
-              g <= 0
-                ? "bg-green-100 text-green-800"
-                : g >= 1
-                  ? "bg-red-100 text-red-800"
-                  : g >= 0.5
-                    ? "bg-amber-100 text-amber-800"
-                    : "bg-slate-100 text-slate-800";
+            // Category-level rollups derived strictly from the most recent assessment
+            const prevAvg = latestCat
+              ? +(
+                  latestCat.questions.reduce((s, q) => s + q.previousScore, 0) /
+                  Math.max(latestCat.questions.length, 1)
+                ).toFixed(2)
+              : +Math.max(0, row.current - 0.4).toFixed(2);
+            const curAvg = latestCat ? latestCat.categoryCurrentAvg : row.current;
+            const targetAvg = latestCat ? latestCat.categoryTarget : row.target;
+            const gapAvg = +(curAvg - targetAvg).toFixed(2);
+            const changePct = fmtChange(prevAvg, curAvg);
             return (
               <React.Fragment key={row.competency}>
                 <tr
@@ -1821,12 +1980,21 @@ function HierarchicalMatrix({
                       </span>
                     </span>
                   </Td>
-                  <Td style={{ color: C.slate }}>{row.current.toFixed(2)}</Td>
-                  <Td style={{ color: C.slate }}>{row.target.toFixed(2)}</Td>
+                  <Td style={{ color: C.slate }}>{prevAvg.toFixed(2)}</Td>
+                  <Td style={{ color: C.navy, fontWeight: 600 }}>{curAvg.toFixed(2)}</Td>
                   <Td>
-                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${lozenge}`}>
-                      {g > 0 ? `+${g}` : g}
+                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${changeLozenge(changePct)}`}>
+                      {changePct > 0 ? `+${changePct}%` : `${changePct}%`}
                     </span>
+                  </Td>
+                  <Td style={{ color: C.slate }}>{targetAvg.toFixed(2)}</Td>
+                  <Td>
+                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${gapLozenge(gapAvg)}`}>
+                      {gapAvg > 0 ? `+${gapAvg}` : gapAvg}
+                    </span>
+                  </Td>
+                  <Td style={{ color: C.subtle }}>
+                    <span className="text-[11px]">{latestCat ? "Rollup" : "—"}</span>
                   </Td>
                   <Td>
                     <button
@@ -1840,17 +2008,15 @@ function HierarchicalMatrix({
                   </Td>
                 </tr>
                 {isOpen && subs.map((sub) => {
-                  const rating = subRating(canonical, sub);
-                  const scale = EFFECTIVENESS_SCALE[rating - 1];
-                  const subGap = +(row.target - rating).toFixed(2);
-                  const subLozenge =
-                    subGap <= 0
-                      ? "bg-green-100 text-green-800"
-                      : subGap >= 1
-                        ? "bg-red-100 text-red-800"
-                        : subGap >= 0.5
-                          ? "bg-amber-100 text-amber-800"
-                          : "bg-slate-100 text-slate-800";
+                  // Prefer assessment-backed question data; fall back to mock rating.
+                  const q = latestCat?.questions.find((qq) => qq.questionText === sub);
+                  const prev = q ? q.previousScore : subRating(canonical, sub);
+                  const cur = q ? q.currentScore : subRating(canonical, sub);
+                  const tgt = q ? q.targetScore : 4;
+                  const note = q?.justification ?? "";
+                  const scale = EFFECTIVENESS_SCALE[Math.max(0, Math.min(4, cur - 1))];
+                  const subGap = +(cur - tgt).toFixed(2);
+                  const subChange = fmtChange(prev, cur);
                   return (
                     <tr
                       key={canonical + sub}
@@ -1860,15 +2026,35 @@ function HierarchicalMatrix({
                       <Td className="pl-12" style={{ color: C.slate }}>
                         <div className="text-[13px] leading-snug" style={{ color: C.navy }}>{sub}</div>
                         <div className="text-[11px] mt-0.5" style={{ color: C.subtle }}>
-                          Score: {rating} &mdash; {scale.label}
+                          Score: {cur} &mdash; {scale.label}
                         </div>
                       </Td>
-                      <Td style={{ color: C.slate }}>{rating}</Td>
-                      <Td style={{ color: C.slate }}>{row.target.toFixed(0)}</Td>
+                      <Td style={{ color: C.slate }}>{prev}</Td>
+                      <Td style={{ color: C.navy, fontWeight: 600 }}>{cur}</Td>
                       <Td>
-                        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${subLozenge}`}>
+                        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${changeLozenge(subChange)}`}>
+                          {subChange > 0 ? `+${subChange}%` : `${subChange}%`}
+                        </span>
+                      </Td>
+                      <Td style={{ color: C.slate }}>{tgt}</Td>
+                      <Td>
+                        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${gapLozenge(subGap)}`}>
                           {subGap > 0 ? `+${subGap}` : subGap}
                         </span>
+                      </Td>
+                      <Td>
+                        {note ? (
+                          <span
+                            title={note}
+                            className="inline-flex items-center gap-1 text-[11px] cursor-help"
+                            style={{ color: C.primary }}
+                          >
+                            <MessageSquare size={12} />
+                            Note
+                          </span>
+                        ) : (
+                          <span className="text-[11px]" style={{ color: C.subtle }}>—</span>
+                        )}
                       </Td>
                       <Td>
                         <button
@@ -3520,6 +3706,9 @@ function ReportView({
   radarData: _radarData,
   onFlash,
   review,
+  assessments,
+  onOpenAssessment,
+  onClearReview,
   onStartReview,
   onOpenHistory,
 }: {
@@ -3528,6 +3717,9 @@ function ReportView({
   radarData: typeof initialRadar;
   onFlash: (m: string) => void;
   review: ReviewSession | null;
+  assessments: Assessment[];
+  onOpenAssessment: (a: Assessment) => void;
+  onClearReview: () => void;
   onStartReview: () => void;
   onOpenHistory: () => void;
 }) {
@@ -3611,14 +3803,14 @@ function ReportView({
     return (
       <div className="space-y-6">
         {/* Action Hub bar */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between print-hide">
           <div className="text-sm" style={{ color: C.subtle }}>
-            The action hub for performance reviews. Start a new session or revisit past assessments.
+            Archive of all performance assessments. Click any row to load its full report.
           </div>
           <div className="flex items-center gap-2">
             <GhostBtn onClick={onOpenHistory}>
               <History size={14} />
-              Assessment History
+              Open in modal
             </GhostBtn>
             <PrimaryBtn onClick={onStartReview}>
               <ClipboardList size={14} />
@@ -3627,22 +3819,29 @@ function ReportView({
           </div>
         </div>
 
-        <Card className="p-10 text-center max-w-2xl mx-auto">
-          <div
-            className="w-14 h-14 rounded-full mx-auto flex items-center justify-center mb-4"
-            style={{ background: C.primarySoft, color: C.primary }}
-          >
-            <FileCheck2 size={26} />
-          </div>
-          <h3 className="text-lg font-bold tracking-tight" style={{ color: C.navy }}>
-            No finalized performance review yet
-          </h3>
-          <p className="mt-2 text-sm leading-relaxed" style={{ color: C.slate }}>
-            Click "Start Performance Review" above to launch the wizard. Once finalized, this page
-            auto-generates a shareable summary with the competency delta, justification notes,
-            highlighted evidence, and a 1-on-1 talking points checklist.
-          </p>
-        </Card>
+        <AssessmentsArchiveTable
+          assessments={assessments}
+          onOpen={onOpenAssessment}
+        />
+
+        {assessments.length === 0 && (
+          <Card className="p-10 text-center max-w-2xl mx-auto">
+            <div
+              className="w-14 h-14 rounded-full mx-auto flex items-center justify-center mb-4"
+              style={{ background: C.primarySoft, color: C.primary }}
+            >
+              <FileCheck2 size={26} />
+            </div>
+            <h3 className="text-lg font-bold tracking-tight" style={{ color: C.navy }}>
+              No finalized performance review yet
+            </h3>
+            <p className="mt-2 text-sm leading-relaxed" style={{ color: C.slate }}>
+              Click "Start Performance Review" above to launch the wizard. Once finalized, this page
+              auto-generates a shareable summary with the competency delta, justification notes,
+              highlighted evidence, and a 1-on-1 talking points checklist.
+            </p>
+          </Card>
+        )}
       </div>
     );
   }
@@ -3650,11 +3849,15 @@ function ReportView({
   return (
     <div>
       {/* Action Hub bar */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 print-hide">
         <div className="text-sm" style={{ color: C.subtle }}>
-          The action hub for performance reviews. Start a new session or revisit past assessments.
+          Viewing report {review.id}. Use the archive to switch between historical assessments.
         </div>
         <div className="flex items-center gap-2">
+          <GhostBtn onClick={onClearReview}>
+            <ArrowLeft size={14} />
+            Back to archive
+          </GhostBtn>
           <GhostBtn onClick={onOpenHistory}>
             <History size={14} />
             Assessment History
@@ -3668,14 +3871,14 @@ function ReportView({
 
       {/* Sticky action bar */}
       <div
-        className="sticky top-0 z-20 -mx-8 px-8 py-3 mb-6 border-b flex items-center justify-between"
+        className="sticky top-0 z-20 -mx-8 px-8 py-3 mb-6 border-b flex items-center justify-between print-hide"
         style={{ background: C.bg, borderColor: C.border }}
       >
         <nav className="flex items-center gap-1.5 text-xs" style={{ color: C.subtle }}>
-          <span>Promotion Readiness</span>
+          <span>Reviews &amp; Reports</span>
           <ChevronRight size={12} />
           <span className="font-semibold" style={{ color: C.navy }}>
-            Generate Report
+            {review.period}
           </span>
         </nav>
         <div className="flex items-center gap-2">
@@ -3692,7 +3895,7 @@ function ReportView({
 
       {/* Document */}
       <article
-        className="max-w-4xl mx-auto bg-white border rounded shadow-md p-10"
+        className="max-w-4xl mx-auto bg-white border rounded shadow-md p-10 print-document"
         style={{ borderColor: C.border }}
       >
         {/* 1. Header */}
@@ -4592,6 +4795,105 @@ function ReviewWizard({
 /* ============================================================ */
 /*               MODAL: ASSESSMENT HISTORY                      */
 /* ============================================================ */
+
+function AssessmentsArchiveTable({
+  assessments,
+  onOpen,
+}: {
+  assessments: Assessment[];
+  onOpen: (a: Assessment) => void;
+}) {
+  return (
+    <Card className="p-0 overflow-hidden">
+      <div className="p-5 border-b" style={{ borderColor: C.border }}>
+        <SectionHeader
+          title="Assessment Archive"
+          sub="All historical performance assessments. Click a row to open the full report."
+        />
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead style={{ background: "#F4F5F7", color: C.subtle }}>
+            <tr className="text-left text-[11px] uppercase tracking-wider">
+              <Th>Review Period</Th>
+              <Th>Date Completed</Th>
+              <Th>Manager</Th>
+              <Th>Status</Th>
+              <Th>Overall Readiness</Th>
+              <Th> </Th>
+            </tr>
+          </thead>
+          <tbody>
+            {assessments.length === 0 && (
+              <tr>
+                <Td>
+                  <span style={{ color: C.subtle }}>No assessments yet.</span>
+                </Td>
+                <Td> </Td>
+                <Td> </Td>
+                <Td> </Td>
+                <Td> </Td>
+                <Td> </Td>
+              </tr>
+            )}
+            {assessments.map((a) => {
+              const date = new Date(a.dateCompleted).toLocaleDateString("en-US", {
+                month: "short",
+                day: "2-digit",
+                year: "numeric",
+              });
+              const statusTone: "success" | "warning" | "info" =
+                a.status === "Finalized" ? "success" : a.status === "Draft" ? "warning" : "info";
+              const pct = a.overallReadinessScore;
+              return (
+                <tr
+                  key={a.id}
+                  onClick={() => onOpen(a)}
+                  className="border-t hover:bg-[#FAFBFC] transition-colors cursor-pointer"
+                  style={{ borderColor: C.border }}
+                >
+                  <Td className="font-semibold" style={{ color: C.navy }}>
+                    {a.reviewPeriod}
+                    <div className="text-[11px] font-normal" style={{ color: C.subtle }}>
+                      {a.id}
+                    </div>
+                  </Td>
+                  <Td style={{ color: C.slate }}>{date}</Td>
+                  <Td style={{ color: C.slate }}>{a.managerName}</Td>
+                  <Td>
+                    <Badge tone={statusTone}>{a.status}</Badge>
+                  </Td>
+                  <Td>
+                    <div className="flex items-center gap-3 min-w-[180px]">
+                      <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: "#EBECF0" }}>
+                        <div
+                          className="h-full rounded-full"
+                          style={{ width: `${pct}%`, background: pct >= 75 ? C.green : C.primary }}
+                        />
+                      </div>
+                      <span className="text-xs font-bold tabular-nums" style={{ color: C.navy }}>
+                        {pct}%
+                      </span>
+                    </div>
+                  </Td>
+                  <Td>
+                    <span
+                      className="inline-flex items-center justify-center w-7 h-7 rounded hover:bg-[#F4F5F7]"
+                      style={{ color: C.subtle }}
+                      aria-label="Open report"
+                    >
+                      <ChevronRight size={16} />
+                    </span>
+                  </Td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
 
 function AssessmentHistoryModal({
   assessments,

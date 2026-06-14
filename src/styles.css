@@ -142,3 +142,30 @@
     color: var(--color-foreground);
   }
 }
+
+/* ------------------------------------------------------------------
+ * Print styles — Performance Report PDF export
+ * ------------------------------------------------------------------ */
+@media print {
+  .print-hide,
+  .print-hide * {
+    display: none !important;
+  }
+  .print-document {
+    box-shadow: none !important;
+    border: none !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  main.print-main {
+    padding: 0 !important;
+  }
+  body {
+    background: #fff !important;
+  }
+  @page {
+    size: A4;
+    margin: 18mm;
+  }
+}
