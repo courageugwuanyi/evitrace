@@ -1725,9 +1725,10 @@ function RadarView({
         </Card>
       </div>
 
-      {/* Chart card - centered, height-bounded so it never stretches */}
-      <div className="max-w-4xl mx-auto w-full">
-        <Card className="p-6 h-fit">
+      {/* Asymmetric grid: table grows on the left, chart sticks on the right (desktop). Chart first on mobile. */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+        {/* Chart card */}
+        <Card className="p-6 h-fit col-span-1 order-1 lg:order-2 lg:col-span-1 lg:sticky lg:top-24">
           <SectionHeader
             title="Visual Gap Analysis"
             sub={
@@ -1780,8 +1781,8 @@ function RadarView({
             </span>
             <span className="flex items-center gap-1.5">
               <span
-                className="w-2.5 h-2.5 rounded-sm border-2 border-dashed"
-                style={{ borderColor: "#00B8D9", background: "transparent" }}
+                className="w-2.5 h-2.5 rounded-sm"
+                style={{ background: "#00B8D9" }}
               />
               Target L4
             </span>
@@ -1800,10 +1801,9 @@ function RadarView({
                     name="Target L4"
                     dataKey="target"
                     stroke="#00B8D9"
-                    fill="none"
-                    fillOpacity={0}
+                    fill="#00B8D9"
+                    fillOpacity={0.08}
                     strokeWidth={2}
-                    strokeDasharray="5 5"
                   />
                   <Radar
                     name="Current"
@@ -1862,10 +1862,7 @@ function RadarView({
                   <Bar
                     dataKey="target"
                     name="Target L4"
-                    fill="transparent"
-                    stroke="#00B8D9"
-                    strokeWidth={2}
-                    strokeDasharray="5 5"
+                    fill="#00B8D9"
                     radius={[0, 2, 2, 0]}
                   />
                 </BarChart>
@@ -1873,11 +1870,9 @@ function RadarView({
             )}
           </div>
         </Card>
-      </div>
 
-      {/* Hierarchical Gap Analysis - full width below */}
-      <div className="w-full">
-        <Card className="p-0 overflow-hidden">
+        {/* Hierarchical Gap Analysis - left/bottom */}
+        <Card className="p-0 overflow-hidden col-span-1 lg:col-span-2 order-2 lg:order-1">
           <div className="p-5 border-b" style={{ borderColor: C.border }}>
             <SectionHeader
               title="Hierarchical Gap Analysis"
