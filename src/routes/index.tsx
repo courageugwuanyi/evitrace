@@ -4425,10 +4425,13 @@ function InboxReviewSlideover({
                 AI Competency Mapping
               </label>
             </div>
-            <div className="text-[11px] mb-2" style={{ color: C.subtle }}>
-              The AI suggested this Category and Subcategory. Change either dropdown to remap.
+            <div className="flex items-start gap-2 mb-3 p-2.5 rounded bg-blue-50 text-blue-800">
+              <Info size={14} className="mt-0.5 shrink-0" />
+              <div className="text-[12px] leading-snug">
+                AI Suggestion: Mapped based on context.
+              </div>
             </div>
-            <div className="grid grid-cols-1 gap-3">
+            <div className="grid grid-cols-1 gap-4">
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Category</div>
                 <Select value={category} onChange={(e) => onCatChange(e.target.value)}>
@@ -4436,9 +4439,6 @@ function InboxReviewSlideover({
                     <option key={c}>{c}</option>
                   ))}
                 </Select>
-                <div className="text-[11px] mt-1.5 leading-relaxed" style={{ color: C.subtle }}>
-                  {COMPETENCY_DESC[category]}
-                </div>
               </div>
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Subcategory / Question</div>
@@ -4449,32 +4449,6 @@ function InboxReviewSlideover({
                 </Select>
               </div>
             </div>
-            <div className="text-[11px] mt-3 mb-1" style={{ color: C.subtle }}>
-              Additional related competencies (optional):
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {COMPETENCIES.map((c) => (
-                <Pill key={c} active={selected.includes(c)} onClick={() => toggle(c)}>
-                  {c}
-                </Pill>
-              ))}
-            </div>
-            {selected.length > 0 && (
-              <div
-                className="mt-3 p-3 rounded border space-y-1.5"
-                style={{ borderColor: C.border, background: "#FAFBFC" }}
-              >
-                <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: C.subtle }}>
-                  Why these were suggested
-                </div>
-                {selected.map((c) => (
-                  <div key={c} className="text-[12px] leading-snug" style={{ color: C.slate }}>
-                    <span className="font-semibold" style={{ color: C.navy }}>{c}:</span>{" "}
-                    {COMPETENCY_DESC[c]}
-                  </div>
-                ))}
-              </div>
-            )}
           </section>
         </div>
 
@@ -4490,7 +4464,7 @@ function InboxReviewSlideover({
           >
             Dismiss Event
           </button>
-          <PrimaryBtn onClick={() => onConfirm(selected)} disabled={selected.length === 0}>
+          <PrimaryBtn onClick={() => onConfirm(selected.length > 0 ? selected : [category])}>
             <CheckCircle size={14} />
             Confirm & Save
           </PrimaryBtn>
