@@ -1888,11 +1888,19 @@ function CaptureModal({
   onClose: () => void;
   onSave: (title: string, comps: string[], link: string, reflection: string) => void;
 }) {
+  const categories = Object.keys(SUBCATEGORIES);
   const [title, setTitle] = useState("");
   const [reflection, setReflection] = useState("");
   const [link, setLink] = useState("");
-  const [comps, setComps] = useState<string[]>(["Code Quality"]);
+  const [category, setCategory] = useState(categories[2]); // Code Quality
+  const [subcategory, setSubcategory] = useState(SUBCATEGORIES[categories[2]][0]);
   const linkValid = !link || /^https?:\/\/\S+\.\S+/i.test(link);
+
+  function onCategoryChange(v: string) {
+    setCategory(v);
+    setSubcategory(SUBCATEGORIES[v][0]);
+  }
+
   return (
     <Backdrop onClose={onClose}>
       <motion.div
@@ -1917,8 +1925,8 @@ function CaptureModal({
             <X size={18} />
           </button>
         </div>
-        <div className="p-5 space-y-4">
-          <Field label="Title">
+        <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+          <Field label="Evidence Title">
             <Input
               autoFocus
               value={title}
@@ -1926,7 +1934,7 @@ function CaptureModal({
               placeholder="e.g. Led RFC review for payments cutover"
             />
           </Field>
-          <Field label="Source link (optional)">
+          <Field label="Source link(s)">
             <div className="relative">
               <LinkIcon
                 size={14}
@@ -1942,11 +1950,11 @@ function CaptureModal({
             </div>
             <div className="text-[11px] mt-1" style={{ color: linkValid ? C.subtle : C.red }}>
               {linkValid
-                ? "Paste a PR, Jira ticket, doc, or Slack thread for traceability."
+                ? "Add URL to a Jira ticket, PR, or Confluence page."
                 : "Enter a valid URL starting with http:// or https://"}
             </div>
           </Field>
-          <Field label="Reflection">
+          <Field label="Reflection & Context">
             <Textarea
               value={reflection}
               onChange={(e) => setReflection(e.target.value)}
@@ -1954,26 +1962,28 @@ function CaptureModal({
               rows={4}
             />
           </Field>
-          <Field label="Tag competencies">
-            <div className="flex flex-wrap gap-1.5">
-              {COMPETENCIES.map((c) => (
-                <Pill
-                  key={c}
-                  active={comps.includes(c)}
-                  onClick={() =>
-                    setComps((s) => (s.includes(c) ? s.filter((x) => x !== c) : [...s, c]))
-                  }
-                >
-                  {c}
-                </Pill>
+          <Field label="Competency Category">
+            <Select value={category} onChange={(e) => onCategoryChange(e.target.value)}>
+              {categories.map((c) => (
+                <option key={c}>{c}</option>
               ))}
+            </Select>
+            <div className="text-[11px] mt-1.5 leading-relaxed" style={{ color: C.subtle }}>
+              {COMPETENCY_DESC[category]}
             </div>
+          </Field>
+          <Field label="Subcategory / Question">
+            <Select value={subcategory} onChange={(e) => setSubcategory(e.target.value)}>
+              {SUBCATEGORIES[category].map((s) => (
+                <option key={s}>{s}</option>
+              ))}
+            </Select>
           </Field>
         </div>
         <div className="p-4 border-t flex items-center justify-end gap-2" style={{ borderColor: C.border }}>
           <GhostBtn onClick={onClose}>Cancel</GhostBtn>
-          <PrimaryBtn disabled={!title || !linkValid} onClick={() => onSave(title, comps, link, reflection)}>
-            Save Evidence
+          <PrimaryBtn disabled={!title || !linkValid} onClick={() => onSave(title, [category], link, reflection)}>
+            Save to Log
           </PrimaryBtn>
         </div>
       </motion.div>
