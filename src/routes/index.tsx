@@ -1345,9 +1345,13 @@ function InboxRow({
 function RadarView({
   data,
   onCreateObjective,
+  onStartReview,
+  onOpenHistory,
 }: {
   data: typeof initialRadar;
   onCreateObjective: () => void;
+  onStartReview: () => void;
+  onOpenHistory: () => void;
 }) {
   const current = useMemo(
     () => +(data.reduce((s, d) => s + d.current, 0) / data.length).toFixed(2),
@@ -1359,6 +1363,28 @@ function RadarView({
 
   return (
     <div className="space-y-6">
+      {/* Page header with primary actions */}
+      <div className="flex items-end justify-between">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight" style={{ color: C.navy }}>
+            Promotion Readiness
+          </h2>
+          <div className="text-sm mt-0.5" style={{ color: C.subtle }}>
+            Assessment of current scores vs Level 4 target across the competency framework.
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <GhostBtn onClick={onOpenHistory}>
+            <History size={14} />
+            Assessment History
+          </GhostBtn>
+          <PrimaryBtn onClick={onStartReview}>
+            <ClipboardList size={14} />
+            Start Performance Review
+          </PrimaryBtn>
+        </div>
+      </div>
+
       {/* Executive Summary */}
       <div className="grid grid-cols-4 gap-4">
         <Card className="p-5">
