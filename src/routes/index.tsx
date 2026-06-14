@@ -2502,6 +2502,16 @@ function ExtensionPopup({ onDismiss, onSave }: { onDismiss: () => void; onSave: 
               </Pill>
             ))}
           </div>
+          {comps.length > 0 && (
+            <div className="mt-2 space-y-1">
+              {comps.map((c) => (
+                <div key={c} className="text-[11px] leading-snug" style={{ color: C.subtle }}>
+                  <span className="font-semibold" style={{ color: C.slate }}>{c}:</span>{" "}
+                  {COMPETENCY_DESC[c]}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
