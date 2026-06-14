@@ -216,7 +216,7 @@ function Badge({
   children,
   icon,
 }: {
-  tone?: "neutral" | "success" | "warning" | "info";
+  tone?: "neutral" | "success" | "warning" | "info" | "danger";
   children: React.ReactNode;
   icon?: React.ReactNode;
 }) {
@@ -225,6 +225,7 @@ function Badge({
     success: { bg: C.greenSoft, fg: "#006644" },
     warning: { bg: C.amberSoft, fg: "#974F00" },
     info: { bg: C.primarySoft, fg: C.primary },
+    danger: { bg: "#FFEBE6", fg: "#BF2600" },
   } as const;
   const s = map[tone];
   return (
