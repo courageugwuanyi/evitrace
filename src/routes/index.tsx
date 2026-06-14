@@ -106,6 +106,33 @@ const COMPETENCIES = [
   "Delivery",
 ];
 
+const COMPETENCY_DESC: Record<string, string> = {
+  "Analytical Thinking":
+    "Identifies critical connections and patterns in information/data to diagnose root causes.",
+  "System Design":
+    "Designs scalable, resilient services and articulates trade-offs across components.",
+  "Code Quality":
+    "Writes maintainable, well-tested code and raises the bar through reviews.",
+  Communication:
+    "Listens and communicates openly, honestly, and respectfully with different audiences.",
+  Leadership:
+    "Influences direction, mentors peers, and drives alignment across teams.",
+  "Engineering for UX":
+    "Partners with design to deliver thoughtful, accessible, and performant user experiences.",
+  Security:
+    "Anticipates threats and embeds secure-by-default practices into the SDLC.",
+  Delivery:
+    "Breaks down complex work and ships reliably with predictable cadence.",
+};
+
+const EFFECTIVENESS_SCALE: { value: number; label: string; tone: "danger" | "warning" | "info" | "success" }[] = [
+  { value: 1, label: "Limited Effectiveness", tone: "danger" },
+  { value: 2, label: "Somewhat Effective", tone: "warning" },
+  { value: 3, label: "Fully Effective", tone: "info" },
+  { value: 4, label: "Highly Effective", tone: "success" },
+  { value: 5, label: "Extremely Effective", tone: "success" },
+];
+
 /* ---------- Primitives ---------- */
 function Card({
   children,
@@ -189,7 +216,7 @@ function Badge({
   children,
   icon,
 }: {
-  tone?: "neutral" | "success" | "warning" | "info";
+  tone?: "neutral" | "success" | "warning" | "info" | "danger";
   children: React.ReactNode;
   icon?: React.ReactNode;
 }) {
@@ -198,6 +225,7 @@ function Badge({
     success: { bg: C.greenSoft, fg: "#006644" },
     warning: { bg: C.amberSoft, fg: "#974F00" },
     info: { bg: C.primarySoft, fg: C.primary },
+    danger: { bg: "#FFEBE6", fg: "#BF2600" },
   } as const;
   const s = map[tone];
   return (
@@ -2474,6 +2502,16 @@ function ExtensionPopup({ onDismiss, onSave }: { onDismiss: () => void; onSave: 
               </Pill>
             ))}
           </div>
+          {comps.length > 0 && (
+            <div className="mt-2 space-y-1">
+              {comps.map((c) => (
+                <div key={c} className="text-[11px] leading-snug" style={{ color: C.subtle }}>
+                  <span className="font-semibold" style={{ color: C.slate }}>{c}:</span>{" "}
+                  {COMPETENCY_DESC[c]}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -2921,23 +2959,57 @@ function EvidenceSlideover({
             <div className="flex items-center gap-2 mb-2">
               <MessageSquare size={14} style={{ color: C.slate }} />
               <div className="text-sm font-bold" style={{ color: C.navy }}>
-                Manager Comments
+                Manager Assessment
               </div>
             </div>
             {item.status === "Approved" ? (
               <div
-                className="p-3 rounded border text-sm"
-                style={{ borderColor: C.border, background: C.bg, color: C.slate }}
+                className="p-4 rounded border space-y-3"
+                style={{ borderColor: C.border, background: C.bg }}
               >
-                <div className="text-xs font-semibold mb-1" style={{ color: C.navy }}>
-                  Alex Morgan — Oct 12
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>
+                    Effectiveness Rating
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge tone="success">4 / 5</Badge>
+                    <span className="text-sm font-semibold" style={{ color: C.navy }}>
+                      Highly Effective
+                    </span>
+                  </div>
+                  <div className="mt-2 flex gap-1">
+                    {EFFECTIVENESS_SCALE.map((s) => (
+                      <div
+                        key={s.value}
+                        title={`${s.value}: ${s.label}`}
+                        className="flex-1 h-1.5 rounded-full"
+                        style={{
+                          background: s.value <= 4 ? C.green : C.border,
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <div className="mt-1 text-[10px]" style={{ color: C.subtle }}>
+                    1: Limited &middot; 2: Somewhat &middot; 3: Fully &middot; 4: Highly &middot; 5: Extremely
+                  </div>
                 </div>
-                Strong example of cross-team coordination. Tag this for the L4 architecture
-                criterion in your packet.
+                <div className="pt-3 border-t" style={{ borderColor: C.border }}>
+                  <div className="text-xs font-semibold mb-1" style={{ color: C.navy }}>
+                    Alex Morgan &mdash; Oct 12
+                  </div>
+                  <div className="text-sm leading-relaxed" style={{ color: C.slate }}>
+                    Strong example of cross-team coordination. Tag this for the L4 architecture
+                    criterion in your packet.
+                  </div>
+                </div>
               </div>
             ) : (
-              <div className="text-xs" style={{ color: C.subtle }}>
-                Awaiting manager review.
+              <div
+                className="p-3 rounded border text-xs flex items-center gap-2"
+                style={{ borderColor: C.border, background: C.bg, color: C.subtle }}
+              >
+                <Clock size={12} />
+                Awaiting manager review &mdash; rating will appear here once submitted.
               </div>
             )}
           </section>
@@ -3428,6 +3500,22 @@ function InboxReviewSlideover({
                 </Pill>
               ))}
             </div>
+            {selected.length > 0 && (
+              <div
+                className="mt-3 p-3 rounded border space-y-1.5"
+                style={{ borderColor: C.border, background: "#FAFBFC" }}
+              >
+                <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: C.subtle }}>
+                  Why these were suggested
+                </div>
+                {selected.map((c) => (
+                  <div key={c} className="text-[12px] leading-snug" style={{ color: C.slate }}>
+                    <span className="font-semibold" style={{ color: C.navy }}>{c}:</span>{" "}
+                    {COMPETENCY_DESC[c]}
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         </div>
 
