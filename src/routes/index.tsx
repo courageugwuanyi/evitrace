@@ -1438,29 +1438,72 @@ function DashboardView({
       </div>
 
       <div className="grid grid-cols-3 gap-6">
-        {/* Widget B */}
-        <Card className="col-span-2 p-5">
-          <SectionHeader
-            title="Action Inbox"
-            sub="Auto-captured events that need your mapping"
-            right={<Badge tone="warning" icon={<AlertCircle size={12} />}>{inbox.length} pending</Badge>}
-          />
-          <div className="mt-4 divide-y" style={{ borderColor: C.border }}>
-            {inbox.length === 0 ? (
+        {/* Widget B - Inbox + Recent Evidence stacked */}
+        <div className="col-span-2 space-y-6">
+          <Card className="p-5">
+            <SectionHeader
+              title="Action Inbox"
+              sub="Auto-captured events that need your mapping"
+              right={<Badge tone="warning" icon={<AlertCircle size={12} />}>{inbox.length} pending</Badge>}
+            />
+            <div className="mt-4 divide-y" style={{ borderColor: C.border }}>
+              {inbox.length === 0 ? (
+                <div
+                  className="py-10 text-center text-sm flex flex-col items-center gap-2"
+                  style={{ color: C.subtle }}
+                >
+                  <CheckCircle size={28} style={{ color: C.green }} />
+                  Inbox zero. Nice work.
+                </div>
+              ) : (
+                inbox.map((it) => (
+                  <InboxRow key={it.id} item={it} onOpen={() => onOpenInbox(it)} />
+                ))
+              )}
+            </div>
+          </Card>
+
+          <Card className="p-5">
+            <SectionHeader
+              title="Recent Evidence"
+              sub="Latest logged and verified contributions"
+            />
+            <div className="mt-4 relative">
               <div
-                className="py-10 text-center text-sm flex flex-col items-center gap-2"
-                style={{ color: C.subtle }}
-              >
-                <CheckCircle size={28} style={{ color: C.green }} />
-                Inbox zero. Nice work.
-              </div>
-            ) : (
-              inbox.map((it) => (
-                <InboxRow key={it.id} item={it} onOpen={() => onOpenInbox(it)} />
-              ))
-            )}
-          </div>
-        </Card>
+                className="absolute left-[11px] top-1 bottom-1 w-px"
+                style={{ background: C.border }}
+                aria-hidden
+              />
+              <ul className="space-y-3">
+                {recentEvidence.map((ev) => (
+                  <li key={ev.id} className="relative">
+                    <button
+                      onClick={() => onOpenEvidence(ev)}
+                      className="w-full text-left flex items-start gap-3 pl-0 pr-2 py-2 rounded hover:bg-slate-50 transition-colors"
+                    >
+                      <div
+                        className="w-6 h-6 rounded-full flex items-center justify-center shrink-0 z-10"
+                        style={{ background: "#fff", border: `1px solid ${C.border}` }}
+                      >
+                        <CheckCircle2 size={14} style={{ color: C.green }} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold truncate" style={{ color: C.navy }}>
+                          {ev.title}
+                        </div>
+                        <div className="mt-1 flex items-center gap-2 text-[11px]" style={{ color: C.subtle }}>
+                          <span>{relativeDate(ev.date)}</span>
+                          <span aria-hidden>·</span>
+                          <Badge tone="info">{ev.category}</Badge>
+                        </div>
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </Card>
+        </div>
 
         {/* Widget C */}
         <Card className="p-5">
@@ -1472,9 +1515,10 @@ function DashboardView({
               </div>
             )}
             {active.map((o) => (
-              <div
+              <button
                 key={o.id}
-                className="flex items-start gap-3 p-3 rounded border hover:border-[#0052CC] transition-colors"
+                onClick={() => onOpenObjective(o)}
+                className="w-full text-left flex items-start gap-3 p-3 rounded border cursor-pointer hover:bg-slate-50 hover:border-[#0052CC] transition-colors"
                 style={{ borderColor: C.border }}
               >
                 <ListTodo size={16} style={{ color: C.primary }} className="mt-0.5" />
@@ -1487,7 +1531,7 @@ function DashboardView({
                     Due {o.due}
                   </div>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         </Card>
