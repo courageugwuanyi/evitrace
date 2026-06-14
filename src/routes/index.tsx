@@ -4796,6 +4796,105 @@ function ReviewWizard({
 /*               MODAL: ASSESSMENT HISTORY                      */
 /* ============================================================ */
 
+function AssessmentsArchiveTable({
+  assessments,
+  onOpen,
+}: {
+  assessments: Assessment[];
+  onOpen: (a: Assessment) => void;
+}) {
+  return (
+    <Card className="p-0 overflow-hidden">
+      <div className="p-5 border-b" style={{ borderColor: C.border }}>
+        <SectionHeader
+          title="Assessment Archive"
+          sub="All historical performance assessments. Click a row to open the full report."
+        />
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead style={{ background: "#F4F5F7", color: C.subtle }}>
+            <tr className="text-left text-[11px] uppercase tracking-wider">
+              <Th>Review Period</Th>
+              <Th>Date Completed</Th>
+              <Th>Manager</Th>
+              <Th>Status</Th>
+              <Th>Overall Readiness</Th>
+              <Th> </Th>
+            </tr>
+          </thead>
+          <tbody>
+            {assessments.length === 0 && (
+              <tr>
+                <Td>
+                  <span style={{ color: C.subtle }}>No assessments yet.</span>
+                </Td>
+                <Td> </Td>
+                <Td> </Td>
+                <Td> </Td>
+                <Td> </Td>
+                <Td> </Td>
+              </tr>
+            )}
+            {assessments.map((a) => {
+              const date = new Date(a.dateCompleted).toLocaleDateString("en-US", {
+                month: "short",
+                day: "2-digit",
+                year: "numeric",
+              });
+              const statusTone: "success" | "warning" | "info" =
+                a.status === "Finalized" ? "success" : a.status === "Draft" ? "warning" : "info";
+              const pct = a.overallReadinessScore;
+              return (
+                <tr
+                  key={a.id}
+                  onClick={() => onOpen(a)}
+                  className="border-t hover:bg-[#FAFBFC] transition-colors cursor-pointer"
+                  style={{ borderColor: C.border }}
+                >
+                  <Td className="font-semibold" style={{ color: C.navy }}>
+                    {a.reviewPeriod}
+                    <div className="text-[11px] font-normal" style={{ color: C.subtle }}>
+                      {a.id}
+                    </div>
+                  </Td>
+                  <Td style={{ color: C.slate }}>{date}</Td>
+                  <Td style={{ color: C.slate }}>{a.managerName}</Td>
+                  <Td>
+                    <Badge tone={statusTone}>{a.status}</Badge>
+                  </Td>
+                  <Td>
+                    <div className="flex items-center gap-3 min-w-[180px]">
+                      <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: "#EBECF0" }}>
+                        <div
+                          className="h-full rounded-full"
+                          style={{ width: `${pct}%`, background: pct >= 75 ? C.green : C.primary }}
+                        />
+                      </div>
+                      <span className="text-xs font-bold tabular-nums" style={{ color: C.navy }}>
+                        {pct}%
+                      </span>
+                    </div>
+                  </Td>
+                  <Td>
+                    <span
+                      className="inline-flex items-center justify-center w-7 h-7 rounded hover:bg-[#F4F5F7]"
+                      style={{ color: C.subtle }}
+                      aria-label="Open report"
+                    >
+                      <ChevronRight size={16} />
+                    </span>
+                  </Td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
 function AssessmentHistoryModal({
   assessments,
   currentId,
