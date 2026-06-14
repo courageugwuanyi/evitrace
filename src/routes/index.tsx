@@ -3529,12 +3529,20 @@ function InboxReviewSlideover({
   onConfirm: (comps: string[]) => void;
   onDismiss: () => void;
 }) {
+  const inboxCats = Object.keys(SUBCATEGORIES);
+  const initialCat = inboxCats.find((c) => item.suggestion.includes(c)) ?? inboxCats[0];
   const [title, setTitle] = useState(item.title);
   const [description, setDescription] = useState("");
   const [selected, setSelected] = useState<string[]>(item.suggestion);
+  const [category, setCategory] = useState(initialCat);
+  const [subcategory, setSubcategory] = useState(SUBCATEGORIES[initialCat][0]);
   const Icon = item.icon;
   function toggle(c: string) {
     setSelected((s) => (s.includes(c) ? s.filter((x) => x !== c) : [...s, c]));
+  }
+  function onCatChange(v: string) {
+    setCategory(v);
+    setSubcategory(SUBCATEGORIES[v][0]);
   }
   return (
     <motion.div
