@@ -944,6 +944,49 @@ function EvitraceApp() {
         )}
       </AnimatePresence>
 
+      {/* Performance Review wizard */}
+      <AnimatePresence>
+        {showWizard && (
+          <ReviewWizard
+            evidence={evidence}
+            onClose={() => setShowWizard(false)}
+            onFinalize={(session) => {
+              setReview(session);
+              // Roll up averaged "next" scores into the radarData for matrix + radar chart
+              setRadarData((rows) =>
+                rows.map((r) => {
+                  const cat = radarLabelToCategory(r.competency);
+                  const subs = session.scores[cat];
+                  if (!subs) return r;
+                  const vals = Object.values(subs).map((q) => q.next);
+                  if (vals.length === 0) return r;
+                  const avg = vals.reduce((s, v) => s + v, 0) / vals.length;
+                  // radar uses 0-4 scale, scores use 1-5; map by clamp
+                  return { ...r, current: +Math.min(4, (avg / 5) * 4).toFixed(2) };
+                }),
+              );
+              setShowWizard(false);
+              setTab("report");
+              flash("Assessment finalized · Report generated");
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Assessment history modal */}
+      <AnimatePresence>
+        {showHistory && (
+          <AssessmentHistoryModal
+            current={review}
+            onClose={() => setShowHistory(false)}
+            onOpenCurrent={() => {
+              setShowHistory(false);
+              setTab("report");
+            }}
+          />
+        )}
+      </AnimatePresence>
+
 
 
       {/* Toast */}
