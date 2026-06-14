@@ -3116,13 +3116,20 @@ function EvidenceSlideover({
                 style={{ borderColor: C.border, background: C.bg }}
               >
                 <div>
-                  <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>
+                  <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: C.subtle }}>
                     Effectiveness Rating
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Badge tone="success">4 / 5</Badge>
+                  <Select value={String(rating)} onChange={(e) => setRating(Number(e.target.value))}>
+                    {EFFECTIVENESS_SCALE.map((s) => (
+                      <option key={s.value} value={s.value}>
+                        {s.value} &mdash; {s.label}
+                      </option>
+                    ))}
+                  </Select>
+                  <div className="mt-2 flex items-center gap-2">
+                    <Badge tone={scale.tone}>{rating} / 5</Badge>
                     <span className="text-sm font-semibold" style={{ color: C.navy }}>
-                      Highly Effective
+                      {scale.label}
                     </span>
                   </div>
                   <div className="mt-2 flex gap-1">
@@ -3132,7 +3139,7 @@ function EvidenceSlideover({
                         title={`${s.value}: ${s.label}`}
                         className="flex-1 h-1.5 rounded-full"
                         style={{
-                          background: s.value <= 4 ? C.green : C.border,
+                          background: s.value <= rating ? C.green : C.border,
                         }}
                       />
                     ))}
