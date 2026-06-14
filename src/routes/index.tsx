@@ -1396,13 +1396,20 @@ function TopHeader({ title, onCapture }: { title: string; onCapture: () => void 
 function DashboardView({
   inbox,
   objectives,
+  evidence,
   onOpenInbox,
+  onOpenObjective,
+  onOpenEvidence,
 }: {
   inbox: typeof initialInbox;
   objectives: Objective[];
+  evidence: typeof initialEvidence;
   onOpenInbox: (item: (typeof initialInbox)[number]) => void;
+  onOpenObjective: (o: Objective) => void;
+  onOpenEvidence: (e: (typeof initialEvidence)[number]) => void;
 }) {
   const active = objectives.filter((o) => o.status === "In Progress");
+  const recentEvidence = evidence.slice(0, 4);
   return (
     <div className="space-y-6">
       {/* Widget A */}
