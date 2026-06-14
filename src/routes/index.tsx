@@ -992,7 +992,10 @@ function EvitraceApp() {
                 <DashboardView
                   inbox={inbox}
                   objectives={objectives}
+                  evidence={evidence}
                   onOpenInbox={setOpenInbox}
+                  onOpenObjective={setOpenObjective}
+                  onOpenEvidence={setOpenEvidence}
                 />
               )}
               {tab === "radar" && (
