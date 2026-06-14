@@ -58,11 +58,6 @@ import {
   ResponsiveContainer,
   Tooltip as RTooltip,
   Legend,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
 } from "recharts";
 
 export const Route = createFileRoute("/")({
@@ -190,14 +185,6 @@ function subRating(cat: string, sub: string): number {
   // deterministic pseudo-rating for the mock matrix
   const key = (cat + sub).split("").reduce((a, c) => a + c.charCodeAt(0), 0);
   return 1 + (key % 5);
-}
-
-function subPrevious(cat: string, sub: string): number {
-  // previous assessment score: typically 0-1 below current, clamped to 1
-  const cur = subRating(cat, sub);
-  const key = (cat + sub + "_prev").split("").reduce((a, c) => a + c.charCodeAt(0), 0);
-  const drop = (key % 2) + 1; // drop by 1 or 2
-  return Math.max(1, cur - drop);
 }
 
 /* ---------- Shared category helpers ---------- */
@@ -405,14 +392,14 @@ function Select({
 
 /* ---------- Mock data ---------- */
 const initialRadar = [
-  { competency: "Analytical", previous: 2.8, current: 3.2, target: 4 },
-  { competency: "System Design", previous: 2.4, current: 2.8, target: 4 },
-  { competency: "Code Quality", previous: 3.1, current: 3.6, target: 4 },
-  { competency: "Communication", previous: 2.7, current: 3.0, target: 4 },
-  { competency: "Leadership", previous: 2.0, current: 2.4, target: 4 },
-  { competency: "UX Eng", previous: 2.5, current: 2.6, target: 4 },
-  { competency: "Security", previous: 2.6, current: 2.9, target: 4 },
-  { competency: "Delivery", previous: 3.0, current: 3.4, target: 4 },
+  { competency: "Analytical", current: 3.2, target: 4 },
+  { competency: "System Design", current: 2.8, target: 4 },
+  { competency: "Code Quality", current: 3.6, target: 4 },
+  { competency: "Communication", current: 3.0, target: 4 },
+  { competency: "Leadership", current: 2.4, target: 4 },
+  { competency: "UX Eng", current: 2.6, target: 4 },
+  { competency: "Security", current: 2.9, target: 4 },
+  { competency: "Delivery", current: 3.4, target: 4 },
 ];
 
 const initialEvidence = [
@@ -975,9 +962,7 @@ function EvitraceApp() {
                   if (vals.length === 0) return r;
                   const avg = vals.reduce((s, v) => s + v, 0) / vals.length;
                   // radar uses 0-4 scale, scores use 1-5; map by clamp
-                  const newCurrent = +Math.min(4, (avg / 5) * 4).toFixed(2);
-                  // Shift previous = old current, so the bar chart & Δ reflect this assessment cycle.
-                  return { ...r, previous: r.current, current: newCurrent };
+                  return { ...r, current: +Math.min(4, (avg / 5) * 4).toFixed(2) };
                 }),
               );
               setShowWizard(false);
@@ -1504,12 +1489,11 @@ function RadarView({
       </div>
 
       {/* Competency Matrix */}
-      <div className="grid grid-cols-5 gap-6 items-start">
-        <div className="col-span-2 space-y-6">
-        <Card className="p-6">
+      <div className="grid grid-cols-5 gap-6">
+        <Card className="col-span-2 p-6">
           <SectionHeader
             title="Competency Radar"
-            sub="Most recent assessment vs Level 4 target"
+            sub="Current score vs Level 4 target"
             right={
               <div className="flex items-center gap-3 text-xs" style={{ color: C.slate }}>
                 <span className="flex items-center gap-1.5">
@@ -1526,7 +1510,7 @@ function RadarView({
               </div>
             }
           />
-          <div className="h-[360px] mt-4">
+          <div className="h-[420px] mt-4">
             <ResponsiveContainer width="100%" height="100%">
               <RadarChart data={data} outerRadius="78%">
                 <PolarGrid stroke={C.border} />
@@ -1567,53 +1551,6 @@ function RadarView({
           </div>
         </Card>
 
-        <Card className="p-6">
-          <SectionHeader
-            title="Progress Since Last Assessment"
-            sub="Previous vs current score per category"
-            right={
-              <div className="flex items-center gap-3 text-xs" style={{ color: C.slate }}>
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-sm" style={{ background: "#A5ADBA" }} />
-                  Previous
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-sm" style={{ background: C.primary }} />
-                  Current
-                </span>
-              </div>
-            }
-          />
-          <div className="h-[260px] mt-4">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data} margin={{ top: 8, right: 8, left: -16, bottom: 0 }} barCategoryGap={12}>
-                <CartesianGrid stroke={C.border} strokeDasharray="3 3" vertical={false} />
-                <XAxis
-                  dataKey="competency"
-                  tick={{ fill: C.slate, fontSize: 10 }}
-                  interval={0}
-                  angle={-20}
-                  textAnchor="end"
-                  height={50}
-                />
-                <YAxis domain={[0, 4]} tick={{ fill: C.subtle, fontSize: 10 }} />
-                <RTooltip
-                  contentStyle={{
-                    background: "#fff",
-                    border: `1px solid ${C.border}`,
-                    borderRadius: 6,
-                    fontSize: 12,
-                  }}
-                  formatter={(v) => `${Number(v).toFixed(2)} / 4`}
-                />
-                <Bar dataKey="previous" name="Previous" fill="#A5ADBA" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="current" name="Current" fill={C.primary} radius={[3, 3, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Card>
-        </div>
-
         <Card className="col-span-3 p-0 overflow-hidden">
           <div className="p-5 border-b" style={{ borderColor: C.border }}>
             <SectionHeader title="Hierarchical Gap Analysis" sub="Expand a category to see specific competency questions and their 1-5 effectiveness rating" />
@@ -1633,23 +1570,11 @@ function HierarchicalMatrix({
   onCreateObjective: () => void;
 }) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
-  const [notes, setNotes] = useState<Record<string, string>>({});
   // Map short radar label -> canonical category name in SUBCATEGORIES
   const mapToCanonical = (label: string): string => {
     if (label === "Analytical") return "Analytical Thinking";
     if (label === "UX Eng") return "Engineering for UX";
     return label;
-  };
-  const fmtChange = (prev: number, curr: number) => {
-    const delta = +(curr - prev).toFixed(2);
-    if (prev === 0) return { text: "—", tone: C.subtle, delta };
-    const pct = Math.round(((curr - prev) / prev) * 100);
-    const sign = delta > 0 ? "+" : "";
-    return {
-      text: `${sign}${delta.toFixed(2)} (${sign}${pct}%)`,
-      tone: delta > 0 ? C.green : delta < 0 ? C.red : C.subtle,
-      delta,
-    };
   };
   return (
     <div className="overflow-x-auto">
@@ -1657,9 +1582,7 @@ function HierarchicalMatrix({
         <thead style={{ background: "#F4F5F7", color: C.subtle }}>
           <tr className="text-left text-[11px] uppercase tracking-wider">
             <Th>Category / Question</Th>
-            <Th>Previous</Th>
             <Th>Current</Th>
-            <Th>Δ Change</Th>
             <Th>Target</Th>
             <Th>Gap</Th>
             <Th>Action</Th>
@@ -1670,18 +1593,8 @@ function HierarchicalMatrix({
             const canonical = mapToCanonical(row.competency);
             const subs = SUBCATEGORIES[canonical] ?? [];
             const isOpen = !!open[row.competency];
-            // Roll up sub-question scores (1-5) into category score on 0-4 scale
-            const subCurrAvg = subs.length
-              ? subs.reduce((s, sub) => s + subRating(canonical, sub), 0) / subs.length
-              : row.current * (5 / 4);
-            const subPrevAvg = subs.length
-              ? subs.reduce((s, sub) => s + subPrevious(canonical, sub), 0) / subs.length
-              : row.previous * (5 / 4);
-            const catCurrent = +(subCurrAvg * (4 / 5)).toFixed(2);
-            const catPrevious = +(subPrevAvg * (4 / 5)).toFixed(2);
-            const g = +(row.target - catCurrent).toFixed(2);
+            const g = +(row.target - row.current).toFixed(2);
             const tone = g >= 1 ? C.red : g >= 0.5 ? C.amber : C.green;
-            const catChange = fmtChange(catPrevious, catCurrent);
             return (
               <React.Fragment key={row.competency}>
                 <tr
@@ -1700,13 +1613,7 @@ function HierarchicalMatrix({
                       </span>
                     </span>
                   </Td>
-                  <Td style={{ color: C.subtle }}>{catPrevious.toFixed(2)}</Td>
-                  <Td className="font-semibold" style={{ color: C.navy }}>{catCurrent.toFixed(2)}</Td>
-                  <Td>
-                    <span className="font-semibold text-xs" style={{ color: catChange.tone }}>
-                      {catChange.text}
-                    </span>
-                  </Td>
+                  <Td style={{ color: C.slate }}>{row.current.toFixed(2)}</Td>
                   <Td style={{ color: C.slate }}>{row.target.toFixed(2)}</Td>
                   <Td>
                     <span className="font-semibold" style={{ color: tone }}>
@@ -1726,12 +1633,9 @@ function HierarchicalMatrix({
                 </tr>
                 {isOpen && subs.map((sub) => {
                   const rating = subRating(canonical, sub);
-                  const prev = subPrevious(canonical, sub);
                   const scale = EFFECTIVENESS_SCALE[rating - 1];
                   const subGap = +(row.target - rating).toFixed(2);
                   const subTone = subGap >= 1 ? C.red : subGap >= 0.5 ? C.amber : C.green;
-                  const change = fmtChange(prev, rating);
-                  const noteKey = canonical + "::" + sub;
                   return (
                     <tr
                       key={canonical + sub}
@@ -1743,22 +1647,8 @@ function HierarchicalMatrix({
                         <div className="text-[11px] mt-0.5" style={{ color: C.subtle }}>
                           Score: {rating} &mdash; {scale.label}
                         </div>
-                        <textarea
-                          value={notes[noteKey] ?? ""}
-                          onChange={(e) => setNotes((n) => ({ ...n, [noteKey]: e.target.value }))}
-                          placeholder="Add justification or notes for this score (cite evidence, agreed reasoning)…"
-                          rows={2}
-                          className="mt-2 w-full text-[11px] px-2 py-1.5 rounded border bg-white outline-none focus:border-[#0052CC] transition-colors resize-none"
-                          style={{ borderColor: C.border, color: C.navy }}
-                        />
                       </Td>
-                      <Td style={{ color: C.subtle }}>{prev}</Td>
                       <Td style={{ color: C.slate }}>{rating}</Td>
-                      <Td>
-                        <span className="font-semibold text-[11px]" style={{ color: change.tone }}>
-                          {change.text}
-                        </span>
-                      </Td>
                       <Td style={{ color: C.slate }}>{row.target.toFixed(0)}</Td>
                       <Td>
                         <span className="font-semibold" style={{ color: subTone }}>
