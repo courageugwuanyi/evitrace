@@ -2959,23 +2959,57 @@ function EvidenceSlideover({
             <div className="flex items-center gap-2 mb-2">
               <MessageSquare size={14} style={{ color: C.slate }} />
               <div className="text-sm font-bold" style={{ color: C.navy }}>
-                Manager Comments
+                Manager Assessment
               </div>
             </div>
             {item.status === "Approved" ? (
               <div
-                className="p-3 rounded border text-sm"
-                style={{ borderColor: C.border, background: C.bg, color: C.slate }}
+                className="p-4 rounded border space-y-3"
+                style={{ borderColor: C.border, background: C.bg }}
               >
-                <div className="text-xs font-semibold mb-1" style={{ color: C.navy }}>
-                  Alex Morgan — Oct 12
+                <div>
+                  <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>
+                    Effectiveness Rating
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge tone="success">4 / 5</Badge>
+                    <span className="text-sm font-semibold" style={{ color: C.navy }}>
+                      Highly Effective
+                    </span>
+                  </div>
+                  <div className="mt-2 flex gap-1">
+                    {EFFECTIVENESS_SCALE.map((s) => (
+                      <div
+                        key={s.value}
+                        title={`${s.value}: ${s.label}`}
+                        className="flex-1 h-1.5 rounded-full"
+                        style={{
+                          background: s.value <= 4 ? C.green : C.border,
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <div className="mt-1 text-[10px]" style={{ color: C.subtle }}>
+                    1: Limited &middot; 2: Somewhat &middot; 3: Fully &middot; 4: Highly &middot; 5: Extremely
+                  </div>
                 </div>
-                Strong example of cross-team coordination. Tag this for the L4 architecture
-                criterion in your packet.
+                <div className="pt-3 border-t" style={{ borderColor: C.border }}>
+                  <div className="text-xs font-semibold mb-1" style={{ color: C.navy }}>
+                    Alex Morgan &mdash; Oct 12
+                  </div>
+                  <div className="text-sm leading-relaxed" style={{ color: C.slate }}>
+                    Strong example of cross-team coordination. Tag this for the L4 architecture
+                    criterion in your packet.
+                  </div>
+                </div>
               </div>
             ) : (
-              <div className="text-xs" style={{ color: C.subtle }}>
-                Awaiting manager review.
+              <div
+                className="p-3 rounded border text-xs flex items-center gap-2"
+                style={{ borderColor: C.border, background: C.bg, color: C.subtle }}
+              >
+                <Clock size={12} />
+                Awaiting manager review &mdash; rating will appear here once submitted.
               </div>
             )}
           </section>
