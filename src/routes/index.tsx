@@ -1260,7 +1260,7 @@ function Sidebar({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
   ];
   return (
     <aside
-      className="w-64 shrink-0 border-r flex flex-col print-hide"
+      className="hidden lg:flex fixed inset-y-0 left-0 z-40 w-64 h-screen border-r flex-col print-hide"
       style={{ background: C.card, borderColor: C.border }}
     >
       <div className="h-16 px-5 flex items-center gap-2 border-b" style={{ borderColor: C.border }}>
