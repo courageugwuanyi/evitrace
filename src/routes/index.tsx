@@ -3298,6 +3298,7 @@ function ReportView({
   onFlash,
   review,
   onStartReview,
+  onOpenHistory,
 }: {
   evidence: typeof initialEvidence;
   objectives: Objective[];
@@ -3305,6 +3306,7 @@ function ReportView({
   onFlash: (m: string) => void;
   review: ReviewSession | null;
   onStartReview: () => void;
+  onOpenHistory: () => void;
 }) {
   const approved = evidence.filter((e) => e.status === "Approved");
   const completed = objectives.filter((o) => o.status === "Completed");
