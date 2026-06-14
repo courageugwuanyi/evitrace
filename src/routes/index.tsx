@@ -1406,26 +1406,9 @@ function RadarView({
 
   return (
     <div className="space-y-6">
-      {/* Page header with primary actions */}
-      <div className="flex items-end justify-between">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight" style={{ color: C.navy }}>
-            Promotion Readiness
-          </h2>
-          <div className="text-sm mt-0.5" style={{ color: C.subtle }}>
-            Assessment of current scores vs Level 4 target across the competency framework.
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <GhostBtn onClick={onOpenHistory}>
-            <History size={14} />
-            Assessment History
-          </GhostBtn>
-          <PrimaryBtn onClick={onStartReview}>
-            <ClipboardList size={14} />
-            Start Performance Review
-          </PrimaryBtn>
-        </div>
+      {/* Subtitle */}
+      <div className="text-sm" style={{ color: C.subtle }}>
+        Assessment of current scores vs Level 4 target across the competency framework.
       </div>
 
       {/* Executive Summary */}
@@ -1488,22 +1471,22 @@ function RadarView({
         </Card>
       </div>
 
-      {/* Competency Matrix */}
-      <div className="grid grid-cols-5 gap-6">
-        <Card className="col-span-2 p-6">
+      {/* Visual Gap Analysis - centered */}
+      <div className="max-w-3xl mx-auto w-full">
+        <Card className="p-6">
           <SectionHeader
             title="Competency Radar"
             sub="Current score vs Level 4 target"
             right={
               <div className="flex items-center gap-3 text-xs" style={{ color: C.slate }}>
                 <span className="flex items-center gap-1.5">
-                  <span className="w-2.5 h-2.5 rounded-sm" style={{ background: C.primary }} />
+                  <span className="w-2.5 h-2.5 rounded-sm" style={{ background: "#0052CC" }} />
                   Current
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span
-                    className="w-2.5 h-2.5 rounded-sm border-2"
-                    style={{ borderColor: C.amber, background: "transparent" }}
+                    className="w-2.5 h-2.5 rounded-sm border-2 border-dashed"
+                    style={{ borderColor: "#00B8D9", background: "transparent" }}
                   />
                   Target L4
                 </span>
@@ -1522,18 +1505,18 @@ function RadarView({
                 <Radar
                   name="Target L4"
                   dataKey="target"
-                  stroke={C.amber}
-                  fill={C.amber}
-                  fillOpacity={0.08}
+                  stroke="#00B8D9"
+                  fill="none"
+                  fillOpacity={0}
                   strokeWidth={2}
-                  strokeDasharray="4 4"
+                  strokeDasharray="5 5"
                 />
                 <Radar
                   name="Current"
                   dataKey="current"
-                  stroke={C.primary}
-                  fill={C.primary}
-                  fillOpacity={0.25}
+                  stroke="#0052CC"
+                  fill="#0052CC"
+                  fillOpacity={0.2}
                   strokeWidth={2}
                 />
                 <RTooltip
@@ -1550,8 +1533,11 @@ function RadarView({
             </ResponsiveContainer>
           </div>
         </Card>
+      </div>
 
-        <Card className="col-span-3 p-0 overflow-hidden">
+      {/* Hierarchical Gap Analysis - full width */}
+      <div className="w-full">
+        <Card className="p-0 overflow-hidden">
           <div className="p-5 border-b" style={{ borderColor: C.border }}>
             <SectionHeader title="Hierarchical Gap Analysis" sub="Expand a category to see specific competency questions and their 1-5 effectiveness rating" />
           </div>
