@@ -1685,8 +1685,9 @@ function RadarView({
         </Card>
       </div>
 
-      {/* Visual Gap Analysis - centered */}
-      <div className="max-w-3xl mx-auto w-full">
+      {/* Visual Gap Analysis + Hierarchical Table - side by side */}
+      <div className="grid grid-cols-1 xl:grid-cols-5 gap-4 items-start">
+        <div className="xl:col-span-2 xl:sticky xl:top-4 self-start">
         <Card className="p-6">
           <SectionHeader
             title="Competency Radar"
@@ -1747,16 +1748,16 @@ function RadarView({
             </ResponsiveContainer>
           </div>
         </Card>
-      </div>
+        </div>
 
-      {/* Hierarchical Gap Analysis - full width */}
-      <div className="w-full">
-        <Card className="p-0 overflow-hidden">
-          <div className="p-5 border-b" style={{ borderColor: C.border }}>
-            <SectionHeader title="Hierarchical Gap Analysis" sub="Expand a category to see specific competency questions and their 1-5 effectiveness rating" />
-          </div>
-          <HierarchicalMatrix data={data} onCreateObjective={onCreateObjective} />
-        </Card>
+        <div className="xl:col-span-3 min-w-0">
+          <Card className="p-0 overflow-hidden">
+            <div className="p-5 border-b" style={{ borderColor: C.border }}>
+              <SectionHeader title="Hierarchical Gap Analysis" sub="Expand a category to see specific competency questions and their 1-5 effectiveness rating" />
+            </div>
+            <HierarchicalMatrix data={data} onCreateObjective={onCreateObjective} />
+          </Card>
+        </div>
       </div>
     </div>
   );
