@@ -13,6 +13,7 @@ import {
   Calendar,
   Clock,
   CheckCircle,
+  CheckCircle2,
   AlertCircle,
   ListTodo,
   Filter,
