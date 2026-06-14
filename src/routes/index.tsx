@@ -975,7 +975,9 @@ function EvitraceApp() {
                   if (vals.length === 0) return r;
                   const avg = vals.reduce((s, v) => s + v, 0) / vals.length;
                   // radar uses 0-4 scale, scores use 1-5; map by clamp
-                  return { ...r, current: +Math.min(4, (avg / 5) * 4).toFixed(2) };
+                  const newCurrent = +Math.min(4, (avg / 5) * 4).toFixed(2);
+                  // Shift previous = old current, so the bar chart & Δ reflect this assessment cycle.
+                  return { ...r, previous: r.current, current: newCurrent };
                 }),
               );
               setShowWizard(false);
