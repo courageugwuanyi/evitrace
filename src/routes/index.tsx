@@ -4760,9 +4760,16 @@ function ReviewWizard({
                               const ev = evidence.find((e) => e.id === id);
                               if (!ev) return null;
                               return (
-                                <Badge key={id} tone="info">
+                                <button
+                                  key={id}
+                                  type="button"
+                                  onClick={() => onOpenEvidence(ev)}
+                                  title={`${ev.id} - ${ev.title}`}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-100 text-blue-800 hover:bg-blue-200 transition-colors cursor-pointer"
+                                >
+                                  <ExternalLink size={10} />
                                   {ev.id}
-                                </Badge>
+                                </button>
                               );
                             })}
                           </div>
@@ -4778,7 +4785,26 @@ function ReviewWizard({
                             className="mt-3 border-t pt-3 space-y-1.5 max-h-56 overflow-y-auto"
                             style={{ borderColor: C.border }}
                           >
-                            {evidence.slice(0, 8).map((ev) => {
+                            {(() => {
+                              const subLower = sub.toLowerCase();
+                              const filtered = evidence.filter(
+                                (ev) =>
+                                  ev.category === activeCat ||
+                                  ev.competency === activeCat ||
+                                  subLower.includes(ev.competency.toLowerCase()) ||
+                                  ev.competency.toLowerCase().includes(subLower),
+                              );
+                              if (filtered.length === 0) {
+                                return (
+                                  <div
+                                    className="px-2 py-3 text-[12px] text-center"
+                                    style={{ color: C.subtle }}
+                                  >
+                                    No evidence mapped to this question yet.
+                                  </div>
+                                );
+                              }
+                              return filtered.map((ev) => {
                               const checked = q.evidenceIds.includes(ev.id);
                               return (
                                 <label
@@ -4801,7 +4827,8 @@ function ReviewWizard({
                                   </div>
                                 </label>
                               );
-                            })}
+                              });
+                            })()}
                           </motion.div>
                         )}
                       </AnimatePresence>
