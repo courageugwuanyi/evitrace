@@ -950,7 +950,7 @@ function EvitraceApp() {
           <ReviewWizard
             evidence={evidence}
             onClose={() => setShowWizard(false)}
-            onFinalize={(session) => {
+            onFinalize={(session: ReviewSession) => {
               setReview(session);
               // Roll up averaged "next" scores into the radarData for matrix + radar chart
               setRadarData((rows) =>
@@ -958,7 +958,7 @@ function EvitraceApp() {
                   const cat = radarLabelToCategory(r.competency);
                   const subs = session.scores[cat];
                   if (!subs) return r;
-                  const vals = Object.values(subs).map((q) => q.next);
+                  const vals = (Object.values(subs) as ReviewQuestion[]).map((q) => q.next);
                   if (vals.length === 0) return r;
                   const avg = vals.reduce((s, v) => s + v, 0) / vals.length;
                   // radar uses 0-4 scale, scores use 1-5; map by clamp
