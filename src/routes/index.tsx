@@ -187,6 +187,41 @@ function subRating(cat: string, sub: string): number {
   return 1 + (key % 5);
 }
 
+/* ---------- Shared category helpers ---------- */
+const ALL_CATEGORIES = Object.keys(SUBCATEGORIES);
+function radarLabelToCategory(label: string): string {
+  if (label === "Analytical") return "Analytical Thinking";
+  if (label === "UX Eng") return "Engineering for UX";
+  return label;
+}
+function categoryToRadarLabel(cat: string): string {
+  if (cat === "Analytical Thinking") return "Analytical";
+  if (cat === "Engineering for UX") return "UX Eng";
+  return cat;
+}
+
+/* ---------- Review session types ---------- */
+type ReviewQuestion = {
+  prev: number;
+  next: number;
+  notes: string;
+  evidenceIds: string[];
+};
+type ReviewSession = {
+  id: string;
+  date: string;
+  period: string;
+  engineer: string;
+  manager: string;
+  scores: Record<string, Record<string, ReviewQuestion>>;
+};
+
+const initialHistory: { id: string; period: string; date: string; readiness: number }[] = [
+  { id: "REV-2026-Q2", period: "Q2 2026", date: "Jun 28, 2026", readiness: 72 },
+  { id: "REV-2026-Q1", period: "Q1 2026", date: "Mar 30, 2026", readiness: 64 },
+  { id: "REV-2025-Q4", period: "Q4 2025", date: "Dec 22, 2025", readiness: 58 },
+];
+
 /* ---------- Primitives ---------- */
 function Card({
   children,
