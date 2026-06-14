@@ -4593,13 +4593,15 @@ function ReviewWizard({
 /* ============================================================ */
 
 function AssessmentHistoryModal({
-  current,
+  assessments,
+  currentId,
   onClose,
-  onOpenCurrent,
+  onOpen,
 }: {
-  current: ReviewSession | null;
+  assessments: Assessment[];
+  currentId: string | null;
   onClose: () => void;
-  onOpenCurrent: () => void;
+  onOpen: (a: Assessment) => void;
 }) {
   return (
     <motion.div
@@ -4635,42 +4637,48 @@ function AssessmentHistoryModal({
           </button>
         </div>
         <div className="p-5 space-y-2 max-h-[60vh] overflow-y-auto">
-          {current && (
-            <button
-              onClick={onOpenCurrent}
-              className="w-full text-left p-3 rounded border hover:border-[#0052CC] transition-colors"
-              style={{ borderColor: C.primary, background: C.primarySoft }}
-            >
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-bold" style={{ color: C.navy }}>
-                  {current.period}
-                </div>
-                <Badge tone="info">Current</Badge>
-              </div>
-              <div className="text-xs mt-1" style={{ color: C.slate }}>
-                Finalized {current.date} · {current.id}
-              </div>
-            </button>
-          )}
-          {initialHistory.map((h) => (
-            <div
-              key={h.id}
-              className="p-3 rounded border"
-              style={{ borderColor: C.border, background: "#FAFBFC" }}
-            >
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-semibold" style={{ color: C.navy }}>
-                  {h.period}
-                </div>
-                <div className="text-xs font-bold" style={{ color: C.primary }}>
-                  {h.readiness}% readiness
-                </div>
-              </div>
-              <div className="text-xs mt-1" style={{ color: C.subtle }}>
-                Finalized {h.date} · {h.id}
-              </div>
+          {assessments.length === 0 && (
+            <div className="text-sm text-center py-8" style={{ color: C.subtle }}>
+              No assessments yet. Finalize a performance review to start the log.
             </div>
-          ))}
+          )}
+          {assessments.map((a) => {
+            const isCurrent = a.id === currentId;
+            const date = new Date(a.dateCompleted).toLocaleDateString("en-US", {
+              month: "short",
+              day: "2-digit",
+              year: "numeric",
+            });
+            return (
+              <button
+                key={a.id}
+                onClick={() => onOpen(a)}
+                className="w-full text-left p-3 rounded border hover:border-[#0052CC] hover:bg-[#F4F5F7] transition-colors"
+                style={{
+                  borderColor: isCurrent ? C.primary : C.border,
+                  background: isCurrent ? C.primarySoft : "#FAFBFC",
+                }}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-sm font-bold" style={{ color: C.navy }}>
+                    {a.reviewPeriod}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {isCurrent && <Badge tone="info">Current</Badge>}
+                    <Badge tone={a.status === "Finalized" ? "success" : "warning"}>{a.status}</Badge>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between mt-1.5">
+                  <div className="text-xs" style={{ color: C.subtle }}>
+                    {date} &middot; {a.id} &middot; Mgr {a.managerName}
+                  </div>
+                  <div className="text-xs font-bold" style={{ color: C.primary }}>
+                    {a.overallReadinessScore}% readiness
+                  </div>
+                </div>
+              </button>
+            );
+          })}
         </div>
         <div className="px-5 h-14 flex items-center justify-end border-t" style={{ borderColor: C.border }}>
           <GhostBtn onClick={onClose}>Close</GhostBtn>
