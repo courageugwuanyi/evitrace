@@ -41,6 +41,9 @@ import {
   Users,
   Puzzle,
   Layers,
+  BookOpen,
+  Wrench,
+  Share2,
 } from "lucide-react";
 import {
   Radar,
@@ -367,12 +370,16 @@ const initialInbox = [
   },
 ];
 
+type SuccessCriterion = { criteria: string; evidence: string; done?: boolean };
+
 type Objective = {
   id: string;
   title: string;
   competency: string;
   due: string;
   status: "Pending Approval" | "In Progress" | "Completed";
+  statement?: string;
+  dateAuthored?: string;
   specific?: string;
   measurable?: string;
   achievable?: string;
@@ -380,24 +387,165 @@ type Objective = {
   timebound?: string;
   links?: { label: string; url: string }[];
   notes?: string;
+  successCriteria?: {
+    learn: SuccessCriterion[];
+    demonstrate: SuccessCriterion[];
+    share: SuccessCriterion[];
+  };
 };
 
 const initialObjectives: Objective[] = [
   {
-    id: "UIUX-01",
-    title: "Design a targeted social media advertising campaign",
+    id: "UX-01",
+    title: "Better solve customer painpoints through UX fundamentals",
     competency: "Engineering for User Experience",
     due: "Dec 15, 2026",
+    dateAuthored: "Sep 24, 2026",
     status: "In Progress",
+    statement:
+      "Enable myself to better solve the main painpoints of our customers efficiently by understanding UX Personas, the goals of good UX, how UX impacts customers, Design Systems, and UX knowledge.",
     specific:
-      "Design and prototype a 4-channel ad campaign for the developer audience targeting trial signups.",
+      "Study UX Personas, goals of good UX, Design Systems, and ship 2 production features that apply these principles end-to-end.",
     measurable:
-      "Ship a click-through prototype reviewed by Design, with at least 2 user testing sessions completed.",
-    achievable: "Allocate 4 hours weekly; pair with the Brand designer on Figma sessions.",
-    relevant: "Closes the UX Eng gap required for L4 promotion criteria.",
+      "Document learnings for each of the 5 topics and produce 5 demonstration artifacts linked from this objective.",
+    achievable: "Block 3 hours weekly; pair with a Senior on the Design System working group.",
+    relevant: "Closes the UX Engineering gap required for L4 promotion.",
     timebound: "Complete by Dec 15, 2026",
-    links: [{ label: "Figma Auto-Layout Tutorial", url: "https://figma.com" }],
-    notes: "Initial moodboard collected; testing 3 messaging directions next week.",
+    links: [
+      { label: "GOALS of Good UX (research doc)", url: "https://lawsofux.com/" },
+      { label: "Design System overview", url: "https://example.com/design-system" },
+    ],
+    notes: "Currently working through the Laws of UX video series; design system research next.",
+    successCriteria: {
+      learn: [
+        {
+          criteria: "Use online / written resources to learn about UX Personas",
+          evidence: "Documented list of topics covered",
+        },
+        {
+          criteria: "Learn the goals of good UX",
+          evidence: "Notes on Laws of UX + 4Cs of UX summary",
+        },
+        {
+          criteria: "Learn how UX impacts customers",
+          evidence: "Documented list of topics covered",
+        },
+        {
+          criteria: "Learn about Design Systems",
+          evidence: "Internal design system documentation reviewed",
+        },
+      ],
+      demonstrate: [
+        {
+          criteria:
+            "Use design system components to maintain UI consistency across a full feature",
+          evidence: "Link to merged PR",
+        },
+        {
+          criteria: "Demonstrate understanding of UX Personas in a feature spec",
+          evidence: "Link to PRD with persona mapping",
+        },
+        {
+          criteria: "Implement a robust error handling / feedback system",
+          evidence: "Link to error-state implementation",
+        },
+        {
+          criteria:
+            "Design intuitive API endpoints around what users are trying to accomplish",
+          evidence: "Link to API design doc",
+        },
+      ],
+      share: [
+        {
+          criteria: "5–10 slide deck of key points from the Learn section",
+          evidence: "Link to slides",
+        },
+        {
+          criteria: "Short (2–5 min) videos for each Learn criterion",
+          evidence: "Link to videos",
+        },
+        {
+          criteria: "Documentation for each Demonstrate criterion",
+          evidence: "Link to docs",
+        },
+      ],
+    },
+  },
+  {
+    id: "TEST-02",
+    title: "Increase confidence through rigorous testing strategies",
+    competency: "Code Quality",
+    due: "Jan 31, 2027",
+    dateAuthored: "Jun 19, 2026",
+    status: "In Progress",
+    statement:
+      "Increase my satisfaction in solutions I provide for customer needs by understanding and applying test strategies and methodologies for improved solutions.",
+    specific:
+      "Learn and apply unit, integration, system, functional, and performance testing across two production services.",
+    measurable:
+      "Raise unit-test coverage from 62% to 85% on the auth service; add integration + system test suites with CI gating.",
+    achievable: "Pair with QA lead twice monthly; allocate Friday afternoons to test work.",
+    relevant: "Quality is a core L4 capability and an active gap on my Radar.",
+    timebound: "Complete by Jan 31, 2027",
+    links: [
+      { label: "Testing strategies overview", url: "https://martinfowler.com/articles/practical-test-pyramid.html" },
+    ],
+    successCriteria: {
+      learn: [
+        {
+          criteria: "Learn about testing strategies",
+          evidence: "Documented list of topics covered",
+        },
+        {
+          criteria: "Learn about testing methodologies",
+          evidence: "Documented list of topics covered",
+        },
+      ],
+      demonstrate: [
+        {
+          criteria: "Consistently writes meaningful, broad-scope unit tests",
+          evidence: "Link to PRs",
+        },
+        {
+          criteria: "Consistently writes meaningful integration tests",
+          evidence: "Link to PRs",
+        },
+        {
+          criteria: "Consistently writes meaningful system + functional tests",
+          evidence: "Link to PRs",
+        },
+        {
+          criteria: "Demonstrate understanding of white box and black box testing",
+          evidence: "Worked example or doc",
+        },
+        {
+          criteria: "Write automation for unit, integration, system, functional tests",
+          evidence: "Link to CI pipeline",
+        },
+        {
+          criteria: "Find security flaws using penetration testing techniques",
+          evidence: "Link to write-up",
+        },
+        {
+          criteria: "Perform or automate performance testing",
+          evidence: "Link to performance suite",
+        },
+      ],
+      share: [
+        {
+          criteria: "Slide deck of key points from the Learn section",
+          evidence: "Link to slides",
+        },
+        {
+          criteria: "Short videos for each Learn criterion",
+          evidence: "Link to videos",
+        },
+        {
+          criteria: "Documentation for each Demonstrate criterion",
+          evidence: "Link to docs",
+        },
+      ],
+    },
   },
   {
     id: "ARCH-04",
@@ -560,7 +708,7 @@ function EvitraceApp() {
         {showCapture && (
           <CaptureModal
             onClose={() => setShowCapture(false)}
-            onSave={(title, comps) => {
+            onSave={(title, comps, link, reflection) => {
               setEvidence((e) => [
                 {
                   id: `EV-${300 + e.length}`,
@@ -573,8 +721,8 @@ function EvitraceApp() {
                   category: "Technical",
                   competency: comps[0] ?? "Delivery",
                   title,
-                  description: "Manually captured reflection",
-                  link: "",
+                  description: reflection || "Manually captured reflection",
+                  link,
                   status: "Pending" as const,
                 },
                 ...e,
@@ -1591,11 +1739,13 @@ function CaptureModal({
   onSave,
 }: {
   onClose: () => void;
-  onSave: (title: string, comps: string[]) => void;
+  onSave: (title: string, comps: string[], link: string, reflection: string) => void;
 }) {
   const [title, setTitle] = useState("");
   const [reflection, setReflection] = useState("");
+  const [link, setLink] = useState("");
   const [comps, setComps] = useState<string[]>(["Code Quality"]);
+  const linkValid = !link || /^https?:\/\/\S+\.\S+/i.test(link);
   return (
     <Backdrop onClose={onClose}>
       <motion.div
@@ -1629,6 +1779,26 @@ function CaptureModal({
               placeholder="e.g. Led RFC review for payments cutover"
             />
           </Field>
+          <Field label="Source link (optional)">
+            <div className="relative">
+              <LinkIcon
+                size={14}
+                className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                style={{ color: C.subtle }}
+              />
+              <Input
+                value={link}
+                onChange={(e) => setLink(e.target.value)}
+                placeholder="https://github.com/org/repo/pull/142"
+                className="pl-8"
+              />
+            </div>
+            <div className="text-[11px] mt-1" style={{ color: linkValid ? C.subtle : C.red }}>
+              {linkValid
+                ? "Paste a PR, Jira ticket, doc, or Slack thread for traceability."
+                : "Enter a valid URL starting with http:// or https://"}
+            </div>
+          </Field>
           <Field label="Reflection">
             <Textarea
               value={reflection}
@@ -1655,7 +1825,7 @@ function CaptureModal({
         </div>
         <div className="p-4 border-t flex items-center justify-end gap-2" style={{ borderColor: C.border }}>
           <GhostBtn onClick={onClose}>Cancel</GhostBtn>
-          <PrimaryBtn disabled={!title} onClick={() => onSave(title, comps)}>
+          <PrimaryBtn disabled={!title || !linkValid} onClick={() => onSave(title, comps, link, reflection)}>
             Save Evidence
           </PrimaryBtn>
         </div>
@@ -1841,7 +2011,7 @@ function CreateObjectiveModal({
               <div className="font-bold mb-1" style={{ color: C.red }}>
                 Weak
               </div>
-              <div style={{ color: C.slate }}>"Students will learn about digital marketing."</div>
+              <div style={{ color: C.slate }}>"Get better at system design."</div>
             </div>
             <div
               className="p-3 rounded border text-xs"
@@ -1851,8 +2021,8 @@ function CreateObjectiveModal({
                 SMART
               </div>
               <div style={{ color: C.slate }}>
-                "By the end of this 4-week module, students will design a targeted social media
-                advertising campaign with a measurable ROI."
+                "By Q1 end, author and present 2 RFCs for the search platform re-architecture,
+                reviewed by a Staff engineer, and reduce p95 query latency by 30% in staging."
               </div>
             </div>
           </aside>
@@ -2026,6 +2196,97 @@ function ObjectiveSlideover({
               )}
             </AnimatePresence>
           </div>
+
+          {/* Objective Statement */}
+          {objective.statement && (
+            <section
+              className="p-4 rounded border"
+              style={{ borderColor: C.border, background: "#FAFBFC" }}
+            >
+              <div className="text-[11px] font-bold uppercase tracking-wider mb-1.5" style={{ color: C.subtle }}>
+                Objective Statement
+              </div>
+              <div className="text-sm leading-relaxed" style={{ color: C.navy }}>
+                {objective.statement}
+              </div>
+              {objective.dateAuthored && (
+                <div className="text-[11px] mt-2" style={{ color: C.subtle }}>
+                  Authored {objective.dateAuthored}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* Success Criteria — Learn / Demonstrate / Share */}
+          {objective.successCriteria && (
+            <section>
+              <div className="flex items-center gap-2 mb-3">
+                <Target size={14} style={{ color: C.slate }} />
+                <div className="text-sm font-bold" style={{ color: C.navy }}>
+                  Success Criteria
+                </div>
+              </div>
+              <div className="space-y-4">
+                {(
+                  [
+                    { key: "learn", label: "Learn", icon: BookOpen, tone: "info" as const },
+                    {
+                      key: "demonstrate",
+                      label: "Demonstrate",
+                      icon: Wrench,
+                      tone: "warning" as const,
+                    },
+                    { key: "share", label: "Share", icon: Share2, tone: "success" as const },
+                  ] as const
+                ).map(({ key, label, icon: Icon, tone }) => {
+                  const rows = objective.successCriteria![key];
+                  return (
+                    <div
+                      key={key}
+                      className="rounded border overflow-hidden"
+                      style={{ borderColor: C.border }}
+                    >
+                      <div
+                        className="px-4 py-2.5 flex items-center justify-between border-b"
+                        style={{ borderColor: C.border, background: "#FAFBFC" }}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Icon size={14} style={{ color: C.primary }} />
+                          <span className="text-sm font-semibold" style={{ color: C.navy }}>
+                            {label}
+                          </span>
+                        </div>
+                        <Badge tone={tone}>{rows.length} criteria</Badge>
+                      </div>
+                      <div className="divide-y" style={{ borderColor: C.border }}>
+                        {rows.map((r, i) => (
+                          <div
+                            key={i}
+                            className="px-4 py-3 grid grid-cols-[1fr_auto] gap-3 items-start"
+                            style={{ borderColor: C.border }}
+                          >
+                            <div>
+                              <div className="text-sm leading-snug" style={{ color: C.navy }}>
+                                {r.criteria}
+                              </div>
+                              <div className="text-[11px] mt-1 flex items-center gap-1" style={{ color: C.subtle }}>
+                                <Paperclip size={11} />
+                                Evidence: {r.evidence}
+                              </div>
+                            </div>
+                            <Badge tone={r.done ? "success" : "neutral"}>
+                              {r.done ? "Done" : "Open"}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
 
           {/* Links */}
           <section>
@@ -2293,14 +2554,17 @@ function SettingsView() {
 function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
   return (
     <button
+      type="button"
+      role="switch"
+      aria-checked={on}
       onClick={() => onChange(!on)}
-      className="relative w-9 h-5 rounded-full transition-colors"
+      className="relative inline-flex w-9 h-5 rounded-full cursor-pointer transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1"
       style={{ background: on ? C.primary : "#C1C7D0" }}
     >
-      <motion.span
-        animate={{ x: on ? 16 : 2 }}
-        transition={{ duration: 0.18 }}
-        className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow"
+      <span
+        aria-hidden
+        className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200"
+        style={{ transform: on ? "translateX(16px)" : "translateX(0px)" }}
       />
     </button>
   );
