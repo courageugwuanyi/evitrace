@@ -2372,22 +2372,26 @@ function ObjectivesView({
   items,
   onOpen,
   onCreate,
+  onMove,
 }: {
   items: Objective[];
   onOpen: (o: Objective) => void;
   onCreate: () => void;
+  onMove: (id: string, status: Objective["status"]) => void;
 }) {
   const cols: { id: Objective["status"]; label: string; tone: "warning" | "info" | "success" }[] = [
     { id: "Pending Approval", label: "Pending Approval", tone: "warning" },
     { id: "In Progress", label: "In Progress", tone: "info" },
     { id: "Completed", label: "Completed", tone: "success" },
   ];
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overCol, setOverCol] = useState<Objective["status"] | null>(null);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="text-sm" style={{ color: C.subtle }}>
-          Proactive goals that close competency gaps outside your daily work
+          Drag cards between columns to update status, or open one to edit.
         </div>
         <PrimaryBtn onClick={onCreate}>
           <Plus size={16} />
@@ -2398,8 +2402,26 @@ function ObjectivesView({
       <div className="grid grid-cols-3 gap-5">
         {cols.map((col) => {
           const list = items.filter((i) => i.status === col.id);
+          const isOver = overCol === col.id;
           return (
-            <div key={col.id} className="space-y-3">
+            <div
+              key={col.id}
+              className="space-y-3 rounded-lg p-2 -m-2 transition-colors"
+              style={{ background: isOver ? C.primarySoft : "transparent" }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setOverCol(col.id);
+              }}
+              onDragLeave={() => setOverCol((c) => (c === col.id ? null : c))}
+              onDrop={(e) => {
+                e.preventDefault();
+                setOverCol(null);
+                if (dragId) {
+                  onMove(dragId, col.id);
+                  setDragId(null);
+                }
+              }}
+            >
               <div className="flex items-center justify-between px-1">
                 <div className="flex items-center gap-2">
                   <Badge tone={col.tone}>{col.label}</Badge>
@@ -2410,14 +2432,24 @@ function ObjectivesView({
               </div>
               <div className="space-y-3 min-h-[200px]">
                 {list.map((o) => (
-                  <ObjectiveCard key={o.id} o={o} onOpen={() => onOpen(o)} />
+                  <ObjectiveCard
+                    key={o.id}
+                    o={o}
+                    onOpen={() => onOpen(o)}
+                    onDragStart={() => setDragId(o.id)}
+                    onDragEnd={() => {
+                      setDragId(null);
+                      setOverCol(null);
+                    }}
+                    dragging={dragId === o.id}
+                  />
                 ))}
                 {list.length === 0 && (
                   <div
                     className="border border-dashed rounded p-6 text-center text-xs"
                     style={{ borderColor: C.border, color: C.subtle }}
                   >
-                    Nothing here yet.
+                    {isOver ? "Drop to move here" : "Nothing here yet."}
                   </div>
                 )}
               </div>
@@ -2429,7 +2461,19 @@ function ObjectivesView({
   );
 }
 
-function ObjectiveCard({ o, onOpen }: { o: Objective; onOpen: () => void }) {
+function ObjectiveCard({
+  o,
+  onOpen,
+  onDragStart,
+  onDragEnd,
+  dragging,
+}: {
+  o: Objective;
+  onOpen: () => void;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
+  dragging?: boolean;
+}) {
   const statusIcon =
     o.status === "Completed" ? (
       <CheckCircle size={13} style={{ color: C.green }} />
@@ -2437,15 +2481,32 @@ function ObjectiveCard({ o, onOpen }: { o: Objective; onOpen: () => void }) {
       <Clock size={13} style={{ color: C.amber }} />
     );
   return (
-    <motion.button
+    <motion.div
       whileHover={{ y: -2 }}
       transition={{ duration: 0.15 }}
-      onClick={onOpen}
       className="w-full text-left"
+      draggable={o.status !== "Completed"}
+      onDragStart={(e) => {
+        (e as unknown as React.DragEvent).dataTransfer?.setData("text/plain", o.id);
+        onDragStart?.();
+      }}
+      onDragEnd={onDragEnd}
+      style={{ opacity: dragging ? 0.4 : 1 }}
     >
-      <Card className="p-4 hover:border-[#0052CC] transition-colors">
-        <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.subtle }}>
-          {o.id}
+      <Card
+        className="p-4 hover:border-[#0052CC] transition-colors cursor-pointer"
+        onClick={onOpen}
+      >
+        <div className="flex items-center justify-between">
+          <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.subtle }}>
+            {o.id}
+          </div>
+          {o.status !== "Completed" && (
+            <GripVertical size={14} style={{ color: C.subtle }} />
+          )}
+          {o.status === "Completed" && (
+            <Lock size={12} style={{ color: C.subtle }} />
+          )}
         </div>
         <div className="text-sm font-semibold mt-1 leading-snug" style={{ color: C.navy }}>
           {o.title}
@@ -2467,7 +2528,7 @@ function ObjectiveCard({ o, onOpen }: { o: Objective; onOpen: () => void }) {
           </span>
         </div>
       </Card>
-    </motion.button>
+    </motion.div>
   );
 }
 
