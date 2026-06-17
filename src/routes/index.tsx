@@ -5268,13 +5268,21 @@ function ReportView({
         style={{ borderColor: C.border }}
       >
         {/* 1. Header */}
-        <header>
-          <h1
-            className="text-3xl font-bold tracking-tight"
-            style={{ color: C.navy }}
-          >
-            Performance & Growth Summary
-          </h1>
+        <header className="print:break-inside-avoid">
+          <div className="flex items-center gap-2 mb-2">
+            <div
+              className="w-8 h-8 rounded flex items-center justify-center"
+              style={{ background: C.primary }}
+            >
+              <RadarIcon size={18} color="#fff" />
+            </div>
+            <h1
+              className="text-3xl font-bold tracking-tight"
+              style={{ color: C.navy }}
+            >
+              Evitrace Performance Report
+            </h1>
+          </div>
           <div className="mt-3 space-y-1 text-sm" style={{ color: C.slate }}>
             <div>
               Engineer: <span style={{ color: C.navy, fontWeight: 600 }}>{review.engineer}</span>
