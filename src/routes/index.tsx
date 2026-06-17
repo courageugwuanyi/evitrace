@@ -5292,7 +5292,7 @@ function ReportView({
         </header>
 
         {/* 2. Executive summary */}
-        <section className="mt-8">
+        <section className="mt-8 print:break-inside-avoid">
           <SectionHeading icon={<Target size={18} />} title="Executive Summary" />
           <p className="mt-3 text-[15px] leading-relaxed" style={{ color: C.slate }}>
             This review captured updated effectiveness scores across{" "}
@@ -5318,7 +5318,7 @@ function ReportView({
         </section>
 
         {/* 3. Competency delta */}
-        <section className="mt-10">
+        <section className="mt-10 print:break-inside-avoid">
           <SectionHeading icon={<TrendingUp size={18} />} title="Competency Delta" />
           {deltas.length === 0 ? (
             <div
@@ -5366,7 +5366,7 @@ function ReportView({
         </section>
 
         {/* 4. Justification notes log */}
-        <section className="mt-10">
+        <section className="mt-10 print:break-before-page print:break-inside-avoid">
           <SectionHeading icon={<AlignLeft size={18} />} title="Justification Notes Log" />
           {justification.length === 0 ? (
             <div
@@ -5402,7 +5402,7 @@ function ReportView({
         </section>
 
         {/* 5. Highlighted evidence */}
-        <section className="mt-10">
+        <section className="mt-10 print:break-inside-avoid">
           <SectionHeading icon={<Award size={18} />} title="Highlighted Evidence" />
           {highlightedEvidence.length === 0 ? (
             <div
@@ -5442,7 +5442,7 @@ function ReportView({
         </section>
 
         {/* 6. Objectives */}
-        <section className="mt-10">
+        <section className="mt-10 print:break-inside-avoid">
           <SectionHeading icon={<ListTodo size={18} />} title="Active Objectives" />
           <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
             <ObjectiveColumn
@@ -5461,7 +5461,7 @@ function ReportView({
         </section>
 
         {/* 7. Talking points */}
-        <section className="mt-10">
+        <section className="mt-10 print:break-inside-avoid">
           <SectionHeading icon={<MessageSquare size={18} />} title="1-on-1 Discussion Topics" />
           <div
             className="mt-4 p-5 rounded border"
