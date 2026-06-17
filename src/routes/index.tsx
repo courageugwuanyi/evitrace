@@ -2436,11 +2436,15 @@ function ObjectivesView({
   onOpen,
   onCreate,
   onMove,
+  onRestore,
+  onDelete,
 }: {
   items: Objective[];
   onOpen: (o: Objective) => void;
   onCreate: () => void;
   onMove: (id: string, status: Objective["status"]) => void;
+  onRestore: (o: Objective) => void;
+  onDelete: (o: Objective) => void;
 }) {
   const cols: { id: Objective["status"]; label: string; tone: "warning" | "info" | "success" }[] = [
     { id: "Pending Approval", label: "Pending Approval", tone: "warning" },
@@ -2449,22 +2453,42 @@ function ObjectivesView({
   ];
   const [dragId, setDragId] = useState<string | null>(null);
   const [overCol, setOverCol] = useState<Objective["status"] | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<Objective | null>(null);
+
+  const active = items.filter((i) => !i.isArchived);
+  const archived = items.filter((i) => i.isArchived);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div className="text-sm" style={{ color: C.subtle }}>
-          Drag cards between columns to update status, or open one to edit.
+        <div className="flex items-center gap-3">
+          <PrimaryBtn onClick={onCreate}>
+            <Plus size={16} />
+            Create SMART Objective
+          </PrimaryBtn>
+          <div className="text-sm hidden md:block" style={{ color: C.subtle }}>
+            {showArchived
+              ? "Read-only archive of past objectives."
+              : "Drag cards between columns to update status, or open one to edit."}
+          </div>
         </div>
-        <PrimaryBtn onClick={onCreate}>
-          <Plus size={16} />
-          Create SMART Objective
-        </PrimaryBtn>
+        <GhostBtn onClick={() => setShowArchived((v) => !v)}>
+          {showArchived ? <Eye size={14} /> : <Archive size={14} />}
+          {showArchived ? `Back to Board` : `View Archived (${archived.length})`}
+        </GhostBtn>
       </div>
 
+      {showArchived ? (
+        <ArchivedObjectivesTable
+          items={archived}
+          onRestore={onRestore}
+          onDelete={(o) => setConfirmDelete(o)}
+        />
+      ) : (
       <div className="grid grid-cols-3 gap-5">
         {cols.map((col) => {
-          const list = items.filter((i) => i.status === col.id);
+          const list = active.filter((i) => i.status === col.id);
           const isOver = overCol === col.id;
           return (
             <div
@@ -2520,6 +2544,23 @@ function ObjectivesView({
           );
         })}
       </div>
+      )}
+
+      <AnimatePresence>
+        {confirmDelete && (
+          <ConfirmDialog
+            title="Permanently delete this objective?"
+            description="This action cannot be undone. All criteria, evidence links, and history for this objective will be removed."
+            confirmLabel="Yes, delete permanently"
+            destructive
+            onCancel={() => setConfirmDelete(null)}
+            onConfirm={() => {
+              onDelete(confirmDelete);
+              setConfirmDelete(null);
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
