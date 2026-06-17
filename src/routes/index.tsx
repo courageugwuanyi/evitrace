@@ -4403,12 +4403,119 @@ function ExtensionSettings() {
 }
 
 function FrameworkSettings() {
+  const [dragOver, setDragOver] = useState(false);
+  const [parsing, setParsing] = useState(false);
+  const [activeFramework, setActiveFramework] = useState<{
+    name: string;
+    summary: string;
+  } | null>({
+    name: "Company Engineering Matrix v2.0",
+    summary: "8 Categories, 42 Questions",
+  });
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
+
+  function handleFile(file: File) {
+    const name = file.name.toLowerCase();
+    const validExt = name.endsWith(".json") || name.endsWith(".csv");
+    const validType =
+      file.type === "application/json" ||
+      file.type === "text/csv" ||
+      validExt;
+    if (!validType) {
+      toast.error("Invalid file format. Please upload a valid JSON or CSV framework schema.");
+      return;
+    }
+    setParsing(true);
+    setTimeout(() => {
+      setParsing(false);
+      setActiveFramework({
+        name: file.name.replace(/\.(json|csv)$/i, ""),
+        summary: "8 Categories, 42 Questions",
+      });
+      toast.success("Framework successfully updated.");
+    }, 1000);
+  }
+
   return (
     <Card className="p-6">
       <SectionHeader
         title="Competency Framework"
-        sub="The 8 axes used to score progress toward Level 4"
+        sub="Upload a custom schema or use the default 8-axis matrix"
       />
+
+      {/* Upload zone */}
+      <div
+        onClick={() => !parsing && inputRef.current?.click()}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          const f = e.dataTransfer.files?.[0];
+          if (f) handleFile(f);
+        }}
+        className={`mt-4 rounded-lg border-2 border-dashed cursor-pointer transition-colors px-6 py-8 flex flex-col items-center justify-center text-center ${
+          dragOver ? "bg-[#DEEBFF]" : "hover:bg-slate-50"
+        }`}
+        style={{ borderColor: dragOver ? C.primary : "#C1C7D0" }}
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".json,.csv,application/json,text/csv"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) handleFile(f);
+            e.target.value = "";
+          }}
+        />
+        {parsing ? (
+          <>
+            <Loader2 size={28} className="animate-spin" style={{ color: C.primary }} />
+            <div className="mt-3 text-sm font-semibold" style={{ color: C.navy }}>
+              Parsing framework…
+            </div>
+          </>
+        ) : (
+          <>
+            <CloudUpload size={32} style={{ color: C.primary }} />
+            <div className="mt-2 text-sm font-semibold" style={{ color: C.navy }}>
+              Drag and drop your framework file here
+            </div>
+            <div className="text-xs mt-1" style={{ color: C.subtle }}>
+              Supports .JSON or .CSV
+            </div>
+          </>
+        )}
+      </div>
+
+      {activeFramework && (
+        <div
+          className="mt-4 p-3 rounded border flex items-center justify-between"
+          style={{ borderColor: C.border, background: "#FAFBFC" }}
+        >
+          <div className="flex items-center gap-2.5">
+            <CheckCircle size={16} style={{ color: C.green }} />
+            <div>
+              <div className="text-xs uppercase tracking-wider" style={{ color: C.subtle }}>
+                Active Framework
+              </div>
+              <div className="text-sm font-semibold" style={{ color: C.navy }}>
+                {activeFramework.name} - {activeFramework.summary}
+              </div>
+            </div>
+          </div>
+          <Badge tone="success">Active</Badge>
+        </div>
+      )}
+
+      <div className="mt-6 text-xs font-semibold uppercase tracking-wider" style={{ color: C.subtle }}>
+        Current Competency Axes
+      </div>
       <div className="mt-4 grid grid-cols-2 gap-3">
         {COMPETENCIES.map((c) => (
           <div
@@ -4425,13 +4532,6 @@ function FrameworkSettings() {
             <Badge tone="neutral">Active</Badge>
           </div>
         ))}
-      </div>
-      <div className="mt-5 flex items-center justify-between p-3 rounded" style={{ background: C.primarySoft }}>
-        <div className="flex items-center gap-2 text-sm" style={{ color: C.navy }}>
-          <Info size={14} style={{ color: C.primary }} />
-          Framework is managed by your engineering org. Contact admin to propose edits.
-        </div>
-        <GhostBtn>Contact admin</GhostBtn>
       </div>
     </Card>
   );
