@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
 import {
   Radar as RadarIcon,
   LayoutDashboard,
@@ -58,6 +59,11 @@ import {
   ArchiveRestore,
   RotateCcw,
   Eye,
+  PanelLeftClose,
+  PanelLeft,
+  Menu,
+  CloudUpload,
+  Loader2,
 } from "lucide-react";
 import {
   Radar,
@@ -924,6 +930,8 @@ type Tab = "dashboard" | "radar" | "evidence" | "objectives" | "report" | "setti
 
 function EvitraceApp() {
   const [tab, setTab] = useState<Tab>("dashboard");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [evidence, setEvidence] = useState(initialEvidence);
   const [inbox, setInbox] = useState(initialInbox);
   const [radarData, setRadarData] = useState(initialRadar);
@@ -989,12 +997,28 @@ function EvitraceApp() {
 
   return (
     <div className="min-h-screen" style={{ background: C.bg, color: C.navy, fontFamily: "Inter, system-ui, sans-serif" }}>
-      <Sidebar tab={tab} setTab={setTab} />
+      <Sidebar
+        tab={tab}
+        setTab={(t) => {
+          setTab(t);
+          setMobileSidebarOpen(false);
+        }}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
+        mobileOpen={mobileSidebarOpen}
+        onCloseMobile={() => setMobileSidebarOpen(false)}
+      />
 
-      <div className="lg:ml-64 flex flex-col min-h-screen min-w-0">
-        <TopHeader title={pageTitle[tab]} onCapture={() => setShowCapture(true)} />
+      <div
+        className={`${sidebarCollapsed ? "lg:ml-16" : "lg:ml-64"} flex flex-col min-h-screen min-w-0 transition-[margin] duration-200`}
+      >
+        <TopHeader
+          title={pageTitle[tab]}
+          onCapture={() => setShowCapture(true)}
+          onMenuClick={() => setMobileSidebarOpen(true)}
+        />
 
-        <main className="flex-1 px-8 py-6 print-main">
+        <main className="flex-1 px-4 py-4 md:px-8 md:py-6 print-main">
           <AnimatePresence mode="wait">
             <motion.div
               key={tab}
@@ -1339,126 +1363,210 @@ function EvitraceApp() {
 /*                        SHELL                                 */
 /* ============================================================ */
 
-function Sidebar({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
-  const nav: { id: Tab; label: string; sub: string; icon: React.ComponentType<{ size?: number }> }[] = [
+function Sidebar({
+  tab,
+  setTab,
+  collapsed,
+  onToggleCollapse,
+  mobileOpen,
+  onCloseMobile,
+}: {
+  tab: Tab;
+  setTab: (t: Tab) => void;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
+  mobileOpen: boolean;
+  onCloseMobile: () => void;
+}) {
+  const mainNav: { id: Tab; label: string; sub: string; icon: React.ComponentType<{ size?: number }> }[] = [
     { id: "dashboard", label: "Dashboard", sub: "Daily Actions", icon: LayoutDashboard },
-    { id: "radar", label: "Promotion Readiness", sub: "Assessment & Gaps", icon: TrendingUp },
     { id: "evidence", label: "Evidence Log", sub: "Data Table", icon: TableProperties },
     { id: "objectives", label: "Objectives", sub: "Skill Gap Planning", icon: Target },
+    { id: "radar", label: "Promotion Readiness", sub: "Assessment & Gaps", icon: TrendingUp },
     { id: "report", label: "Reviews & Reports", sub: "Archive & 1-on-1 Prep", icon: FileText },
-    { id: "settings", label: "Settings", sub: "App & Profile", icon: SettingsIcon },
   ];
-  return (
+  const settingsItem = { id: "settings" as Tab, label: "Settings", sub: "App & Profile", icon: SettingsIcon };
+
+  const NavButton = ({ n }: { n: typeof mainNav[number] }) => {
+    const active = tab === n.id;
+    const Icon = n.icon;
+    return (
+      <button
+        key={n.id}
+        onClick={() => setTab(n.id)}
+        title={collapsed ? n.label : undefined}
+        className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} py-2.5 rounded text-left transition-colors`}
+        style={{
+          background: active ? C.primarySoft : "transparent",
+          color: active ? C.primary : C.slate,
+        }}
+        onMouseEnter={(e) => {
+          if (!active) e.currentTarget.style.background = "#F4F5F7";
+        }}
+        onMouseLeave={(e) => {
+          if (!active) e.currentTarget.style.background = "transparent";
+        }}
+      >
+        <Icon size={18} />
+        {!collapsed && (
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold">{n.label}</div>
+            <div className="text-[11px]" style={{ color: active ? C.primary : C.subtle }}>
+              {n.sub}
+            </div>
+          </div>
+        )}
+      </button>
+    );
+  };
+
+  const DesktopAside = (
     <aside
-      className="hidden lg:flex fixed inset-y-0 left-0 z-40 w-64 h-screen border-r flex-col print-hide"
+      className={`hidden lg:flex fixed inset-y-0 left-0 z-40 ${collapsed ? "w-16" : "w-64"} h-screen border-r flex-col print-hide transition-[width] duration-200`}
       style={{ background: C.card, borderColor: C.border }}
     >
-      <div className="h-16 px-5 flex items-center gap-2 border-b" style={{ borderColor: C.border }}>
+      <div
+        className={`h-16 ${collapsed ? "px-2 justify-center" : "px-5"} flex items-center gap-2 border-b`}
+        style={{ borderColor: C.border }}
+      >
         <div
           className="w-8 h-8 rounded flex items-center justify-center"
           style={{ background: C.primary }}
         >
           <RadarIcon size={18} color="#fff" />
         </div>
-        <div className="leading-tight">
-          <div className="text-[15px] font-bold tracking-tight" style={{ color: C.navy }}>
-            Evitrace
+        {!collapsed && (
+          <div className="leading-tight">
+            <div className="text-[15px] font-bold tracking-tight" style={{ color: C.navy }}>
+              Evitrace
+            </div>
+            <div className="text-[10px] uppercase tracking-wider" style={{ color: C.subtle }}>
+              Promotion Radar
+            </div>
           </div>
-          <div className="text-[10px] uppercase tracking-wider" style={{ color: C.subtle }}>
-            Promotion Radar
-          </div>
-        </div>
+        )}
       </div>
 
-      <nav className="flex-1 p-3 space-y-1">
-        {nav.map((n) => {
-          const active = tab === n.id;
-          const Icon = n.icon;
-          return (
-            <button
-              key={n.id}
-              onClick={() => setTab(n.id)}
-              className="w-full flex items-start gap-3 px-3 py-2.5 rounded text-left transition-colors group"
-              style={{
-                background: active ? C.primarySoft : "transparent",
-                color: active ? C.primary : C.slate,
-              }}
-              onMouseEnter={(e) => {
-                if (!active) e.currentTarget.style.background = "#F4F5F7";
-              }}
-              onMouseLeave={(e) => {
-                if (!active) e.currentTarget.style.background = "transparent";
-              }}
-            >
-              <Icon size={18} />
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold">{n.label}</div>
-                <div
-                  className="text-[11px]"
-                  style={{ color: active ? C.primary : C.subtle }}
-                >
-                  {n.sub}
-                </div>
-              </div>
-            </button>
-          );
-        })}
+      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+        {mainNav.map((n) => <NavButton key={n.id} n={n} />)}
       </nav>
 
-      <div className="p-3 border-t" style={{ borderColor: C.border }}>
-        <Card className="p-3">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-xs font-semibold" style={{ color: C.navy }}>
-              Promotion to L4
+      <div className="p-3 border-t space-y-2" style={{ borderColor: C.border }}>
+        <NavButton n={settingsItem} />
+        {!collapsed && (
+          <div className="flex items-center gap-2 px-1 pt-1">
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white"
+              style={{ background: "#5243AA" }}
+            >
+              JM
             </div>
-            <span className="text-xs font-bold" style={{ color: C.primary }}>
-              68%
-            </span>
-          </div>
-          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "#EBECF0" }}>
-            <div className="h-full rounded-full" style={{ width: "68%", background: C.primary }} />
-          </div>
-          <div className="mt-2 text-[11px]" style={{ color: C.subtle }}>
-            5 evidence items shy of target
-          </div>
-        </Card>
-
-        <div className="flex items-center gap-2 mt-3 px-1">
-          <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white"
-            style={{ background: "#5243AA" }}
-          >
-            JM
-          </div>
-          <div className="leading-tight">
-            <div className="text-xs font-semibold" style={{ color: C.navy }}>
-              Jordan Mills
-            </div>
-            <div className="text-[11px]" style={{ color: C.subtle }}>
-              Senior Engineer L3
+            <div className="leading-tight">
+              <div className="text-xs font-semibold" style={{ color: C.navy }}>
+                Jordan Mills
+              </div>
+              <div className="text-[11px]" style={{ color: C.subtle }}>
+                Senior Engineer L3
+              </div>
             </div>
           </div>
-        </div>
+        )}
+        <button
+          onClick={onToggleCollapse}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          className={`w-full flex items-center ${collapsed ? "justify-center" : "justify-end"} gap-2 px-2 py-2 rounded text-xs font-medium hover:bg-[#F4F5F7]`}
+          style={{ color: C.slate }}
+        >
+          {collapsed ? <PanelLeft size={16} /> : <><span>Collapse</span><PanelLeftClose size={16} /></>}
+        </button>
       </div>
     </aside>
   );
+
+  return (
+    <>
+      {DesktopAside}
+      {/* Mobile drawer */}
+      <AnimatePresence>
+        {mobileOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 z-50 lg:hidden print-hide"
+            style={{ background: "rgba(9, 30, 66, 0.45)" }}
+            onClick={onCloseMobile}
+          >
+            <motion.aside
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              onClick={(e) => e.stopPropagation()}
+              className="absolute top-0 left-0 h-full w-72 max-w-[85vw] flex flex-col border-r"
+              style={{ background: C.card, borderColor: C.border }}
+            >
+              <div className="h-16 px-5 flex items-center justify-between border-b" style={{ borderColor: C.border }}>
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded flex items-center justify-center" style={{ background: C.primary }}>
+                    <RadarIcon size={18} color="#fff" />
+                  </div>
+                  <div className="text-[15px] font-bold tracking-tight" style={{ color: C.navy }}>
+                    Evitrace
+                  </div>
+                </div>
+                <button onClick={onCloseMobile} className="p-1.5 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
+                  <X size={18} />
+                </button>
+              </div>
+              <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+                {mainNav.map((n) => <NavButton key={n.id} n={n} />)}
+              </nav>
+              <div className="p-3 border-t" style={{ borderColor: C.border }}>
+                <NavButton n={settingsItem} />
+              </div>
+            </motion.aside>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
+  );
 }
 
-function TopHeader({ title, onCapture }: { title: string; onCapture: () => void }) {
+function TopHeader({
+  title,
+  onCapture,
+  onMenuClick,
+}: {
+  title: string;
+  onCapture: () => void;
+  onMenuClick: () => void;
+}) {
   return (
     <header
-      className="h-16 sticky top-0 z-30 flex items-center justify-between px-8 border-b print-hide"
+      className="h-16 sticky top-0 z-30 flex items-center justify-between gap-3 px-4 md:px-8 border-b print-hide"
       style={{ background: C.card, borderColor: C.border }}
     >
-      <h1 className="text-xl font-bold tracking-tight" style={{ color: C.navy }}>
-        {title}
-      </h1>
-      <div className="flex items-center gap-3">
-        <div className="w-72">
+      <div className="flex items-center gap-2 min-w-0">
+        <button
+          onClick={onMenuClick}
+          className="lg:hidden p-2 rounded hover:bg-[#F4F5F7] shrink-0"
+          style={{ color: C.slate }}
+          aria-label="Open menu"
+        >
+          <Menu size={20} />
+        </button>
+        <h1 className="text-base md:text-xl font-bold tracking-tight truncate" style={{ color: C.navy }}>
+          {title}
+        </h1>
+      </div>
+      <div className="flex items-center gap-2 md:gap-3 shrink-0">
+        <div className="hidden md:block w-72">
           <Input placeholder="Search evidence, objectives, people…" icon={<Search size={14} />} />
         </div>
         <button
-          className="w-9 h-9 rounded flex items-center justify-center hover:bg-[#F4F5F7] relative"
+          className="w-9 h-9 rounded flex items-center justify-center hover:bg-[#F4F5F7] relative shrink-0"
           style={{ color: C.slate }}
         >
           <Bell size={18} />
@@ -1469,7 +1577,8 @@ function TopHeader({ title, onCapture }: { title: string; onCapture: () => void 
         </button>
         <PrimaryBtn onClick={onCapture}>
           <Plus size={16} />
-          Capture Evidence
+          <span className="hidden sm:inline">Capture Evidence</span>
+          <span className="sm:hidden">Capture</span>
         </PrimaryBtn>
       </div>
     </header>
@@ -2784,7 +2893,8 @@ function ArchivedObjectivesTable({
   }
   return (
     <Card className="overflow-hidden">
-      <table className="w-full text-sm">
+      <div className="overflow-x-auto">
+      <table className="w-full text-sm min-w-[640px]">
         <thead>
           <tr className="text-left text-[11px] font-semibold uppercase tracking-wider border-b" style={{ background: C.bg, borderColor: C.border, color: C.subtle }}>
             <Th>Objective</Th>
@@ -2838,6 +2948,7 @@ function ArchivedObjectivesTable({
           ))}
         </tbody>
       </table>
+      </div>
     </Card>
   );
 }
@@ -3725,11 +3836,9 @@ function ObjectiveSlideover({
                                 <ExternalLink size={11} />
                                 Open
                               </button>
-                            ) : (
-                              <Badge tone={r.done ? "success" : "neutral"}>
-                                {r.done ? "Done" : "Open"}
-                              </Badge>
-                            )}
+                            ) : r.done ? (
+                              <Badge tone="success">Done</Badge>
+                            ) : null}
                           </div>
                         ))}
                         {rows.length === 0 && (
@@ -4093,6 +4202,13 @@ function SettingsView() {
         {section === "notifications" && <NotificationsSettings />}
         {section === "extension" && <ExtensionSettings />}
         {section === "framework" && <FrameworkSettings />}
+        <div className="flex justify-end gap-2 pt-2">
+          <GhostBtn>Cancel</GhostBtn>
+          <PrimaryBtn onClick={() => toast.success("Settings saved")}>
+            <Save size={14} />
+            Save Settings
+          </PrimaryBtn>
+        </div>
       </div>
     </div>
   );
@@ -4289,12 +4405,119 @@ function ExtensionSettings() {
 }
 
 function FrameworkSettings() {
+  const [dragOver, setDragOver] = useState(false);
+  const [parsing, setParsing] = useState(false);
+  const [activeFramework, setActiveFramework] = useState<{
+    name: string;
+    summary: string;
+  } | null>({
+    name: "Company Engineering Matrix v2.0",
+    summary: "8 Categories, 42 Questions",
+  });
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
+
+  function handleFile(file: File) {
+    const name = file.name.toLowerCase();
+    const validExt = name.endsWith(".json") || name.endsWith(".csv");
+    const validType =
+      file.type === "application/json" ||
+      file.type === "text/csv" ||
+      validExt;
+    if (!validType) {
+      toast.error("Invalid file format. Please upload a valid JSON or CSV framework schema.");
+      return;
+    }
+    setParsing(true);
+    setTimeout(() => {
+      setParsing(false);
+      setActiveFramework({
+        name: file.name.replace(/\.(json|csv)$/i, ""),
+        summary: "8 Categories, 42 Questions",
+      });
+      toast.success("Framework successfully updated.");
+    }, 1000);
+  }
+
   return (
     <Card className="p-6">
       <SectionHeader
         title="Competency Framework"
-        sub="The 8 axes used to score progress toward Level 4"
+        sub="Upload a custom schema or use the default 8-axis matrix"
       />
+
+      {/* Upload zone */}
+      <div
+        onClick={() => !parsing && inputRef.current?.click()}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          const f = e.dataTransfer.files?.[0];
+          if (f) handleFile(f);
+        }}
+        className={`mt-4 rounded-lg border-2 border-dashed cursor-pointer transition-colors px-6 py-8 flex flex-col items-center justify-center text-center ${
+          dragOver ? "bg-[#DEEBFF]" : "hover:bg-slate-50"
+        }`}
+        style={{ borderColor: dragOver ? C.primary : "#C1C7D0" }}
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".json,.csv,application/json,text/csv"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) handleFile(f);
+            e.target.value = "";
+          }}
+        />
+        {parsing ? (
+          <>
+            <Loader2 size={28} className="animate-spin" style={{ color: C.primary }} />
+            <div className="mt-3 text-sm font-semibold" style={{ color: C.navy }}>
+              Parsing framework…
+            </div>
+          </>
+        ) : (
+          <>
+            <CloudUpload size={32} style={{ color: C.primary }} />
+            <div className="mt-2 text-sm font-semibold" style={{ color: C.navy }}>
+              Drag and drop your framework file here
+            </div>
+            <div className="text-xs mt-1" style={{ color: C.subtle }}>
+              Supports .JSON or .CSV
+            </div>
+          </>
+        )}
+      </div>
+
+      {activeFramework && (
+        <div
+          className="mt-4 p-3 rounded border flex items-center justify-between"
+          style={{ borderColor: C.border, background: "#FAFBFC" }}
+        >
+          <div className="flex items-center gap-2.5">
+            <CheckCircle size={16} style={{ color: C.green }} />
+            <div>
+              <div className="text-xs uppercase tracking-wider" style={{ color: C.subtle }}>
+                Active Framework
+              </div>
+              <div className="text-sm font-semibold" style={{ color: C.navy }}>
+                {activeFramework.name} - {activeFramework.summary}
+              </div>
+            </div>
+          </div>
+          <Badge tone="success">Active</Badge>
+        </div>
+      )}
+
+      <div className="mt-6 text-xs font-semibold uppercase tracking-wider" style={{ color: C.subtle }}>
+        Current Competency Axes
+      </div>
       <div className="mt-4 grid grid-cols-2 gap-3">
         {COMPETENCIES.map((c) => (
           <div
@@ -4311,13 +4534,6 @@ function FrameworkSettings() {
             <Badge tone="neutral">Active</Badge>
           </div>
         ))}
-      </div>
-      <div className="mt-5 flex items-center justify-between p-3 rounded" style={{ background: C.primarySoft }}>
-        <div className="flex items-center gap-2 text-sm" style={{ color: C.navy }}>
-          <Info size={14} style={{ color: C.primary }} />
-          Framework is managed by your engineering org. Contact admin to propose edits.
-        </div>
-        <GhostBtn>Contact admin</GhostBtn>
       </div>
     </Card>
   );
