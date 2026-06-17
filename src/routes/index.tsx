@@ -2743,16 +2743,37 @@ function CreateObjectiveModal({
   const objCategories = Object.keys(SUBCATEGORIES);
   const [competency, setCompetency] = useState(objCategories[0]);
   const [subcategory, setSubcategory] = useState(SUBCATEGORIES[objCategories[0]][0]);
+  const [title, setTitle] = useState("");
+  const [statement, setStatement] = useState("");
+  const [deadline, setDeadline] = useState("");
   const [s, setS] = useState("");
   const [m, setM] = useState("");
   const [a, setA] = useState("");
   const [r, setR] = useState("");
   const [t, setT] = useState("");
+  const [learn, setLearn] = useState<SuccessCriterion[]>([
+    { criteria: "", evidence: "", attachments: [] },
+  ]);
+  const [demonstrate, setDemonstrate] = useState<SuccessCriterion[]>([
+    { criteria: "", evidence: "", attachments: [] },
+  ]);
+  const [share, setShare] = useState<SuccessCriterion[]>([
+    { criteria: "", evidence: "", attachments: [] },
+  ]);
 
   function onCatChange(v: string) {
     setCompetency(v);
     setSubcategory(SUBCATEGORIES[v][0]);
   }
+
+  const formatDate = (iso: string) =>
+    iso
+      ? new Date(iso).toLocaleDateString("en-US", {
+          month: "short",
+          day: "2-digit",
+          year: "numeric",
+        })
+      : "TBD";
 
   return (
     <Backdrop onClose={onClose}>
