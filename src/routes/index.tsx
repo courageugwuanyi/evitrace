@@ -4760,14 +4760,19 @@ function FrameworkSettings() {
 function EvidenceSlideover({
   item,
   onClose,
-  onDelete,
+  onSave,
+  onArchive,
 }: {
   item: EvidenceItem;
   onClose: () => void;
-  onDelete: (id: string) => void;
+  onSave: (updated: EvidenceItem) => void;
+  onArchive: (id: string) => void;
 }) {
-  const [rating, setRating] = useState<number>(4);
-  const scale = EFFECTIVENESS_SCALE[rating - 1];
+  const [draft, setDraft] = useState<EvidenceItem>(item);
+  const [confirmArchive, setConfirmArchive] = useState(false);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(item);
+  const update = <K extends keyof EvidenceItem>(k: K, v: EvidenceItem[K]) =>
+    setDraft((d) => ({ ...d, [k]: v }));
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -4798,19 +4803,12 @@ function EvidenceSlideover({
             </div>
             <div className="flex items-center gap-1">
               <button
-                className="p-1.5 rounded hover:bg-[#F4F5F7]"
-                style={{ color: C.slate }}
-                title="Edit"
-              >
-                <Edit2 size={16} />
-              </button>
-              <button
-                onClick={() => onDelete(item.id)}
+                onClick={() => setConfirmArchive(true)}
                 className="p-1.5 rounded hover:bg-[#FFEBE6]"
-                style={{ color: C.red }}
-                title="Delete"
+                style={{ color: C.slate }}
+                title="Archive evidence"
               >
-                <Trash2 size={16} />
+                <Archive size={16} />
               </button>
               <button
                 onClick={onClose}
@@ -4821,27 +4819,24 @@ function EvidenceSlideover({
               </button>
             </div>
           </div>
-          <div className="text-xl font-bold mt-2 leading-snug" style={{ color: C.navy }}>
-            {item.title}
-          </div>
+          <input
+            value={draft.title}
+            onChange={(e) => update("title", e.target.value)}
+            className="text-xl font-bold mt-2 leading-snug w-full bg-transparent outline-none border border-transparent hover:border-[#DFE1E6] focus:border-[#0052CC] focus:bg-white rounded px-1 -mx-1 py-0.5"
+            style={{ color: C.navy }}
+          />
           <div className="flex items-center gap-3 mt-3 text-xs" style={{ color: C.subtle }}>
             <span className="flex items-center gap-1.5">
               <Calendar size={12} />
               {item.date}
             </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-1 h-1 rounded-full" style={{ background: C.subtle }} />
-              {item.source}
-            </span>
-            {item.status === "Reviewed" ? (
-              <Badge tone="success" icon={<CheckCircle size={11} />}>
-                Approved
-              </Badge>
+            <SourceChip source={draft.source} />
+            {draft.status === "Reviewed" ? (
+              <Badge tone="success" icon={<CheckCircle size={11} />}>Reviewed</Badge>
             ) : (
-              <Badge tone="warning" icon={<Clock size={11} />}>
-                Pending
-              </Badge>
+              <Badge tone="warning" icon={<Clock size={11} />}>Pending Review</Badge>
             )}
+            <MatchBadge match={draft.matchState} />
           </div>
         </div>
 
@@ -4851,9 +4846,32 @@ function EvidenceSlideover({
             <div className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: C.subtle }}>
               Competency Mapping
             </div>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <Badge tone="info">{item.competency}</Badge>
-              <Badge tone="neutral">{item.category}</Badge>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Competency</div>
+                <Select value={draft.competency} onChange={(e) => update("competency", e.target.value)}>
+                  {COMPETENCIES.map((c) => <option key={c}>{c}</option>)}
+                </Select>
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Category</div>
+                <Select value={draft.category} onChange={(e) => update("category", e.target.value)}>
+                  {["Technical", "Leadership", "Delivery", "Objective"].map((c) => <option key={c}>{c}</option>)}
+                </Select>
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Source</div>
+                <Select value={draft.source} onChange={(e) => update("source", e.target.value)}>
+                  {["Bitbucket", "GitHub", "GitLab", "Jira", "Slack", "Teams", "Confluence", "Figma", "Trello", "Excel", "PowerPoint", "Word"].map((s) => <option key={s}>{s}</option>)}
+                </Select>
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Review Status</div>
+                <Select value={draft.status} onChange={(e) => update("status", e.target.value as EvidenceStatus)}>
+                  <option>Pending Review</option>
+                  <option>Reviewed</option>
+                </Select>
+              </div>
             </div>
           </section>
 
@@ -4861,12 +4879,16 @@ function EvidenceSlideover({
             <div className="flex items-center gap-2 mb-2">
               <AlignLeft size={14} style={{ color: C.slate }} />
               <div className="text-sm font-bold" style={{ color: C.navy }}>
-                Full Reflection
+                Description & Reflection
               </div>
             </div>
-            <div className="text-sm leading-relaxed" style={{ color: C.slate }}>
-              {item.description}
-            </div>
+            <textarea
+              value={draft.description}
+              onChange={(e) => update("description", e.target.value)}
+              rows={5}
+              className="w-full text-sm rounded border px-3 py-2 outline-none focus:ring-2"
+              style={{ borderColor: C.border, color: C.slate }}
+            />
           </section>
 
           <section>
@@ -4876,90 +4898,69 @@ function EvidenceSlideover({
                 Links & Artifacts
               </div>
             </div>
-            {item.link ? (
-              <a
-                href={`https://${item.link}`}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center justify-between px-3 py-2 rounded border hover:border-[#0052CC] transition-colors"
-                style={{ borderColor: C.border }}
-              >
-                <span className="text-sm" style={{ color: C.navy }}>
-                  {item.link}
-                </span>
-                <ExternalLink size={14} style={{ color: C.primary }} />
-              </a>
-            ) : (
-              <div className="text-xs" style={{ color: C.subtle }}>
-                No links attached.
-              </div>
-            )}
+            <div className="flex gap-2">
+              <Input
+                value={draft.link}
+                onChange={(e) => update("link", e.target.value)}
+                placeholder="example.com/path or full URL"
+                icon={<LinkIcon size={14} />}
+              />
+              {draft.link && (
+                <GhostBtn
+                  onClick={() => {
+                    const u = /^https?:\/\//i.test(draft.link) ? draft.link : `https://${draft.link}`;
+                    window.open(u, "_blank", "noopener");
+                  }}
+                >
+                  <ExternalLink size={12} /> Open
+                </GhostBtn>
+              )}
+            </div>
+          </section>
+
+          <section>
+            <div className="flex items-center gap-2 mb-2">
+              <FileCheck2 size={14} style={{ color: C.slate }} />
+              <div className="text-sm font-bold" style={{ color: C.navy }}>Competency Match</div>
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              {(["Yes", "Somewhat", "No", "Unset"] as EvidenceMatch[]).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => update("matchState", m)}
+                  className="px-2 py-1.5 rounded border text-xs font-semibold transition-colors"
+                  style={{
+                    borderColor: draft.matchState === m ? C.primary : C.border,
+                    background: draft.matchState === m ? C.primarySoft : "#fff",
+                    color: draft.matchState === m ? C.primary : C.slate,
+                  }}
+                >
+                  {m === "Unset" ? "Not Set" : m}
+                </button>
+              ))}
+            </div>
+            <div className="text-[11px] mt-1.5" style={{ color: C.subtle }}>
+              Confirmed during 1-on-1 sync. "Somewhat" means the evidence needs rephrasing or more context.
+            </div>
           </section>
 
           <section>
             <div className="flex items-center gap-2 mb-2">
               <MessageSquare size={14} style={{ color: C.slate }} />
-              <div className="text-sm font-bold" style={{ color: C.navy }}>
-                Manager Assessment
-              </div>
+              <div className="text-sm font-bold" style={{ color: C.navy }}>Manager Assessment</div>
             </div>
-            {item.status === "Reviewed" ? (
-              <div
-                className="p-4 rounded border space-y-3"
-                style={{ borderColor: C.border, background: C.bg }}
-              >
-                <div>
-                  <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: C.subtle }}>
-                    Effectiveness Rating
-                  </div>
-                  <Select value={String(rating)} onChange={(e) => setRating(Number(e.target.value))}>
-                    {EFFECTIVENESS_SCALE.map((s) => (
-                      <option key={s.value} value={s.value}>
-                        {s.value} - {s.label}
-                      </option>
-                    ))}
-                  </Select>
-                  <div className="mt-2 flex items-center gap-2">
-                    <Badge tone={scale.tone}>{rating} / 5</Badge>
-                    <span className="text-sm font-semibold" style={{ color: C.navy }}>
-                      {scale.label}
-                    </span>
-                  </div>
-                  <div className="mt-2 flex gap-1">
-                    {EFFECTIVENESS_SCALE.map((s) => (
-                      <div
-                        key={s.value}
-                        title={`${s.value}: ${s.label}`}
-                        className="flex-1 h-1.5 rounded-full"
-                        style={{
-                          background: s.value <= rating ? C.green : C.border,
-                        }}
-                      />
-                    ))}
-                  </div>
-                  <div className="mt-1 text-[10px]" style={{ color: C.subtle }}>
-                    1: Limited &middot; 2: Somewhat &middot; 3: Fully &middot; 4: Highly &middot; 5: Extremely
-                  </div>
-                </div>
-                <div className="pt-3 border-t" style={{ borderColor: C.border }}>
-                  <div className="text-xs font-semibold mb-1" style={{ color: C.navy }}>
-                    Alex Morgan - Oct 12
-                  </div>
-                  <div className="text-sm leading-relaxed" style={{ color: C.slate }}>
-                    Strong example of cross-team coordination. Tag this for the L4 architecture
-                    criterion in your packet.
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div
-                className="p-3 rounded border text-xs flex items-center gap-2"
-                style={{ borderColor: C.border, background: C.bg, color: C.subtle }}
-              >
-                <Clock size={12} />
-                Awaiting manager review - rating will appear here once submitted.
-              </div>
-            )}
+            <textarea
+              value={draft.managerNotes}
+              onChange={(e) => update("managerNotes", e.target.value)}
+              rows={5}
+              placeholder="Manager corroborates context, asks for more detail, suggests rewording, or links related artifacts. No ratings here; ratings happen in the periodic Reviews & Reports assessment."
+              className="w-full text-sm rounded border px-3 py-2 outline-none focus:ring-2"
+              style={{ borderColor: C.border, color: C.slate, background: C.bg }}
+            />
+            <div className="flex items-start gap-2 mt-2 p-2 rounded text-[11px]" style={{ background: "#DEEBFF", color: "#0747A6" }}>
+              <Info size={12} className="mt-0.5 shrink-0" />
+              <span>Feedback only. Ratings are captured in the periodic competency assessment under Reviews & Reports.</span>
+            </div>
           </section>
         </div>
 
@@ -4968,12 +4969,26 @@ function EvidenceSlideover({
           style={{ borderColor: C.border, background: C.bg }}
         >
           <GhostBtn onClick={onClose}>Close</GhostBtn>
-          <PrimaryBtn>
-            <Edit2 size={14} />
-            Edit Evidence
+          <PrimaryBtn onClick={() => onSave(draft)} disabled={!dirty}>
+            <Save size={14} />
+            Save Changes
           </PrimaryBtn>
         </div>
       </motion.div>
+      <AnimatePresence>
+        {confirmArchive && (
+          <ConfirmDialog
+            title="Archive this evidence?"
+            description="Archiving removes the item from the active log. You can restore or permanently delete it from the View Archived tab."
+            confirmLabel="Archive"
+            onCancel={() => setConfirmArchive(false)}
+            onConfirm={() => {
+              setConfirmArchive(false);
+              onArchive(item.id);
+            }}
+          />
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
