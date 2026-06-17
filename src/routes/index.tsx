@@ -688,17 +688,39 @@ const initialRadar = [
   { competency: "Delivery", current: 3.4, target: 4 },
 ];
 
-const initialEvidence = [
+type EvidenceStatus = "Pending Review" | "Reviewed";
+type EvidenceMatch = "Yes" | "No" | "Somewhat" | "Unset";
+
+type EvidenceRecord = {
+  id: string;
+  date: string;
+  source: string;
+  category: string;
+  competency: string;
+  title: string;
+  description: string;
+  link: string;
+  status: EvidenceStatus;
+  matchState: EvidenceMatch;
+  managerNotes: string;
+  isArchived: boolean;
+  archivedDate?: string;
+};
+
+const initialEvidence: EvidenceRecord[] = [
   {
     id: "EV-201",
     date: "Dec 02, 2026",
-    source: "GitHub",
+    source: "Bitbucket",
     category: "Technical",
     competency: "System Design",
     title: "Migrated billing service to event-driven model",
     description: "Designed Kafka topology and rollout plan; zero downtime cutover.",
-    link: "github.com/acme/billing/pr/482",
-    status: "Approved" as const,
+    link: "bitbucket.org/acme/billing/pull-requests/482",
+    status: "Reviewed",
+    matchState: "Yes",
+    managerNotes: "Strong example of cross-team coordination. Tag this for the L4 architecture criterion in your packet.",
+    isArchived: false,
   },
   {
     id: "EV-200",
@@ -709,18 +731,24 @@ const initialEvidence = [
     title: "Shipped Q4 metering MVP",
     description: "Coordinated across 3 squads; delivered 4 days ahead of plan.",
     link: "acme.atlassian.net/AT-1422",
-    status: "Approved" as const,
+    status: "Reviewed",
+    matchState: "Yes",
+    managerNotes: "Add a short note on the dependency-tracking spreadsheet you maintained week over week.",
+    isArchived: false,
   },
   {
     id: "EV-199",
     date: "Nov 24, 2026",
-    source: "Manual Capture",
+    source: "Confluence",
     category: "Leadership",
     competency: "Communication",
     title: "Ran cross-team RFC review",
     description: "Facilitated 12-person review; consolidated 3 proposals into 1.",
-    link: "notion.so/rfc-payments",
-    status: "Pending" as const,
+    link: "acme.atlassian.net/wiki/spaces/ENG/RFC-Payments",
+    status: "Pending Review",
+    matchState: "Unset",
+    managerNotes: "",
+    isArchived: false,
   },
   {
     id: "EV-198",
@@ -731,18 +759,24 @@ const initialEvidence = [
     title: "Patched JWT validation edge case",
     description: "Identified and remediated token replay vector flagged in audit.",
     link: "slack.com/archives/sec/p17324",
-    status: "Approved" as const,
+    status: "Reviewed",
+    matchState: "Somewhat",
+    managerNotes: "Re-word the description to highlight the threat model and your remediation approach more explicitly.",
+    isArchived: false,
   },
   {
     id: "EV-197",
     date: "Nov 11, 2026",
-    source: "GitHub",
+    source: "Bitbucket",
     category: "Technical",
     competency: "Code Quality",
     title: "Reduced p95 latency by 38%",
     description: "Profiled hot path, replaced N+1 query with batched loader.",
-    link: "github.com/acme/api/pr/612",
-    status: "Approved" as const,
+    link: "bitbucket.org/acme/api/pull-requests/612",
+    status: "Reviewed",
+    matchState: "Yes",
+    managerNotes: "",
+    isArchived: false,
   },
 ];
 
