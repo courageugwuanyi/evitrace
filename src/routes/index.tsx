@@ -556,11 +556,60 @@ function Badge({
   const s = map[tone];
   return (
     <span
-      className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold uppercase tracking-wide rounded"
+      className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold uppercase tracking-wide rounded whitespace-nowrap overflow-hidden text-ellipsis max-w-full"
       style={{ background: s.bg, color: s.fg }}
     >
       {icon}
-      {children}
+      <span className="truncate">{children}</span>
+    </span>
+  );
+}
+
+/* ============================================================ */
+/*           SOURCE ICON MAPPING                                */
+/* ============================================================ */
+
+const BitbucketIcon = ({ size = 14 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M2.65 3a.65.65 0 0 0-.65.76l2.72 16.5a.88.88 0 0 0 .87.74h13.04a.65.65 0 0 0 .65-.55l2.72-16.69a.65.65 0 0 0-.65-.76zm11.46 11.85h-4.21l-1.14-5.95h6.36z"/>
+  </svg>
+);
+
+const JiraIcon = ({ size = 14 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M11.53 2a5.7 5.7 0 0 0 5.7 5.7h2.3v2.23a5.7 5.7 0 0 0 5.7 5.7V2.7a.7.7 0 0 0-.7-.7zM6.18 7.34a5.7 5.7 0 0 0 5.7 5.7h2.3v2.23a5.7 5.7 0 0 0 5.7 5.7V8.04a.7.7 0 0 0-.7-.7zM.84 12.66a5.7 5.7 0 0 0 5.7 5.7h2.3v2.23a5.7 5.7 0 0 0 5.7 5.7V13.36a.7.7 0 0 0-.7-.7z" transform="scale(0.85)"/>
+  </svg>
+);
+
+const ConfluenceIcon = BookOpen;
+
+function SourceIcon({ source, size = 14 }: { source: string; size?: number }) {
+  const s = source.toLowerCase();
+  const cls = "shrink-0";
+  if (s.includes("bitbucket")) return <span className={cls} style={{ color: "#2684FF" }}><BitbucketIcon size={size} /></span>;
+  if (s.includes("jira")) return <span className={cls} style={{ color: "#2684FF" }}><JiraIcon size={size} /></span>;
+  if (s.includes("github")) return <Github size={size} className={cls} style={{ color: "#24292F" }} />;
+  if (s.includes("gitlab")) return <Gitlab size={size} className={cls} style={{ color: "#FC6D26" }} />;
+  if (s.includes("slack")) return <Slack size={size} className={cls} style={{ color: "#4A154B" }} />;
+  if (s.includes("teams") || s.includes("microsoft")) return <MessageSquare size={size} className={cls} style={{ color: "#5059C9" }} />;
+  if (s.includes("excel") || s.includes("sheet")) return <FileSpreadsheet size={size} className={cls} style={{ color: "#21A366" }} />;
+  if (s.includes("powerpoint") || s.includes("slides")) return <Presentation size={size} className={cls} style={{ color: "#D24726" }} />;
+  if (s.includes("confluence")) return <ConfluenceIcon size={size} className={cls} style={{ color: "#2684FF" }} />;
+  if (s.includes("trello")) return <Trello size={size} className={cls} style={{ color: "#0079BF" }} />;
+  if (s.includes("figma")) return <Figma size={size} className={cls} style={{ color: "#A259FF" }} />;
+  if (s.includes("git")) return <GitBranch size={size} className={cls} style={{ color: C.slate }} />;
+  if (s.includes("word") || s.includes("doc")) return <FileText size={size} className={cls} style={{ color: "#2B579A" }} />;
+  return <FileText size={size} className={cls} style={{ color: C.slate }} />;
+}
+
+function SourceChip({ source }: { source: string }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 px-2 h-6 text-[11px] font-semibold rounded whitespace-nowrap overflow-hidden text-ellipsis max-w-full"
+      style={{ background: "#F4F5F7", color: C.slate }}
+    >
+      <SourceIcon source={source} size={12} />
+      <span className="truncate">{source}</span>
     </span>
   );
 }
