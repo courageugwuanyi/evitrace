@@ -3833,11 +3833,9 @@ function ObjectiveSlideover({
                                 <ExternalLink size={11} />
                                 Open
                               </button>
-                            ) : (
-                              <Badge tone={r.done ? "success" : "neutral"}>
-                                {r.done ? "Done" : "Open"}
-                              </Badge>
-                            )}
+                            ) : r.done ? (
+                              <Badge tone="success">Done</Badge>
+                            ) : null}
                           </div>
                         ))}
                         {rows.length === 0 && (
