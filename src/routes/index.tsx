@@ -2948,6 +2948,7 @@ function ArchivedObjectivesTable({
           ))}
         </tbody>
       </table>
+      </div>
     </Card>
   );
 }
