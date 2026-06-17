@@ -1722,7 +1722,7 @@ function DashboardView({
   onOpenEvidence: (e: (typeof initialEvidence)[number]) => void;
 }) {
   const active = objectives.filter((o) => o.status === "In Progress");
-  const recentEvidence = evidence.slice(0, 4);
+  const recentEvidence = evidence.filter((e) => !e.isArchived).slice(0, 4);
   function relativeDate(dateStr: string) {
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return dateStr;
