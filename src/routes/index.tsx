@@ -2953,17 +2953,36 @@ function SmartField({
 function ObjectiveSlideover({
   objective,
   onClose,
-  onComplete,
+  onSave,
+  onChangeStatus,
+  onArchive,
 }: {
   objective: Objective;
   onClose: () => void;
-  onComplete: (o: Objective) => void;
+  onSave: (o: Objective) => void;
+  onChangeStatus: (o: Objective, next: Objective["status"]) => void;
+  onArchive: (o: Objective) => void;
 }) {
   const [smartOpen, setSmartOpen] = useState(false);
   const [links, setLinks] = useState(objective.links ?? []);
   const [newLink, setNewLink] = useState("");
   const [notes, setNotes] = useState(objective.notes ?? "");
-  const [status, setStatus] = useState(objective.status);
+  const locked = objective.status === "Completed";
+  const [editMode, setEditMode] = useState(false);
+  const isEditable = !locked && editMode;
+
+  const nextStatus: Objective["status"] | null =
+    objective.status === "Pending Approval"
+      ? "In Progress"
+      : objective.status === "In Progress"
+        ? "Completed"
+        : null;
+  const nextLabel =
+    objective.status === "Pending Approval"
+      ? "Approve & Move to In Progress"
+      : objective.status === "In Progress"
+        ? "Mark as Completed"
+        : "";
 
   return (
     <motion.div
@@ -2993,20 +3012,58 @@ function ObjectiveSlideover({
                 {objective.id}
               </span>
             </div>
-            <button onClick={onClose} className="p-1.5 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
-              <X size={18} />
-            </button>
+            <div className="flex items-center gap-1">
+              {!locked && (
+                <>
+                  <button
+                    onClick={() => setEditMode((v) => !v)}
+                    title={editMode ? "Done editing" : "Edit"}
+                    className="p-1.5 rounded hover:bg-[#F4F5F7]"
+                    style={{ color: editMode ? C.primary : C.slate }}
+                  >
+                    <Pencil size={16} />
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (confirm("Archive this objective? This cannot be undone.")) {
+                        onArchive(objective);
+                      }
+                    }}
+                    title="Archive"
+                    className="p-1.5 rounded hover:bg-[#FFEBE6]"
+                    style={{ color: C.red }}
+                  >
+                    <Archive size={16} />
+                  </button>
+                </>
+              )}
+              <button onClick={onClose} className="p-1.5 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
+                <X size={18} />
+              </button>
+            </div>
           </div>
           <div className="text-xl font-bold mt-2 leading-snug" style={{ color: C.navy }}>
             {objective.title}
           </div>
           <div className="flex items-center gap-2 mt-3">
-            <Select value={status} onChange={(e) => setStatus(e.target.value as Objective["status"])}>
-              <option>Pending Approval</option>
-              <option>In Progress</option>
-              <option>Completed</option>
-            </Select>
+            <Badge
+              tone={
+                objective.status === "Completed"
+                  ? "success"
+                  : objective.status === "In Progress"
+                    ? "info"
+                    : "warning"
+              }
+            >
+              {locked && <Lock size={10} className="inline mr-1" />}
+              {objective.status}
+            </Badge>
             <Badge tone="info">{objective.competency}</Badge>
+            {locked && (
+              <span className="text-[11px]" style={{ color: C.subtle }}>
+                Locked - read only
+              </span>
+            )}
           </div>
         </div>
 
@@ -3176,23 +3233,25 @@ function ObjectiveSlideover({
                   No resources added yet.
                 </div>
               )}
-              <div className="flex items-center gap-2 pt-1">
-                <Input
-                  value={newLink}
-                  onChange={(e) => setNewLink(e.target.value)}
-                  placeholder="Add URL…"
-                />
-                <GhostBtn
-                  onClick={() => {
-                    if (!newLink) return;
-                    setLinks((l) => [...l, { label: newLink.replace(/^https?:\/\//, ""), url: newLink }]);
-                    setNewLink("");
-                  }}
-                >
-                  <Plus size={14} />
-                  Add
-                </GhostBtn>
-              </div>
+              {isEditable && (
+                <div className="flex items-center gap-2 pt-1">
+                  <Input
+                    value={newLink}
+                    onChange={(e) => setNewLink(e.target.value)}
+                    placeholder="Add URL..."
+                  />
+                  <GhostBtn
+                    onClick={() => {
+                      if (!newLink) return;
+                      setLinks((l) => [...l, { label: newLink.replace(/^https?:\/\//, ""), url: newLink }]);
+                      setNewLink("");
+                    }}
+                  >
+                    <Plus size={14} />
+                    Add
+                  </GhostBtn>
+                </div>
+              )}
             </div>
           </section>
 
@@ -3204,18 +3263,24 @@ function ObjectiveSlideover({
                 Evidence & Artifacts
               </div>
             </div>
-            <div
-              className="border-2 border-dashed rounded p-6 text-center cursor-pointer hover:border-[#0052CC] transition-colors"
-              style={{ borderColor: C.border }}
-            >
-              <UploadCloud size={28} className="mx-auto" style={{ color: C.primary }} />
-              <div className="text-sm font-semibold mt-2" style={{ color: C.navy }}>
-                Drop files here or click to upload
+            {isEditable ? (
+              <div
+                className="border-2 border-dashed rounded p-6 text-center cursor-pointer hover:border-[#0052CC] transition-colors"
+                style={{ borderColor: C.border }}
+              >
+                <UploadCloud size={28} className="mx-auto" style={{ color: C.primary }} />
+                <div className="text-sm font-semibold mt-2" style={{ color: C.navy }}>
+                  Drop files here or click to upload
+                </div>
+                <div className="text-xs mt-1" style={{ color: C.subtle }}>
+                  PDF, images, or code snippets
+                </div>
               </div>
-              <div className="text-xs mt-1" style={{ color: C.subtle }}>
-                PDF, images, or code snippets
+            ) : (
+              <div className="text-xs" style={{ color: C.subtle }}>
+                {locked ? "Locked - artifacts are read-only." : "Enter edit mode to upload artifacts."}
               </div>
-            </div>
+            )}
           </section>
 
           {/* Notes */}
@@ -3231,6 +3296,8 @@ function ObjectiveSlideover({
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="What are your key takeaways so far? Summarize your findings here."
+              disabled={!isEditable}
+              readOnly={!isEditable}
             />
           </section>
         </div>
@@ -3241,10 +3308,29 @@ function ObjectiveSlideover({
           style={{ borderColor: C.border, background: C.bg }}
         >
           <GhostBtn onClick={onClose}>Close</GhostBtn>
-          <PrimaryBtn onClick={() => onComplete({ ...objective, notes, links })}>
-            <CheckCircle size={16} />
-            Complete & Add to Evidence Log
-          </PrimaryBtn>
+          <div className="flex items-center gap-2">
+            {isEditable && (
+              <GhostBtn
+                onClick={() => {
+                  onSave({ ...objective, notes, links });
+                  setEditMode(false);
+                }}
+              >
+                <Save size={14} />
+                Save changes
+              </GhostBtn>
+            )}
+            {nextStatus && (
+              <PrimaryBtn
+                onClick={() =>
+                  onChangeStatus({ ...objective, notes, links }, nextStatus)
+                }
+              >
+                <CheckCircle size={16} />
+                {nextLabel}
+              </PrimaryBtn>
+            )}
+          </div>
         </div>
       </motion.div>
     </motion.div>
