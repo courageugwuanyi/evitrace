@@ -1030,6 +1030,20 @@ function EvitraceApp() {
                   items={objectives}
                   onOpen={setOpenObjective}
                   onCreate={() => setShowCreateObjective(true)}
+                  onRestore={(o) => {
+                    setObjectives((x) =>
+                      x.map((it) =>
+                        it.id === o.id
+                          ? { ...it, isArchived: false, archivedDate: undefined, status: "In Progress" as const }
+                          : it,
+                      ),
+                    );
+                    flash("Objective restored to Kanban board");
+                  }}
+                  onDelete={(o) => {
+                    setObjectives((x) => x.filter((it) => it.id !== o.id));
+                    flash("Objective permanently deleted");
+                  }}
                   onMove={(id, status) => {
                     const target = objectives.find((o) => o.id === id);
                     if (!target || target.status === status || target.status === "Completed") return;
