@@ -3001,17 +3001,28 @@ function CreateObjectiveModal({
         <div className="p-4 border-t flex items-center justify-end gap-2" style={{ borderColor: C.border }}>
           <GhostBtn onClick={onClose}>Cancel</GhostBtn>
           <PrimaryBtn
-            disabled={!s || !m}
+            disabled={!title || !statement || !deadline}
             onClick={() =>
               onSubmit({
-                title: s.slice(0, 80) || "New objective",
+                title,
                 competency,
-                due: t || "TBD",
+                due: formatDate(deadline),
+                statement,
+                dateAuthored: new Date().toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "2-digit",
+                  year: "numeric",
+                }),
                 specific: s,
                 measurable: m,
                 achievable: a,
                 relevant: r,
-                timebound: t,
+                timebound: t ? `Complete by ${formatDate(t)}` : `Complete by ${formatDate(deadline)}`,
+                successCriteria: {
+                  learn: learn.filter((x) => x.criteria.trim()),
+                  demonstrate: demonstrate.filter((x) => x.criteria.trim()),
+                  share: share.filter((x) => x.criteria.trim()),
+                },
               })
             }
           >
