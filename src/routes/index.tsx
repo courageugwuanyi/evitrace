@@ -55,6 +55,9 @@ import {
   GripVertical,
   Lock,
   Archive,
+  ArchiveRestore,
+  RotateCcw,
+  Eye,
 } from "lucide-react";
 import {
   Radar,
