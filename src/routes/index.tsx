@@ -3453,9 +3453,18 @@ function ObjectiveSlideover({
   const [links, setLinks] = useState(objective.links ?? []);
   const [newLink, setNewLink] = useState("");
   const [notes, setNotes] = useState(objective.notes ?? "");
+  const [statement, setStatement] = useState(objective.statement ?? "");
+  const [criteria, setCriteria] = useState(
+    objective.successCriteria ?? { learn: [], demonstrate: [], share: [] },
+  );
   const locked = objective.status === "Completed";
   const [editMode, setEditMode] = useState(false);
   const isEditable = !locked && editMode;
+  const [confirmArchive, setConfirmArchive] = useState(false);
+
+  function buildUpdated(): Objective {
+    return { ...objective, notes, links, statement, successCriteria: criteria };
+  }
 
   const nextStatus: Objective["status"] | null =
     objective.status === "Pending Approval"
