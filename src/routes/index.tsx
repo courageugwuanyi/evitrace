@@ -3068,6 +3068,90 @@ function SmartField({
   );
 }
 
+function CriteriaSection({
+  title,
+  icon: Icon,
+  tone,
+  evidenceLabel,
+  evidencePlaceholder,
+  rows,
+  onChange,
+  criteriaPlaceholder,
+}: {
+  title: string;
+  icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>;
+  tone: "info" | "warning" | "success";
+  evidenceLabel: string;
+  evidencePlaceholder: string;
+  rows: SuccessCriterion[];
+  onChange: (rows: SuccessCriterion[]) => void;
+  criteriaPlaceholder: string;
+}) {
+  const update = (i: number, patch: Partial<SuccessCriterion>) =>
+    onChange(rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const remove = (i: number) => onChange(rows.filter((_, idx) => idx !== i));
+  const add = () => onChange([...rows, { criteria: "", evidence: "", attachments: [] }]);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Icon size={14} style={{ color: C.primary }} />
+          <div className="text-sm font-bold" style={{ color: C.navy }}>
+            {title}
+          </div>
+          <Badge tone={tone}>{rows.length}</Badge>
+        </div>
+        <GhostBtn onClick={add}>
+          <Plus size={12} />
+          Add row
+        </GhostBtn>
+      </div>
+      <div className="space-y-3">
+        {rows.map((row, i) => (
+          <div
+            key={i}
+            className="p-3 rounded border space-y-2"
+            style={{ borderColor: C.border, background: "#FAFBFC" }}
+          >
+            <div className="flex items-start gap-2">
+              <div className="flex-1 space-y-2">
+                <Input
+                  value={row.criteria}
+                  onChange={(e) => update(i, { criteria: e.target.value })}
+                  placeholder={criteriaPlaceholder}
+                />
+                <Input
+                  value={row.evidence}
+                  onChange={(e) => update(i, { evidence: e.target.value })}
+                  placeholder={`${evidenceLabel}: ${evidencePlaceholder}`}
+                  icon={<LinkIcon size={12} />}
+                />
+              </div>
+              <button
+                onClick={() => remove(i)}
+                className="p-1.5 rounded hover:bg-[#FFEBE6]"
+                style={{ color: C.red }}
+                title="Remove row"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          </div>
+        ))}
+        {rows.length === 0 && (
+          <div
+            className="text-xs px-3 py-4 rounded border border-dashed text-center"
+            style={{ borderColor: C.border, color: C.subtle }}
+          >
+            No criteria added yet.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ============================================================ */
 /*       OVERLAY: OBJECTIVE DETAILS SLIDE-OVER                  */
 /* ============================================================ */
