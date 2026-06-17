@@ -1105,7 +1105,7 @@ function EvitraceApp() {
       />
 
       <div
-        className={`${sidebarCollapsed ? "lg:ml-16" : "lg:ml-64"} flex flex-col min-h-screen min-w-0 transition-[margin] duration-200`}
+        className={`${sidebarCollapsed ? "lg:ml-16" : "lg:ml-64"} flex flex-col min-h-screen min-w-0 transition-[margin] duration-200 print:ml-0`}
       >
         <TopHeader
           title={pageTitle[tab]}
@@ -1558,7 +1558,7 @@ function Sidebar({
 
   const DesktopAside = (
     <aside
-      className={`hidden lg:flex fixed inset-y-0 left-0 z-40 ${collapsed ? "w-16" : "w-64"} h-screen border-r flex-col print-hide transition-[width] duration-200`}
+      className={`hidden lg:flex fixed inset-y-0 left-0 z-40 ${collapsed ? "w-16" : "w-64"} h-screen border-r flex-col print-hide print:hidden transition-[width] duration-200`}
       style={{ background: C.card, borderColor: C.border }}
     >
       <div
@@ -1695,7 +1695,7 @@ function TopHeader({
   }
   return (
     <header
-      className="h-16 sticky top-0 z-30 flex items-center justify-between gap-3 px-4 md:px-8 border-b print-hide"
+      className="h-16 sticky top-0 z-30 flex items-center justify-between gap-3 px-4 md:px-8 border-b print-hide print:hidden"
       style={{ background: C.card, borderColor: C.border }}
     >
       <div className="flex items-center gap-2 min-w-0">
@@ -4915,7 +4915,7 @@ function EvidenceSlideover({
         </div>
 
         {/* Scrollable */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-8">
           <section>
             <div className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: C.subtle }}>
               Competency Mapping
@@ -4946,7 +4946,7 @@ function EvidenceSlideover({
             <textarea
               value={draft.description}
               onChange={(e) => update("description", e.target.value)}
-              className="w-full min-h-[100px] text-sm rounded border px-3 py-2 outline-none focus:ring-2"
+              className="w-full min-h-[160px] resize-y text-sm rounded border px-3 py-2 outline-none focus:ring-2"
               style={{ borderColor: C.border, color: C.slate }}
             />
           </section>
@@ -4994,7 +4994,7 @@ function EvidenceSlideover({
               <UserCheck size={14} style={{ color: C.slate }} />
               <div className="text-sm font-bold" style={{ color: C.navy }}>Manager Review</div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+            <div className="space-y-4">
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Review Status</div>
                 <Select value={draft.status} onChange={(e) => update("status", e.target.value as EvidenceStatus)}>
@@ -5022,13 +5022,13 @@ function EvidenceSlideover({
                 </div>
               </div>
             </div>
-            <div>
+            <div className="mt-4">
               <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Manager Assessment</div>
               <textarea
                 value={draft.managerNotes}
                 onChange={(e) => update("managerNotes", e.target.value)}
                 placeholder="Manager corroborates context, asks for more detail, suggests rewording, or links related artifacts."
-                className="w-full min-h-[100px] text-sm rounded border px-3 py-2 outline-none focus:ring-2"
+                className="w-full min-h-[120px] resize-y text-sm rounded border px-3 py-2 outline-none focus:ring-2"
                 style={{ borderColor: C.border, color: C.slate, background: "#fff" }}
               />
             </div>
@@ -5255,7 +5255,7 @@ function ReportView({
             <LinkIcon size={14} />
             Copy Share Link
           </GhostBtn>
-          <PrimaryBtn onClick={exportPdf}>
+          <PrimaryBtn onClick={() => window.print()} className="print:hidden">
             <Download size={14} />
             Export to PDF
           </PrimaryBtn>
@@ -5264,17 +5264,25 @@ function ReportView({
 
       {/* Document */}
       <article
-        className="max-w-4xl mx-auto bg-white border rounded shadow-md p-10 print-document"
+        className="max-w-4xl mx-auto bg-white border rounded shadow-md p-10 print-document print:w-full print:m-0 print:p-0 print:text-slate-900 print:border-slate-200"
         style={{ borderColor: C.border }}
       >
         {/* 1. Header */}
-        <header>
-          <h1
-            className="text-3xl font-bold tracking-tight"
-            style={{ color: C.navy }}
-          >
-            Performance & Growth Summary
-          </h1>
+        <header className="print:break-inside-avoid">
+          <div className="flex items-center gap-2 mb-2">
+            <div
+              className="w-8 h-8 rounded flex items-center justify-center"
+              style={{ background: C.primary }}
+            >
+              <RadarIcon size={18} color="#fff" />
+            </div>
+            <h1
+              className="text-3xl font-bold tracking-tight"
+              style={{ color: C.navy }}
+            >
+              Evitrace Performance Report
+            </h1>
+          </div>
           <div className="mt-3 space-y-1 text-sm" style={{ color: C.slate }}>
             <div>
               Engineer: <span style={{ color: C.navy, fontWeight: 600 }}>{review.engineer}</span>
@@ -5292,7 +5300,7 @@ function ReportView({
         </header>
 
         {/* 2. Executive summary */}
-        <section className="mt-8">
+        <section className="mt-8 print:break-inside-avoid">
           <SectionHeading icon={<Target size={18} />} title="Executive Summary" />
           <p className="mt-3 text-[15px] leading-relaxed" style={{ color: C.slate }}>
             This review captured updated effectiveness scores across{" "}
@@ -5318,7 +5326,7 @@ function ReportView({
         </section>
 
         {/* 3. Competency delta */}
-        <section className="mt-10">
+        <section className="mt-10 print:break-inside-avoid">
           <SectionHeading icon={<TrendingUp size={18} />} title="Competency Delta" />
           {deltas.length === 0 ? (
             <div
@@ -5328,13 +5336,13 @@ function ReportView({
               No score changes were recorded in this review.
             </div>
           ) : (
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 print:break-inside-avoid">
             {deltas.map((d) => {
               const pct = d.from === 0 ? 0 : Math.round(((d.to - d.from) / d.from) * 100);
               const width = Math.min(100, (d.to / 4) * 100);
               const positive = d.to >= d.from;
               return (
-                <div key={d.name}>
+                <div key={d.name} className="print:break-inside-avoid">
                   <div className="flex items-baseline justify-between mb-1.5">
                     <div className="text-sm font-semibold" style={{ color: C.navy }}>
                       {d.name}
@@ -5366,7 +5374,7 @@ function ReportView({
         </section>
 
         {/* 4. Justification notes log */}
-        <section className="mt-10">
+        <section className="mt-10 print:break-before-page print:break-inside-avoid">
           <SectionHeading icon={<AlignLeft size={18} />} title="Justification Notes Log" />
           {justification.length === 0 ? (
             <div
@@ -5380,7 +5388,7 @@ function ReportView({
               {justification.map(({ cat, sub, q }, i) => (
                 <li
                   key={i}
-                  className="p-4 rounded border"
+                  className="p-4 rounded border print:break-inside-avoid"
                   style={{ borderColor: C.border, background: "#FFFFFF" }}
                 >
                   <div className="flex items-center gap-2 flex-wrap">
@@ -5402,7 +5410,7 @@ function ReportView({
         </section>
 
         {/* 5. Highlighted evidence */}
-        <section className="mt-10">
+        <section className="mt-10 print:break-inside-avoid">
           <SectionHeading icon={<Award size={18} />} title="Highlighted Evidence" />
           {highlightedEvidence.length === 0 ? (
             <div
@@ -5416,7 +5424,7 @@ function ReportView({
             {highlightedEvidence.map((e) => (
               <div
                 key={e.id}
-                className="border-l-4 pl-4 py-3 pr-4 rounded-sm"
+                className="border-l-4 pl-4 py-3 pr-4 rounded-sm print:break-inside-avoid"
                 style={{ borderColor: C.primary, background: "#FAFBFC" }}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -5442,7 +5450,7 @@ function ReportView({
         </section>
 
         {/* 6. Objectives */}
-        <section className="mt-10">
+        <section className="mt-10 print:break-inside-avoid">
           <SectionHeading icon={<ListTodo size={18} />} title="Active Objectives" />
           <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
             <ObjectiveColumn
@@ -5461,15 +5469,15 @@ function ReportView({
         </section>
 
         {/* 7. Talking points */}
-        <section className="mt-10">
+        <section className="mt-10 print:break-inside-avoid">
           <SectionHeading icon={<MessageSquare size={18} />} title="1-on-1 Discussion Topics" />
           <div
-            className="mt-4 p-5 rounded border"
+            className="mt-4 p-5 rounded border print:break-inside-avoid"
             style={{ background: C.bg, borderColor: C.border }}
           >
             <ol className="space-y-2.5">
               {topics.map((t, i) => (
-                <li key={i} className="group flex items-start gap-3 text-sm" style={{ color: C.slate }}>
+                <li key={i} className="group flex items-start gap-3 text-sm print:break-inside-avoid" style={{ color: C.slate }}>
                   <span
                     className="shrink-0 w-5 h-5 rounded-full text-[11px] font-bold flex items-center justify-center"
                     style={{ background: C.primarySoft, color: C.primary }}
@@ -5568,7 +5576,7 @@ function ObjectiveColumn({
         {items.map((o) => (
           <div
             key={o.id}
-            className="p-3 rounded border"
+            className="p-3 rounded border print:break-inside-avoid"
             style={{ borderColor: C.border, background: "#FFFFFF" }}
           >
             <div className="flex items-start justify-between gap-2">

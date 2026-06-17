@@ -157,6 +157,43 @@
     max-width: 100% !important;
     margin: 0 !important;
     padding: 0 !important;
+    color: #0f172a !important;
+  }
+  .print-document,
+  .print-document * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .print-document h1,
+  .print-document h2,
+  .print-document h3,
+  .print-document p,
+  .print-document li,
+  .print-document div,
+  .print-document span:not(.inline-flex) {
+    color: #0f172a !important;
+  }
+  .print-document span.inline-flex,
+  .print-document span.inline-flex * {
+    color: inherit !important;
+  }
+  .print-document section,
+  .print-document .rounded,
+  .print-document .rounded-md,
+  .print-document .rounded-lg,
+  .print-document .rounded-sm,
+  .print-document .border,
+  .print-document .border-l-4,
+  .print-document .border-b,
+  .print-document .border-t,
+  .print-document .border-dashed {
+    border-color: #e2e8f0 !important;
+  }
+  .print-document .bg-white,
+  .print-document .bg-slate-50,
+  .print-document .bg-\[\#FAFBFC\],
+  .print-document .bg-\[\#F4F5F7\] {
+    background: #fff !important;
   }
   main.print-main {
     padding: 0 !important;
