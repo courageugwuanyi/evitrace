@@ -2802,25 +2802,59 @@ function CreateObjectiveModal({
 
         <div className="grid grid-cols-5 flex-1 overflow-hidden">
           {/* Form */}
-          <div className="col-span-3 p-6 overflow-y-auto space-y-4">
-            <Field label="Target Category">
-              <Select value={competency} onChange={(e) => onCatChange(e.target.value)}>
-                {objCategories.map((c) => (
-                  <option key={c}>{c}</option>
-                ))}
-              </Select>
-              <div className="text-[11px] mt-1.5 leading-relaxed" style={{ color: C.subtle }}>
-                {COMPETENCY_DESC[competency]}
+          <div className="col-span-3 p-6 overflow-y-auto space-y-6">
+            <div className="space-y-4">
+              <Field label="Objective Title">
+                <Input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Short, action-oriented title"
+                />
+              </Field>
+              <Field label="Objective Statement">
+                <Textarea
+                  rows={3}
+                  value={statement}
+                  onChange={(e) => setStatement(e.target.value)}
+                  placeholder="Describe what you intend to achieve and why it matters."
+                />
+              </Field>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Deadline">
+                  <Input
+                    type="date"
+                    value={deadline}
+                    onChange={(e) => setDeadline(e.target.value)}
+                    icon={<Calendar size={14} />}
+                  />
+                </Field>
+                <Field label="Target Category">
+                  <Select value={competency} onChange={(e) => onCatChange(e.target.value)}>
+                    {objCategories.map((c) => (
+                      <option key={c}>{c}</option>
+                    ))}
+                  </Select>
+                </Field>
               </div>
-            </Field>
-            <Field label="Target Subcategory / Question">
-              <Select value={subcategory} onChange={(e) => setSubcategory(e.target.value)}>
-                {SUBCATEGORIES[competency].map((sc) => (
-                  <option key={sc}>{sc}</option>
-                ))}
-              </Select>
-            </Field>
-            <SmartField
+              <Field label="Target Subcategory / Question">
+                <Select value={subcategory} onChange={(e) => setSubcategory(e.target.value)}>
+                  {SUBCATEGORIES[competency].map((sc) => (
+                    <option key={sc}>{sc}</option>
+                  ))}
+                </Select>
+                <div className="text-[11px] mt-1.5 leading-relaxed" style={{ color: C.subtle }}>
+                  {COMPETENCY_DESC[competency]}
+                </div>
+              </Field>
+            </div>
+
+            <hr style={{ borderColor: C.border }} />
+
+            <div className="space-y-4">
+              <div className="text-xs font-bold uppercase tracking-wider" style={{ color: C.subtle }}>
+                SMART Breakdown
+              </div>
+              <SmartField
               letter="S"
               name="Specific"
               hint="Clearly state who, what action, and context. Avoid vague verbs like 'understand'."
@@ -2848,12 +2882,68 @@ function CreateObjectiveModal({
               value={r}
               onChange={setR}
             />
-            <Field label="T - Time-bound">
-              <Input type="date" value={t} onChange={(e) => setT(e.target.value)} icon={<Calendar size={14} />} />
-              <div className="text-[11px] mt-1.5" style={{ color: C.subtle }}>
-                Specific timeframe or deadline.
+              <div>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <div
+                    className="w-6 h-6 rounded flex items-center justify-center text-xs font-bold text-white"
+                    style={{ background: C.primary }}
+                  >
+                    T
+                  </div>
+                  <div className="text-sm font-semibold" style={{ color: C.navy }}>
+                    Time-bound
+                  </div>
+                </div>
+                <Input
+                  type="date"
+                  value={t}
+                  onChange={(e) => setT(e.target.value)}
+                  icon={<Calendar size={14} />}
+                />
+                <div className="text-[11px] mt-1" style={{ color: C.subtle }}>
+                  Specific timeframe or deadline.
+                </div>
               </div>
-            </Field>
+            </div>
+
+            <hr style={{ borderColor: C.border }} />
+
+            <CriteriaSection
+              title="Learn"
+              icon={BookOpen}
+              tone="info"
+              evidenceLabel="Materials Used"
+              evidencePlaceholder="Link to docs, videos, courses"
+              rows={learn}
+              onChange={setLearn}
+              criteriaPlaceholder="What will you learn?"
+            />
+
+            <hr style={{ borderColor: C.border }} />
+
+            <CriteriaSection
+              title="Demonstrate"
+              icon={Wrench}
+              tone="warning"
+              evidenceLabel="Evidence"
+              evidencePlaceholder="Link to PR, code snippet, doc"
+              rows={demonstrate}
+              onChange={setDemonstrate}
+              criteriaPlaceholder="How will you apply what you learned?"
+            />
+
+            <hr style={{ borderColor: C.border }} />
+
+            <CriteriaSection
+              title="Share"
+              icon={Share2}
+              tone="success"
+              evidenceLabel="Presentation Artifacts"
+              evidencePlaceholder="Link to slides, YouTube, doc"
+              rows={share}
+              onChange={setShare}
+              criteriaPlaceholder="How will you teach others?"
+            />
           </div>
 
           {/* Guidance */}
