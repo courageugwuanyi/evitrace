@@ -66,6 +66,15 @@ import {
   Loader2,
 } from "lucide-react";
 import {
+  Slack,
+  Gitlab,
+  Trello,
+  Figma,
+  FileSpreadsheet,
+  Presentation,
+  GitBranch,
+} from "lucide-react";
+import {
   Radar,
   RadarChart,
   PolarGrid,
@@ -547,11 +556,60 @@ function Badge({
   const s = map[tone];
   return (
     <span
-      className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold uppercase tracking-wide rounded"
+      className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold uppercase tracking-wide rounded whitespace-nowrap overflow-hidden text-ellipsis max-w-full"
       style={{ background: s.bg, color: s.fg }}
     >
       {icon}
-      {children}
+      <span className="truncate">{children}</span>
+    </span>
+  );
+}
+
+/* ============================================================ */
+/*           SOURCE ICON MAPPING                                */
+/* ============================================================ */
+
+const BitbucketIcon = ({ size = 14 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M2.65 3a.65.65 0 0 0-.65.76l2.72 16.5a.88.88 0 0 0 .87.74h13.04a.65.65 0 0 0 .65-.55l2.72-16.69a.65.65 0 0 0-.65-.76zm11.46 11.85h-4.21l-1.14-5.95h6.36z"/>
+  </svg>
+);
+
+const JiraIcon = ({ size = 14 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M11.53 2a5.7 5.7 0 0 0 5.7 5.7h2.3v2.23a5.7 5.7 0 0 0 5.7 5.7V2.7a.7.7 0 0 0-.7-.7zM6.18 7.34a5.7 5.7 0 0 0 5.7 5.7h2.3v2.23a5.7 5.7 0 0 0 5.7 5.7V8.04a.7.7 0 0 0-.7-.7zM.84 12.66a5.7 5.7 0 0 0 5.7 5.7h2.3v2.23a5.7 5.7 0 0 0 5.7 5.7V13.36a.7.7 0 0 0-.7-.7z" transform="scale(0.85)"/>
+  </svg>
+);
+
+const ConfluenceIcon = BookOpen;
+
+function SourceIcon({ source, size = 14 }: { source: string; size?: number }) {
+  const s = source.toLowerCase();
+  const cls = "shrink-0";
+  if (s.includes("bitbucket")) return <span className={cls} style={{ color: "#2684FF" }}><BitbucketIcon size={size} /></span>;
+  if (s.includes("jira")) return <span className={cls} style={{ color: "#2684FF" }}><JiraIcon size={size} /></span>;
+  if (s.includes("github")) return <Github size={size} className={cls} style={{ color: "#24292F" }} />;
+  if (s.includes("gitlab")) return <Gitlab size={size} className={cls} style={{ color: "#FC6D26" }} />;
+  if (s.includes("slack")) return <Slack size={size} className={cls} style={{ color: "#4A154B" }} />;
+  if (s.includes("teams") || s.includes("microsoft")) return <MessageSquare size={size} className={cls} style={{ color: "#5059C9" }} />;
+  if (s.includes("excel") || s.includes("sheet")) return <FileSpreadsheet size={size} className={cls} style={{ color: "#21A366" }} />;
+  if (s.includes("powerpoint") || s.includes("slides")) return <Presentation size={size} className={cls} style={{ color: "#D24726" }} />;
+  if (s.includes("confluence")) return <ConfluenceIcon size={size} className={cls} style={{ color: "#2684FF" }} />;
+  if (s.includes("trello")) return <Trello size={size} className={cls} style={{ color: "#0079BF" }} />;
+  if (s.includes("figma")) return <Figma size={size} className={cls} style={{ color: "#A259FF" }} />;
+  if (s.includes("git")) return <GitBranch size={size} className={cls} style={{ color: C.slate }} />;
+  if (s.includes("word") || s.includes("doc")) return <FileText size={size} className={cls} style={{ color: "#2B579A" }} />;
+  return <FileText size={size} className={cls} style={{ color: C.slate }} />;
+}
+
+function SourceChip({ source }: { source: string }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 px-2 h-6 text-[11px] font-semibold rounded whitespace-nowrap overflow-hidden text-ellipsis max-w-full"
+      style={{ background: "#F4F5F7", color: C.slate }}
+    >
+      <SourceIcon source={source} size={12} />
+      <span className="truncate">{source}</span>
     </span>
   );
 }
@@ -630,17 +688,39 @@ const initialRadar = [
   { competency: "Delivery", current: 3.4, target: 4 },
 ];
 
-const initialEvidence = [
+type EvidenceStatus = "Pending Review" | "Reviewed";
+type EvidenceMatch = "Yes" | "No" | "Somewhat" | "Unset";
+
+type EvidenceRecord = {
+  id: string;
+  date: string;
+  source: string;
+  category: string;
+  competency: string;
+  title: string;
+  description: string;
+  link: string;
+  status: EvidenceStatus;
+  matchState: EvidenceMatch;
+  managerNotes: string;
+  isArchived: boolean;
+  archivedDate?: string;
+};
+
+const initialEvidence: EvidenceRecord[] = [
   {
     id: "EV-201",
     date: "Dec 02, 2026",
-    source: "GitHub",
+    source: "Bitbucket",
     category: "Technical",
     competency: "System Design",
     title: "Migrated billing service to event-driven model",
     description: "Designed Kafka topology and rollout plan; zero downtime cutover.",
-    link: "github.com/acme/billing/pr/482",
-    status: "Approved" as const,
+    link: "bitbucket.org/acme/billing/pull-requests/482",
+    status: "Reviewed",
+    matchState: "Yes",
+    managerNotes: "Strong example of cross-team coordination. Tag this for the L4 architecture criterion in your packet.",
+    isArchived: false,
   },
   {
     id: "EV-200",
@@ -651,18 +731,24 @@ const initialEvidence = [
     title: "Shipped Q4 metering MVP",
     description: "Coordinated across 3 squads; delivered 4 days ahead of plan.",
     link: "acme.atlassian.net/AT-1422",
-    status: "Approved" as const,
+    status: "Reviewed",
+    matchState: "Yes",
+    managerNotes: "Add a short note on the dependency-tracking spreadsheet you maintained week over week.",
+    isArchived: false,
   },
   {
     id: "EV-199",
     date: "Nov 24, 2026",
-    source: "Manual Capture",
+    source: "Confluence",
     category: "Leadership",
     competency: "Communication",
     title: "Ran cross-team RFC review",
     description: "Facilitated 12-person review; consolidated 3 proposals into 1.",
-    link: "notion.so/rfc-payments",
-    status: "Pending" as const,
+    link: "acme.atlassian.net/wiki/spaces/ENG/RFC-Payments",
+    status: "Pending Review",
+    matchState: "Unset",
+    managerNotes: "",
+    isArchived: false,
   },
   {
     id: "EV-198",
@@ -673,18 +759,24 @@ const initialEvidence = [
     title: "Patched JWT validation edge case",
     description: "Identified and remediated token replay vector flagged in audit.",
     link: "slack.com/archives/sec/p17324",
-    status: "Approved" as const,
+    status: "Reviewed",
+    matchState: "Somewhat",
+    managerNotes: "Re-word the description to highlight the threat model and your remediation approach more explicitly.",
+    isArchived: false,
   },
   {
     id: "EV-197",
     date: "Nov 11, 2026",
-    source: "GitHub",
+    source: "Bitbucket",
     category: "Technical",
     competency: "Code Quality",
     title: "Reduced p95 latency by 38%",
     description: "Profiled hot path, replaced N+1 query with batched loader.",
-    link: "github.com/acme/api/pr/612",
-    status: "Approved" as const,
+    link: "bitbucket.org/acme/api/pull-requests/612",
+    status: "Reviewed",
+    matchState: "Yes",
+    managerNotes: "",
+    isArchived: false,
   },
 ];
 
@@ -981,7 +1073,10 @@ function EvitraceApp() {
         title: item.title,
         description: "Auto-captured and mapped from " + item.source,
         link: "",
-        status: "Pending" as const,
+        status: "Pending Review" as const,
+                  matchState: "Unset" as const,
+                  managerNotes: "",
+                  isArchived: false,
       },
       ...e,
     ]);
@@ -1047,7 +1142,20 @@ function EvitraceApp() {
                 />
               )}
               {tab === "evidence" && (
-                <EvidenceView rows={evidence} onOpenRow={setOpenEvidence} />
+                <EvidenceView
+                  rows={evidence}
+                  onOpenRow={setOpenEvidence}
+                  onPermanentDelete={(id) => {
+                    setEvidence((e) => e.filter((x) => x.id !== id));
+                    flash("Evidence permanently deleted");
+                  }}
+                  onRestore={(id) => {
+                    setEvidence((e) =>
+                      e.map((x) => (x.id === id ? { ...x, isArchived: false, archivedDate: undefined } : x)),
+                    );
+                    flash("Evidence restored to log");
+                  }}
+                />
               )}
               {tab === "objectives" && (
                 <ObjectivesView
@@ -1083,13 +1191,16 @@ function EvitraceApp() {
                             day: "2-digit",
                             year: "numeric",
                           }),
-                          source: "Manual Capture",
+                          source: "Bitbucket",
                           category: "Objective",
                           competency: target.competency,
                           title: target.title,
                           description: target.notes ?? "Completed objective summary",
                           link: "",
-                          status: "Pending" as const,
+                          status: "Pending Review" as const,
+                  matchState: "Unset" as const,
+                  managerNotes: "",
+                  isArchived: false,
                         },
                         ...e,
                       ]);
@@ -1147,13 +1258,16 @@ function EvitraceApp() {
                     day: "2-digit",
                     year: "numeric",
                   }),
-                  source: "Manual Capture",
+                  source: "Bitbucket",
                   category: "Technical",
                   competency: comps[0] ?? "Delivery",
                   title,
                   description: reflection || "Manually captured reflection",
                   link,
-                  status: "Pending" as const,
+                  status: "Pending Review" as const,
+                  matchState: "Unset" as const,
+                  managerNotes: "",
+                  isArchived: false,
                 },
                 ...e,
               ]);
@@ -1205,13 +1319,16 @@ function EvitraceApp() {
                       day: "2-digit",
                       year: "numeric",
                     }),
-                    source: "Manual Capture",
+                    source: "Bitbucket",
                     category: "Objective",
                     competency: o.competency,
                     title: o.title,
                     description: o.notes ?? "Completed objective summary",
                     link: "",
-                    status: "Pending" as const,
+                    status: "Pending Review" as const,
+                  matchState: "Unset" as const,
+                  managerNotes: "",
+                  isArchived: false,
                   },
                   ...e,
                 ]);
@@ -1249,10 +1366,29 @@ function EvitraceApp() {
           <EvidenceSlideover
             item={openEvidence}
             onClose={() => setOpenEvidence(null)}
-            onDelete={(id: string) => {
-              setEvidence((e) => e.filter((x) => x.id !== id));
+            onSave={(updated) => {
+              setEvidence((e) => e.map((x) => (x.id === updated.id ? updated : x)));
+              setOpenEvidence(updated);
+              flash("Evidence updated");
+            }}
+            onArchive={(id) => {
+              setEvidence((e) =>
+                e.map((x) =>
+                  x.id === id
+                    ? {
+                        ...x,
+                        isArchived: true,
+                        archivedDate: new Date().toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "2-digit",
+                          year: "numeric",
+                        }),
+                      }
+                    : x,
+                ),
+              );
               setOpenEvidence(null);
-              flash("Evidence deleted");
+              flash("Evidence archived");
             }}
           />
         )}
@@ -1441,7 +1577,7 @@ function Sidebar({
               Evitrace
             </div>
             <div className="text-[10px] uppercase tracking-wider" style={{ color: C.subtle }}>
-              Promotion Radar
+              Continuous Performance Intelligence
             </div>
           </div>
         )}
@@ -1543,6 +1679,20 @@ function TopHeader({
   onCapture: () => void;
   onMenuClick: () => void;
 }) {
+  const [notifs, setNotifs] = useState<{ id: string; icon: React.ComponentType<{ size?: number }>; title: string; body: string; when: string; read: boolean }[]>([
+    { id: "N-1", icon: MessageSquare, title: "Manager added feedback to EV-198", body: "Alex Morgan suggested rewording your JWT remediation evidence.", when: "12m ago", read: false },
+    { id: "N-2", icon: Sparkles, title: "Auto-captured event ready for review", body: "A new Bitbucket PR was detected and waiting in your inbox.", when: "1h ago", read: false },
+    { id: "N-3", icon: UserCheck, title: "Objective approved", body: "UX-01 was moved to In Progress after manager approval.", when: "Yesterday", read: false },
+    { id: "N-4", icon: FileCheck2, title: "Q3 assessment archived", body: "Your Q3 readiness report was saved to Reviews & Reports.", when: "3d ago", read: true },
+  ]);
+  const [open, setOpen] = useState(false);
+  const unread = notifs.filter((n) => !n.read).length;
+  function toggle() {
+    setOpen((o) => {
+      if (!o && unread > 0) setNotifs((ns) => ns.map((n) => ({ ...n, read: true })));
+      return !o;
+    });
+  }
   return (
     <header
       className="h-16 sticky top-0 z-30 flex items-center justify-between gap-3 px-4 md:px-8 border-b print-hide"
@@ -1565,16 +1715,76 @@ function TopHeader({
         <div className="hidden md:block w-72">
           <Input placeholder="Search evidence, objectives, people…" icon={<Search size={14} />} />
         </div>
-        <button
-          className="w-9 h-9 rounded flex items-center justify-center hover:bg-[#F4F5F7] relative shrink-0"
-          style={{ color: C.slate }}
-        >
-          <Bell size={18} />
-          <span
-            className="absolute top-2 right-2 w-2 h-2 rounded-full"
-            style={{ background: C.red }}
-          />
-        </button>
+        <div className="relative shrink-0">
+          <button
+            onClick={toggle}
+            aria-label="Notifications"
+            className="w-9 h-9 rounded flex items-center justify-center hover:bg-[#F4F5F7] relative"
+            style={{ color: C.slate }}
+          >
+            <Bell size={18} />
+            {unread > 0 && (
+              <span
+                className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold text-white flex items-center justify-center bg-red-500"
+              >
+                {unread}
+              </span>
+            )}
+          </button>
+          <AnimatePresence>
+            {open && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+                <motion.div
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.12 }}
+                  className="absolute right-0 top-11 z-40 w-[340px] max-w-[90vw] bg-white rounded-lg shadow-2xl border"
+                  style={{ borderColor: C.border }}
+                >
+                  <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: C.border }}>
+                    <div className="text-sm font-bold" style={{ color: C.navy }}>Notifications</div>
+                    <button
+                      onClick={() => setNotifs((ns) => ns.map((n) => ({ ...n, read: true })))}
+                      className="text-[11px] font-semibold hover:underline"
+                      style={{ color: C.primary }}
+                    >
+                      Mark all read
+                    </button>
+                  </div>
+                  <div className="max-h-[400px] overflow-y-auto">
+                    {notifs.length === 0 && (
+                      <div className="px-4 py-8 text-center text-xs" style={{ color: C.subtle }}>No notifications.</div>
+                    )}
+                    {notifs.map((n) => {
+                      const Icon = n.icon;
+                      return (
+                        <div
+                          key={n.id}
+                          className="px-4 py-3 border-b flex gap-3 hover:bg-[#FAFBFC]"
+                          style={{ borderColor: C.border }}
+                        >
+                          <div
+                            className="w-8 h-8 rounded flex items-center justify-center shrink-0"
+                            style={{ background: C.primarySoft, color: C.primary }}
+                          >
+                            <Icon size={14} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-semibold truncate" style={{ color: C.navy }}>{n.title}</div>
+                            <div className="text-[11px] mt-0.5 leading-snug" style={{ color: C.slate }}>{n.body}</div>
+                            <div className="text-[10px] mt-1" style={{ color: C.subtle }}>{n.when}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
+        </div>
         <PrimaryBtn onClick={onCapture}>
           <Plus size={16} />
           <span className="hidden sm:inline">Capture Evidence</span>
@@ -1605,7 +1815,7 @@ function DashboardView({
   onOpenEvidence: (e: (typeof initialEvidence)[number]) => void;
 }) {
   const active = objectives.filter((o) => o.status === "In Progress");
-  const recentEvidence = evidence.slice(0, 4);
+  const recentEvidence = evidence.filter((e) => !e.isArchived).slice(0, 4);
   function relativeDate(dateStr: string) {
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return dateStr;
@@ -2281,7 +2491,7 @@ function HierarchicalMatrix({
                       <Td className="pl-12" style={{ color: C.slate }}>
                         <div className="text-[13px] leading-snug" style={{ color: C.navy }}>{sub}</div>
                         <div className="text-[11px] mt-0.5" style={{ color: C.subtle }}>
-                          Score: {cur} &mdash; {scale.label}
+                          Score: {cur} - {scale.label}
                         </div>
                       </Td>
                       <Td style={{ color: C.slate }}>{prev}</Td>
@@ -2373,16 +2583,23 @@ type EvidenceItem = (typeof initialEvidence)[number];
 function EvidenceView({
   rows,
   onOpenRow,
+  onPermanentDelete,
+  onRestore,
 }: {
   rows: typeof initialEvidence;
   onOpenRow: (r: EvidenceItem) => void;
+  onPermanentDelete: (id: string) => void;
+  onRestore: (id: string) => void;
 }) {
   const [q, setQ] = useState("");
   const [comp, setComp] = useState("All");
   const [status, setStatus] = useState("All");
   const [source, setSource] = useState("All");
+  const [showArchived, setShowArchived] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<EvidenceItem | null>(null);
 
-  const filtered = rows.filter(
+  const visible = rows.filter((r) => (showArchived ? r.isArchived : !r.isArchived));
+  const filtered = visible.filter(
     (r) =>
       (q === "" || r.title.toLowerCase().includes(q.toLowerCase())) &&
       (comp === "All" || r.competency === comp) &&
@@ -2391,6 +2608,25 @@ function EvidenceView({
   );
 
   return (
+    <>
+    <div className="flex items-center justify-end mb-3">
+      <div className="inline-flex rounded border overflow-hidden" style={{ borderColor: C.border }}>
+        <button
+          onClick={() => setShowArchived(false)}
+          className="px-3 py-1.5 text-xs font-semibold inline-flex items-center gap-1.5"
+          style={{ background: !showArchived ? C.primarySoft : "#fff", color: !showArchived ? C.primary : C.slate }}
+        >
+          <TableProperties size={12} /> Active Log
+        </button>
+        <button
+          onClick={() => setShowArchived(true)}
+          className="px-3 py-1.5 text-xs font-semibold inline-flex items-center gap-1.5 border-l"
+          style={{ background: showArchived ? C.primarySoft : "#fff", color: showArchived ? C.primary : C.slate, borderColor: C.border }}
+        >
+          <Archive size={12} /> View Archived ({rows.filter((r) => r.isArchived).length})
+        </button>
+      </div>
+    </div>
     <Card className="overflow-hidden">
       <div className="p-4 border-b flex items-center gap-2 flex-wrap" style={{ borderColor: C.border }}>
         <div className="w-72">
@@ -2415,19 +2651,22 @@ function EvidenceView({
         </Select>
         <Select icon={<Filter size={14} />} value={status} onChange={(e) => setStatus(e.target.value)}>
           <option>All</option>
-          <option>Pending</option>
-          <option>Approved</option>
+          <option>Pending Review</option>
+          <option>Reviewed</option>
         </Select>
         <Select icon={<Filter size={14} />} value={source} onChange={(e) => setSource(e.target.value)}>
           <option>All</option>
+          <option>Bitbucket</option>
           <option>Jira</option>
           <option>GitHub</option>
+          <option>GitLab</option>
           <option>Slack</option>
-          <option>Manual Capture</option>
+          <option>Teams</option>
+          <option>Confluence</option>
         </Select>
         <div className="ml-auto flex items-center gap-3">
           <div className="text-xs" style={{ color: C.subtle }}>
-            {filtered.length} of {rows.length} items
+            {filtered.length} of {visible.length} items
           </div>
           <GhostBtn>
             <Download size={14} />
@@ -2437,46 +2676,44 @@ function EvidenceView({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm min-w-[960px]">
           <thead style={{ background: "#F4F5F7", color: C.subtle }}>
             <tr className="text-left text-[11px] uppercase tracking-wider">
               <Th>Date</Th>
               <Th>Source</Th>
-              <Th>Category</Th>
               <Th>Competency</Th>
               <Th>Title</Th>
-              <Th>Description</Th>
               <Th>Link</Th>
+              <Th>Match</Th>
               <Th>Status</Th>
+              {showArchived && <Th>Archived</Th>}
+              {showArchived && <Th>Actions</Th>}
             </tr>
           </thead>
           <tbody>
             {filtered.map((r) => (
               <tr
                 key={r.id}
-                onClick={() => onOpenRow(r)}
-                className="border-t hover:bg-[#FAFBFC] transition-colors cursor-pointer"
+                onClick={() => !showArchived && onOpenRow(r)}
+                className={`border-t hover:bg-[#FAFBFC] transition-colors ${showArchived ? "" : "cursor-pointer"}`}
                 style={{ borderColor: C.border }}
               >
                 <Td className="whitespace-nowrap" style={{ color: C.slate }}>
                   {r.date}
                 </Td>
                 <Td>
-                  <Badge tone="neutral">{r.source}</Badge>
+                  <SourceChip source={r.source} />
                 </Td>
-                <Td style={{ color: C.slate }}>{r.category}</Td>
                 <Td>
                   <Badge tone="info">{r.competency}</Badge>
                 </Td>
-                <Td className="font-semibold" style={{ color: C.navy }}>
+                <Td className="font-semibold max-w-xs" style={{ color: C.navy }}>
                   {r.title}
-                </Td>
-                <Td style={{ color: C.slate }} className="max-w-sm">
-                  <span className="line-clamp-1">{r.description}</span>
                 </Td>
                 <Td>
                   {r.link ? (
                     <a
+                      onClick={(e) => e.stopPropagation()}
                       className="inline-flex items-center gap-1 hover:underline"
                       style={{ color: C.primary }}
                       href={`https://${r.link}`}
@@ -2491,22 +2728,50 @@ function EvidenceView({
                   )}
                 </Td>
                 <Td>
-                  {r.status === "Approved" ? (
+                  <MatchBadge match={r.matchState} />
+                </Td>
+                <Td>
+                  {r.status === "Reviewed" ? (
                     <Badge tone="success" icon={<CheckCircle size={11} />}>
-                      Approved
+                      Reviewed
                     </Badge>
                   ) : (
                     <Badge tone="warning" icon={<Clock size={11} />}>
-                      Pending
+                      Pending Review
                     </Badge>
                   )}
                 </Td>
+                {showArchived && (
+                  <Td className="whitespace-nowrap" style={{ color: C.slate }}>{r.archivedDate ?? "-"}</Td>
+                )}
+                {showArchived && (
+                  <Td>
+                    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => onRestore(r.id)}
+                        className="px-2 py-1 rounded text-xs font-semibold inline-flex items-center gap-1 hover:bg-[#F4F5F7]"
+                        style={{ color: C.primary }}
+                        title="Restore"
+                      >
+                        <ArchiveRestore size={12} /> Restore
+                      </button>
+                      <button
+                        onClick={() => setConfirmDelete(r)}
+                        className="px-2 py-1 rounded text-xs font-semibold inline-flex items-center gap-1 hover:bg-[#FFEBE6]"
+                        style={{ color: C.red }}
+                        title="Permanently Delete"
+                      >
+                        <Trash2 size={12} /> Delete
+                      </button>
+                    </div>
+                  </Td>
+                )}
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={8} className="text-center py-12 text-sm" style={{ color: C.subtle }}>
-                  No evidence matches your filters.
+                <td colSpan={showArchived ? 8 : 6} className="text-center py-12 text-sm" style={{ color: C.subtle }}>
+                  {showArchived ? "No archived evidence." : "No evidence matches your filters."}
                 </td>
               </tr>
             )}
@@ -2514,7 +2779,30 @@ function EvidenceView({
         </table>
       </div>
     </Card>
+    <AnimatePresence>
+      {confirmDelete && (
+        <ConfirmDialog
+          destructive
+          title="Permanently delete evidence?"
+          description={`"${confirmDelete.title}" will be permanently removed. This action cannot be undone.`}
+          confirmLabel="Delete permanently"
+          onCancel={() => setConfirmDelete(null)}
+          onConfirm={() => {
+            onPermanentDelete(confirmDelete.id);
+            setConfirmDelete(null);
+          }}
+        />
+      )}
+    </AnimatePresence>
+    </>
   );
+}
+
+function MatchBadge({ match }: { match: EvidenceMatch }) {
+  if (match === "Yes") return <Badge tone="success" icon={<CheckCircle2 size={11} />}>Match: Yes</Badge>;
+  if (match === "No") return <Badge tone="danger" icon={<X size={11} />}>Match: No</Badge>;
+  if (match === "Somewhat") return <Badge tone="warning" icon={<AlertCircle size={11} />}>Somewhat</Badge>;
+  return <Badge tone="neutral">Not Set</Badge>;
 }
 
 function Th({ children, className = "" }: { children: React.ReactNode; className?: string }) {
@@ -4546,14 +4834,19 @@ function FrameworkSettings() {
 function EvidenceSlideover({
   item,
   onClose,
-  onDelete,
+  onSave,
+  onArchive,
 }: {
   item: EvidenceItem;
   onClose: () => void;
-  onDelete: (id: string) => void;
+  onSave: (updated: EvidenceItem) => void;
+  onArchive: (id: string) => void;
 }) {
-  const [rating, setRating] = useState<number>(4);
-  const scale = EFFECTIVENESS_SCALE[rating - 1];
+  const [draft, setDraft] = useState<EvidenceItem>(item);
+  const [confirmArchive, setConfirmArchive] = useState(false);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(item);
+  const update = <K extends keyof EvidenceItem>(k: K, v: EvidenceItem[K]) =>
+    setDraft((d) => ({ ...d, [k]: v }));
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -4584,19 +4877,12 @@ function EvidenceSlideover({
             </div>
             <div className="flex items-center gap-1">
               <button
-                className="p-1.5 rounded hover:bg-[#F4F5F7]"
-                style={{ color: C.slate }}
-                title="Edit"
-              >
-                <Edit2 size={16} />
-              </button>
-              <button
-                onClick={() => onDelete(item.id)}
+                onClick={() => setConfirmArchive(true)}
                 className="p-1.5 rounded hover:bg-[#FFEBE6]"
-                style={{ color: C.red }}
-                title="Delete"
+                style={{ color: C.slate }}
+                title="Archive evidence"
               >
-                <Trash2 size={16} />
+                <Archive size={16} />
               </button>
               <button
                 onClick={onClose}
@@ -4607,27 +4893,24 @@ function EvidenceSlideover({
               </button>
             </div>
           </div>
-          <div className="text-xl font-bold mt-2 leading-snug" style={{ color: C.navy }}>
-            {item.title}
-          </div>
+          <input
+            value={draft.title}
+            onChange={(e) => update("title", e.target.value)}
+            className="text-xl font-bold mt-2 leading-snug w-full bg-transparent outline-none border border-transparent hover:border-[#DFE1E6] focus:border-[#0052CC] focus:bg-white rounded px-1 -mx-1 py-0.5"
+            style={{ color: C.navy }}
+          />
           <div className="flex items-center gap-3 mt-3 text-xs" style={{ color: C.subtle }}>
             <span className="flex items-center gap-1.5">
               <Calendar size={12} />
               {item.date}
             </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-1 h-1 rounded-full" style={{ background: C.subtle }} />
-              {item.source}
-            </span>
-            {item.status === "Approved" ? (
-              <Badge tone="success" icon={<CheckCircle size={11} />}>
-                Approved
-              </Badge>
+            <SourceChip source={draft.source} />
+            {draft.status === "Reviewed" ? (
+              <Badge tone="success" icon={<CheckCircle size={11} />}>Reviewed</Badge>
             ) : (
-              <Badge tone="warning" icon={<Clock size={11} />}>
-                Pending
-              </Badge>
+              <Badge tone="warning" icon={<Clock size={11} />}>Pending Review</Badge>
             )}
+            <MatchBadge match={draft.matchState} />
           </div>
         </div>
 
@@ -4637,9 +4920,32 @@ function EvidenceSlideover({
             <div className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: C.subtle }}>
               Competency Mapping
             </div>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <Badge tone="info">{item.competency}</Badge>
-              <Badge tone="neutral">{item.category}</Badge>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Competency</div>
+                <Select value={draft.competency} onChange={(e) => update("competency", e.target.value)}>
+                  {COMPETENCIES.map((c) => <option key={c}>{c}</option>)}
+                </Select>
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Category</div>
+                <Select value={draft.category} onChange={(e) => update("category", e.target.value)}>
+                  {["Technical", "Leadership", "Delivery", "Objective"].map((c) => <option key={c}>{c}</option>)}
+                </Select>
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Source</div>
+                <Select value={draft.source} onChange={(e) => update("source", e.target.value)}>
+                  {["Bitbucket", "GitHub", "GitLab", "Jira", "Slack", "Teams", "Confluence", "Figma", "Trello", "Excel", "PowerPoint", "Word"].map((s) => <option key={s}>{s}</option>)}
+                </Select>
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Review Status</div>
+                <Select value={draft.status} onChange={(e) => update("status", e.target.value as EvidenceStatus)}>
+                  <option>Pending Review</option>
+                  <option>Reviewed</option>
+                </Select>
+              </div>
             </div>
           </section>
 
@@ -4647,12 +4953,16 @@ function EvidenceSlideover({
             <div className="flex items-center gap-2 mb-2">
               <AlignLeft size={14} style={{ color: C.slate }} />
               <div className="text-sm font-bold" style={{ color: C.navy }}>
-                Full Reflection
+                Description & Reflection
               </div>
             </div>
-            <div className="text-sm leading-relaxed" style={{ color: C.slate }}>
-              {item.description}
-            </div>
+            <textarea
+              value={draft.description}
+              onChange={(e) => update("description", e.target.value)}
+              rows={5}
+              className="w-full text-sm rounded border px-3 py-2 outline-none focus:ring-2"
+              style={{ borderColor: C.border, color: C.slate }}
+            />
           </section>
 
           <section>
@@ -4662,90 +4972,69 @@ function EvidenceSlideover({
                 Links & Artifacts
               </div>
             </div>
-            {item.link ? (
-              <a
-                href={`https://${item.link}`}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center justify-between px-3 py-2 rounded border hover:border-[#0052CC] transition-colors"
-                style={{ borderColor: C.border }}
-              >
-                <span className="text-sm" style={{ color: C.navy }}>
-                  {item.link}
-                </span>
-                <ExternalLink size={14} style={{ color: C.primary }} />
-              </a>
-            ) : (
-              <div className="text-xs" style={{ color: C.subtle }}>
-                No links attached.
-              </div>
-            )}
+            <div className="flex gap-2">
+              <Input
+                value={draft.link}
+                onChange={(e) => update("link", e.target.value)}
+                placeholder="example.com/path or full URL"
+                icon={<LinkIcon size={14} />}
+              />
+              {draft.link && (
+                <GhostBtn
+                  onClick={() => {
+                    const u = /^https?:\/\//i.test(draft.link) ? draft.link : `https://${draft.link}`;
+                    window.open(u, "_blank", "noopener");
+                  }}
+                >
+                  <ExternalLink size={12} /> Open
+                </GhostBtn>
+              )}
+            </div>
+          </section>
+
+          <section>
+            <div className="flex items-center gap-2 mb-2">
+              <FileCheck2 size={14} style={{ color: C.slate }} />
+              <div className="text-sm font-bold" style={{ color: C.navy }}>Competency Match</div>
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              {(["Yes", "Somewhat", "No", "Unset"] as EvidenceMatch[]).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => update("matchState", m)}
+                  className="px-2 py-1.5 rounded border text-xs font-semibold transition-colors"
+                  style={{
+                    borderColor: draft.matchState === m ? C.primary : C.border,
+                    background: draft.matchState === m ? C.primarySoft : "#fff",
+                    color: draft.matchState === m ? C.primary : C.slate,
+                  }}
+                >
+                  {m === "Unset" ? "Not Set" : m}
+                </button>
+              ))}
+            </div>
+            <div className="text-[11px] mt-1.5" style={{ color: C.subtle }}>
+              Confirmed during 1-on-1 sync. "Somewhat" means the evidence needs rephrasing or more context.
+            </div>
           </section>
 
           <section>
             <div className="flex items-center gap-2 mb-2">
               <MessageSquare size={14} style={{ color: C.slate }} />
-              <div className="text-sm font-bold" style={{ color: C.navy }}>
-                Manager Assessment
-              </div>
+              <div className="text-sm font-bold" style={{ color: C.navy }}>Manager Assessment</div>
             </div>
-            {item.status === "Approved" ? (
-              <div
-                className="p-4 rounded border space-y-3"
-                style={{ borderColor: C.border, background: C.bg }}
-              >
-                <div>
-                  <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: C.subtle }}>
-                    Effectiveness Rating
-                  </div>
-                  <Select value={String(rating)} onChange={(e) => setRating(Number(e.target.value))}>
-                    {EFFECTIVENESS_SCALE.map((s) => (
-                      <option key={s.value} value={s.value}>
-                        {s.value} &mdash; {s.label}
-                      </option>
-                    ))}
-                  </Select>
-                  <div className="mt-2 flex items-center gap-2">
-                    <Badge tone={scale.tone}>{rating} / 5</Badge>
-                    <span className="text-sm font-semibold" style={{ color: C.navy }}>
-                      {scale.label}
-                    </span>
-                  </div>
-                  <div className="mt-2 flex gap-1">
-                    {EFFECTIVENESS_SCALE.map((s) => (
-                      <div
-                        key={s.value}
-                        title={`${s.value}: ${s.label}`}
-                        className="flex-1 h-1.5 rounded-full"
-                        style={{
-                          background: s.value <= rating ? C.green : C.border,
-                        }}
-                      />
-                    ))}
-                  </div>
-                  <div className="mt-1 text-[10px]" style={{ color: C.subtle }}>
-                    1: Limited &middot; 2: Somewhat &middot; 3: Fully &middot; 4: Highly &middot; 5: Extremely
-                  </div>
-                </div>
-                <div className="pt-3 border-t" style={{ borderColor: C.border }}>
-                  <div className="text-xs font-semibold mb-1" style={{ color: C.navy }}>
-                    Alex Morgan &mdash; Oct 12
-                  </div>
-                  <div className="text-sm leading-relaxed" style={{ color: C.slate }}>
-                    Strong example of cross-team coordination. Tag this for the L4 architecture
-                    criterion in your packet.
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div
-                className="p-3 rounded border text-xs flex items-center gap-2"
-                style={{ borderColor: C.border, background: C.bg, color: C.subtle }}
-              >
-                <Clock size={12} />
-                Awaiting manager review &mdash; rating will appear here once submitted.
-              </div>
-            )}
+            <textarea
+              value={draft.managerNotes}
+              onChange={(e) => update("managerNotes", e.target.value)}
+              rows={5}
+              placeholder="Manager corroborates context, asks for more detail, suggests rewording, or links related artifacts. No ratings here; ratings happen in the periodic Reviews & Reports assessment."
+              className="w-full text-sm rounded border px-3 py-2 outline-none focus:ring-2"
+              style={{ borderColor: C.border, color: C.slate, background: C.bg }}
+            />
+            <div className="flex items-start gap-2 mt-2 p-2 rounded text-[11px]" style={{ background: "#DEEBFF", color: "#0747A6" }}>
+              <Info size={12} className="mt-0.5 shrink-0" />
+              <span>Feedback only. Ratings are captured in the periodic competency assessment under Reviews & Reports.</span>
+            </div>
           </section>
         </div>
 
@@ -4754,12 +5043,26 @@ function EvidenceSlideover({
           style={{ borderColor: C.border, background: C.bg }}
         >
           <GhostBtn onClick={onClose}>Close</GhostBtn>
-          <PrimaryBtn>
-            <Edit2 size={14} />
-            Edit Evidence
+          <PrimaryBtn onClick={() => onSave(draft)} disabled={!dirty}>
+            <Save size={14} />
+            Save Changes
           </PrimaryBtn>
         </div>
       </motion.div>
+      <AnimatePresence>
+        {confirmArchive && (
+          <ConfirmDialog
+            title="Archive this evidence?"
+            description="Archiving removes the item from the active log. You can restore or permanently delete it from the View Archived tab."
+            confirmLabel="Archive"
+            onCancel={() => setConfirmArchive(false)}
+            onConfirm={() => {
+              setConfirmArchive(false);
+              onArchive(item.id);
+            }}
+          />
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
@@ -4791,7 +5094,7 @@ function ReportView({
   onStartReview: () => void;
   onOpenHistory: () => void;
 }) {
-  const approved = evidence.filter((e) => e.status === "Approved");
+  const approved = evidence.filter((e) => e.status === "Reviewed" && !e.isArchived);
   const completed = objectives.filter((o) => o.status === "Completed");
   const upcoming = objectives.filter((o) => o.status !== "Completed");
 
