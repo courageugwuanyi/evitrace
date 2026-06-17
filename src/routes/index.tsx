@@ -1073,7 +1073,10 @@ function EvitraceApp() {
         title: item.title,
         description: "Auto-captured and mapped from " + item.source,
         link: "",
-        status: "Pending" as const,
+        status: "Pending Review" as const,
+                  matchState: "Unset" as const,
+                  managerNotes: "",
+                  isArchived: false,
       },
       ...e,
     ]);
@@ -1181,7 +1184,10 @@ function EvitraceApp() {
                           title: target.title,
                           description: target.notes ?? "Completed objective summary",
                           link: "",
-                          status: "Pending" as const,
+                          status: "Pending Review" as const,
+                  matchState: "Unset" as const,
+                  managerNotes: "",
+                  isArchived: false,
                         },
                         ...e,
                       ]);
@@ -1245,7 +1251,10 @@ function EvitraceApp() {
                   title,
                   description: reflection || "Manually captured reflection",
                   link,
-                  status: "Pending" as const,
+                  status: "Pending Review" as const,
+                  matchState: "Unset" as const,
+                  managerNotes: "",
+                  isArchived: false,
                 },
                 ...e,
               ]);
@@ -1303,7 +1312,10 @@ function EvitraceApp() {
                     title: o.title,
                     description: o.notes ?? "Completed objective summary",
                     link: "",
-                    status: "Pending" as const,
+                    status: "Pending Review" as const,
+                  matchState: "Unset" as const,
+                  managerNotes: "",
+                  isArchived: false,
                   },
                   ...e,
                 ]);
@@ -2583,7 +2595,7 @@ function EvidenceView({
                   )}
                 </Td>
                 <Td>
-                  {r.status === "Approved" ? (
+                  {r.status === "Reviewed" ? (
                     <Badge tone="success" icon={<CheckCircle size={11} />}>
                       Approved
                     </Badge>
@@ -4711,7 +4723,7 @@ function EvidenceSlideover({
               <span className="w-1 h-1 rounded-full" style={{ background: C.subtle }} />
               {item.source}
             </span>
-            {item.status === "Approved" ? (
+            {item.status === "Reviewed" ? (
               <Badge tone="success" icon={<CheckCircle size={11} />}>
                 Approved
               </Badge>
@@ -4781,7 +4793,7 @@ function EvidenceSlideover({
                 Manager Assessment
               </div>
             </div>
-            {item.status === "Approved" ? (
+            {item.status === "Reviewed" ? (
               <div
                 className="p-4 rounded border space-y-3"
                 style={{ borderColor: C.border, background: C.bg }}
@@ -4883,7 +4895,7 @@ function ReportView({
   onStartReview: () => void;
   onOpenHistory: () => void;
 }) {
-  const approved = evidence.filter((e) => e.status === "Approved");
+  const approved = evidence.filter((e) => e.status === "Reviewed");
   const completed = objectives.filter((o) => o.status === "Completed");
   const upcoming = objectives.filter((o) => o.status !== "Completed");
 
