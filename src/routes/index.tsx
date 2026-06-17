@@ -58,6 +58,11 @@ import {
   ArchiveRestore,
   RotateCcw,
   Eye,
+  PanelLeftClose,
+  PanelLeft,
+  Menu,
+  CloudUpload,
+  Loader2,
 } from "lucide-react";
 import {
   Radar,
