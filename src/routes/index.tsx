@@ -3608,7 +3608,7 @@ function ObjectiveSlideover({
           </div>
 
           {/* Objective Statement */}
-          {objective.statement && (
+          {(objective.statement || isEditable) && (
             <section
               className="p-4 rounded border"
               style={{ borderColor: C.border, background: "#FAFBFC" }}
@@ -3616,19 +3616,31 @@ function ObjectiveSlideover({
               <div className="text-[11px] font-bold uppercase tracking-wider mb-1.5" style={{ color: C.subtle }}>
                 Objective Statement
               </div>
-              <div className="text-sm leading-relaxed" style={{ color: C.navy }}>
-                {objective.statement}
-              </div>
-              {objective.dateAuthored && (
-                <div className="text-[11px] mt-2" style={{ color: C.subtle }}>
-                  Authored {objective.dateAuthored}
+              {isEditable ? (
+                <Textarea
+                  rows={3}
+                  value={statement}
+                  onChange={(e) => setStatement(e.target.value)}
+                  placeholder="Describe what you intend to achieve and why it matters."
+                />
+              ) : (
+                <div className="text-sm leading-relaxed" style={{ color: C.navy }}>
+                  {statement || <span style={{ color: C.subtle }}>No statement.</span>}
                 </div>
               )}
+              <div className="flex items-center justify-between mt-2 gap-3 flex-wrap">
+                {objective.dateAuthored && (
+                  <div className="text-[11px]" style={{ color: C.subtle }}>
+                    Authored {objective.dateAuthored} - Deadline {objective.due}
+                  </div>
+                )}
+                <CountdownBadge due={objective.due} />
+              </div>
             </section>
           )}
 
           {/* Success Criteria - Learn / Demonstrate / Share */}
-          {objective.successCriteria && (
+          {(criteria || isEditable) && (
             <section>
               <div className="flex items-center gap-2 mb-3">
                 <Target size={14} style={{ color: C.slate }} />
@@ -3639,17 +3651,36 @@ function ObjectiveSlideover({
               <div className="space-y-4">
                 {(
                   [
-                    { key: "learn", label: "Learn", icon: BookOpen, tone: "info" as const },
+                    { key: "learn" as const, label: "Learn", icon: BookOpen, tone: "info" as const, evidenceLabel: "Materials Used", evidencePlaceholder: "Link to docs, videos, courses", criteriaPlaceholder: "What will you learn?" },
                     {
-                      key: "demonstrate",
+                      key: "demonstrate" as const,
                       label: "Demonstrate",
                       icon: Wrench,
                       tone: "warning" as const,
+                      evidenceLabel: "Evidence",
+                      evidencePlaceholder: "Link to PR, code snippet, doc",
+                      criteriaPlaceholder: "How will you apply what you learned?",
                     },
-                    { key: "share", label: "Share", icon: Share2, tone: "success" as const },
+                    { key: "share" as const, label: "Share", icon: Share2, tone: "success" as const, evidenceLabel: "Presentation Artifacts", evidencePlaceholder: "Link to slides, YouTube, doc", criteriaPlaceholder: "How will you teach others?" },
                   ] as const
-                ).map(({ key, label, icon: Icon, tone }) => {
-                  const rows = objective.successCriteria![key];
+                ).map(({ key, label, icon: Icon, tone, evidenceLabel, evidencePlaceholder, criteriaPlaceholder }) => {
+                  const rows = criteria[key] ?? [];
+                  if (isEditable) {
+                    return (
+                      <div key={key} className="rounded border p-3" style={{ borderColor: C.border }}>
+                        <CriteriaSection
+                          title={label}
+                          icon={Icon}
+                          tone={tone}
+                          evidenceLabel={evidenceLabel}
+                          evidencePlaceholder={evidencePlaceholder}
+                          rows={rows}
+                          onChange={(next) => setCriteria((c) => ({ ...c, [key]: next }))}
+                          criteriaPlaceholder={criteriaPlaceholder}
+                        />
+                      </div>
+                    );
+                  }
                   return (
                     <div
                       key={key}
@@ -3684,11 +3715,28 @@ function ObjectiveSlideover({
                                 Evidence: {r.evidence}
                               </div>
                             </div>
-                            <Badge tone={r.done ? "success" : "neutral"}>
-                              {r.done ? "Done" : "Open"}
-                            </Badge>
+                            {r.evidence && /^https?:\/\//i.test(r.evidence) ? (
+                              <button
+                                onClick={() => window.open(r.evidence, "_blank", "noopener")}
+                                className="text-[11px] font-semibold px-2 py-1 rounded border inline-flex items-center gap-1 hover:bg-[#DEEBFF]"
+                                style={{ borderColor: C.border, color: C.primary }}
+                                title="Open evidence link"
+                              >
+                                <ExternalLink size={11} />
+                                Open
+                              </button>
+                            ) : (
+                              <Badge tone={r.done ? "success" : "neutral"}>
+                                {r.done ? "Done" : "Open"}
+                              </Badge>
+                            )}
                           </div>
                         ))}
+                        {rows.length === 0 && (
+                          <div className="px-4 py-3 text-xs" style={{ color: C.subtle }}>
+                            No criteria added.
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
