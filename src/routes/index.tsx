@@ -3756,19 +3756,46 @@ function ObjectiveSlideover({
             </div>
             <div className="space-y-2">
               {links.map((l, i) => (
-                <a
+                <div
                   key={i}
-                  href={l.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center justify-between px-3 py-2 rounded border hover:border-[#0052CC] transition-colors"
+                  className="flex items-center justify-between px-3 py-2 rounded border"
                   style={{ borderColor: C.border }}
                 >
-                  <span className="text-sm" style={{ color: C.navy }}>
-                    {l.label}
-                  </span>
-                  <ExternalLink size={14} style={{ color: C.primary }} />
-                </a>
+                  {isEditable ? (
+                    <Input
+                      value={l.label}
+                      onChange={(e) =>
+                        setLinks((arr) => arr.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x)))
+                      }
+                      placeholder="Label"
+                    />
+                  ) : (
+                    <span className="text-sm" style={{ color: C.navy }}>
+                      {l.label}
+                    </span>
+                  )}
+                  <div className="flex items-center gap-1 ml-2">
+                    <button
+                      onClick={() => window.open(l.url, "_blank", "noopener")}
+                      className="text-[11px] font-semibold px-2 py-1 rounded border inline-flex items-center gap-1 hover:bg-[#DEEBFF]"
+                      style={{ borderColor: C.border, color: C.primary }}
+                      title="Open link"
+                    >
+                      <ExternalLink size={11} />
+                      Open
+                    </button>
+                    {isEditable && (
+                      <button
+                        onClick={() => setLinks((arr) => arr.filter((_, idx) => idx !== i))}
+                        className="p-1.5 rounded hover:bg-[#FFEBE6]"
+                        style={{ color: C.red }}
+                        title="Remove"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
               ))}
               {links.length === 0 && (
                 <div className="text-xs" style={{ color: C.subtle }}>
