@@ -2477,16 +2477,23 @@ type EvidenceItem = (typeof initialEvidence)[number];
 function EvidenceView({
   rows,
   onOpenRow,
+  onPermanentDelete,
+  onRestore,
 }: {
   rows: typeof initialEvidence;
   onOpenRow: (r: EvidenceItem) => void;
+  onPermanentDelete: (id: string) => void;
+  onRestore: (id: string) => void;
 }) {
   const [q, setQ] = useState("");
   const [comp, setComp] = useState("All");
   const [status, setStatus] = useState("All");
   const [source, setSource] = useState("All");
+  const [showArchived, setShowArchived] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<EvidenceItem | null>(null);
 
-  const filtered = rows.filter(
+  const visible = rows.filter((r) => (showArchived ? r.isArchived : !r.isArchived));
+  const filtered = visible.filter(
     (r) =>
       (q === "" || r.title.toLowerCase().includes(q.toLowerCase())) &&
       (comp === "All" || r.competency === comp) &&
@@ -2495,6 +2502,25 @@ function EvidenceView({
   );
 
   return (
+    <>
+    <div className="flex items-center justify-end mb-3">
+      <div className="inline-flex rounded border overflow-hidden" style={{ borderColor: C.border }}>
+        <button
+          onClick={() => setShowArchived(false)}
+          className="px-3 py-1.5 text-xs font-semibold inline-flex items-center gap-1.5"
+          style={{ background: !showArchived ? C.primarySoft : "#fff", color: !showArchived ? C.primary : C.slate }}
+        >
+          <TableProperties size={12} /> Active Log
+        </button>
+        <button
+          onClick={() => setShowArchived(true)}
+          className="px-3 py-1.5 text-xs font-semibold inline-flex items-center gap-1.5 border-l"
+          style={{ background: showArchived ? C.primarySoft : "#fff", color: showArchived ? C.primary : C.slate, borderColor: C.border }}
+        >
+          <Archive size={12} /> View Archived ({rows.filter((r) => r.isArchived).length})
+        </button>
+      </div>
+    </div>
     <Card className="overflow-hidden">
       <div className="p-4 border-b flex items-center gap-2 flex-wrap" style={{ borderColor: C.border }}>
         <div className="w-72">
@@ -2519,19 +2545,22 @@ function EvidenceView({
         </Select>
         <Select icon={<Filter size={14} />} value={status} onChange={(e) => setStatus(e.target.value)}>
           <option>All</option>
-          <option>Pending</option>
-          <option>Approved</option>
+          <option>Pending Review</option>
+          <option>Reviewed</option>
         </Select>
         <Select icon={<Filter size={14} />} value={source} onChange={(e) => setSource(e.target.value)}>
           <option>All</option>
+          <option>Bitbucket</option>
           <option>Jira</option>
           <option>GitHub</option>
+          <option>GitLab</option>
           <option>Slack</option>
-          <option>Manual Capture</option>
+          <option>Teams</option>
+          <option>Confluence</option>
         </Select>
         <div className="ml-auto flex items-center gap-3">
           <div className="text-xs" style={{ color: C.subtle }}>
-            {filtered.length} of {rows.length} items
+            {filtered.length} of {visible.length} items
           </div>
           <GhostBtn>
             <Download size={14} />
@@ -2541,46 +2570,44 @@ function EvidenceView({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm min-w-[960px]">
           <thead style={{ background: "#F4F5F7", color: C.subtle }}>
             <tr className="text-left text-[11px] uppercase tracking-wider">
               <Th>Date</Th>
               <Th>Source</Th>
-              <Th>Category</Th>
               <Th>Competency</Th>
               <Th>Title</Th>
-              <Th>Description</Th>
               <Th>Link</Th>
+              <Th>Match</Th>
               <Th>Status</Th>
+              {showArchived && <Th>Archived</Th>}
+              {showArchived && <Th>Actions</Th>}
             </tr>
           </thead>
           <tbody>
             {filtered.map((r) => (
               <tr
                 key={r.id}
-                onClick={() => onOpenRow(r)}
-                className="border-t hover:bg-[#FAFBFC] transition-colors cursor-pointer"
+                onClick={() => !showArchived && onOpenRow(r)}
+                className={`border-t hover:bg-[#FAFBFC] transition-colors ${showArchived ? "" : "cursor-pointer"}`}
                 style={{ borderColor: C.border }}
               >
                 <Td className="whitespace-nowrap" style={{ color: C.slate }}>
                   {r.date}
                 </Td>
                 <Td>
-                  <Badge tone="neutral">{r.source}</Badge>
+                  <SourceChip source={r.source} />
                 </Td>
-                <Td style={{ color: C.slate }}>{r.category}</Td>
                 <Td>
                   <Badge tone="info">{r.competency}</Badge>
                 </Td>
-                <Td className="font-semibold" style={{ color: C.navy }}>
+                <Td className="font-semibold max-w-xs" style={{ color: C.navy }}>
                   {r.title}
-                </Td>
-                <Td style={{ color: C.slate }} className="max-w-sm">
-                  <span className="line-clamp-1">{r.description}</span>
                 </Td>
                 <Td>
                   {r.link ? (
                     <a
+                      onClick={(e) => e.stopPropagation()}
                       className="inline-flex items-center gap-1 hover:underline"
                       style={{ color: C.primary }}
                       href={`https://${r.link}`}
@@ -2595,22 +2622,50 @@ function EvidenceView({
                   )}
                 </Td>
                 <Td>
+                  <MatchBadge match={r.matchState} />
+                </Td>
+                <Td>
                   {r.status === "Reviewed" ? (
                     <Badge tone="success" icon={<CheckCircle size={11} />}>
-                      Approved
+                      Reviewed
                     </Badge>
                   ) : (
                     <Badge tone="warning" icon={<Clock size={11} />}>
-                      Pending
+                      Pending Review
                     </Badge>
                   )}
                 </Td>
+                {showArchived && (
+                  <Td className="whitespace-nowrap" style={{ color: C.slate }}>{r.archivedDate ?? "-"}</Td>
+                )}
+                {showArchived && (
+                  <Td>
+                    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        onClick={() => onRestore(r.id)}
+                        className="px-2 py-1 rounded text-xs font-semibold inline-flex items-center gap-1 hover:bg-[#F4F5F7]"
+                        style={{ color: C.primary }}
+                        title="Restore"
+                      >
+                        <ArchiveRestore size={12} /> Restore
+                      </button>
+                      <button
+                        onClick={() => setConfirmDelete(r)}
+                        className="px-2 py-1 rounded text-xs font-semibold inline-flex items-center gap-1 hover:bg-[#FFEBE6]"
+                        style={{ color: C.red }}
+                        title="Permanently Delete"
+                      >
+                        <Trash2 size={12} /> Delete
+                      </button>
+                    </div>
+                  </Td>
+                )}
               </tr>
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={8} className="text-center py-12 text-sm" style={{ color: C.subtle }}>
-                  No evidence matches your filters.
+                <td colSpan={showArchived ? 8 : 6} className="text-center py-12 text-sm" style={{ color: C.subtle }}>
+                  {showArchived ? "No archived evidence." : "No evidence matches your filters."}
                 </td>
               </tr>
             )}
@@ -2618,7 +2673,30 @@ function EvidenceView({
         </table>
       </div>
     </Card>
+    <AnimatePresence>
+      {confirmDelete && (
+        <ConfirmDialog
+          destructive
+          title="Permanently delete evidence?"
+          description={`"${confirmDelete.title}" will be permanently removed. This action cannot be undone.`}
+          confirmLabel="Delete permanently"
+          onCancel={() => setConfirmDelete(null)}
+          onConfirm={() => {
+            onPermanentDelete(confirmDelete.id);
+            setConfirmDelete(null);
+          }}
+        />
+      )}
+    </AnimatePresence>
+    </>
   );
+}
+
+function MatchBadge({ match }: { match: EvidenceMatch }) {
+  if (match === "Yes") return <Badge tone="success" icon={<CheckCircle2 size={11} />}>Match: Yes</Badge>;
+  if (match === "No") return <Badge tone="danger" icon={<X size={11} />}>Match: No</Badge>;
+  if (match === "Somewhat") return <Badge tone="warning" icon={<AlertCircle size={11} />}>Somewhat</Badge>;
+  return <Badge tone="neutral">Not Set</Badge>;
 }
 
 function Th({ children, className = "" }: { children: React.ReactNode; className?: string }) {
