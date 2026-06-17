@@ -1695,7 +1695,7 @@ function TopHeader({
   }
   return (
     <header
-      className="h-16 sticky top-0 z-30 flex items-center justify-between gap-3 px-4 md:px-8 border-b print-hide"
+      className="h-16 sticky top-0 z-30 flex items-center justify-between gap-3 px-4 md:px-8 border-b print-hide print:hidden"
       style={{ background: C.card, borderColor: C.border }}
     >
       <div className="flex items-center gap-2 min-w-0">
