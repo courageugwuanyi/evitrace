@@ -1362,126 +1362,210 @@ function EvitraceApp() {
 /*                        SHELL                                 */
 /* ============================================================ */
 
-function Sidebar({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
-  const nav: { id: Tab; label: string; sub: string; icon: React.ComponentType<{ size?: number }> }[] = [
+function Sidebar({
+  tab,
+  setTab,
+  collapsed,
+  onToggleCollapse,
+  mobileOpen,
+  onCloseMobile,
+}: {
+  tab: Tab;
+  setTab: (t: Tab) => void;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
+  mobileOpen: boolean;
+  onCloseMobile: () => void;
+}) {
+  const mainNav: { id: Tab; label: string; sub: string; icon: React.ComponentType<{ size?: number }> }[] = [
     { id: "dashboard", label: "Dashboard", sub: "Daily Actions", icon: LayoutDashboard },
-    { id: "radar", label: "Promotion Readiness", sub: "Assessment & Gaps", icon: TrendingUp },
     { id: "evidence", label: "Evidence Log", sub: "Data Table", icon: TableProperties },
     { id: "objectives", label: "Objectives", sub: "Skill Gap Planning", icon: Target },
+    { id: "radar", label: "Promotion Readiness", sub: "Assessment & Gaps", icon: TrendingUp },
     { id: "report", label: "Reviews & Reports", sub: "Archive & 1-on-1 Prep", icon: FileText },
-    { id: "settings", label: "Settings", sub: "App & Profile", icon: SettingsIcon },
   ];
-  return (
+  const settingsItem = { id: "settings" as Tab, label: "Settings", sub: "App & Profile", icon: SettingsIcon };
+
+  const NavButton = ({ n }: { n: typeof mainNav[number] }) => {
+    const active = tab === n.id;
+    const Icon = n.icon;
+    return (
+      <button
+        key={n.id}
+        onClick={() => setTab(n.id)}
+        title={collapsed ? n.label : undefined}
+        className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} py-2.5 rounded text-left transition-colors`}
+        style={{
+          background: active ? C.primarySoft : "transparent",
+          color: active ? C.primary : C.slate,
+        }}
+        onMouseEnter={(e) => {
+          if (!active) e.currentTarget.style.background = "#F4F5F7";
+        }}
+        onMouseLeave={(e) => {
+          if (!active) e.currentTarget.style.background = "transparent";
+        }}
+      >
+        <Icon size={18} />
+        {!collapsed && (
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold">{n.label}</div>
+            <div className="text-[11px]" style={{ color: active ? C.primary : C.subtle }}>
+              {n.sub}
+            </div>
+          </div>
+        )}
+      </button>
+    );
+  };
+
+  const DesktopAside = (
     <aside
-      className="hidden lg:flex fixed inset-y-0 left-0 z-40 w-64 h-screen border-r flex-col print-hide"
+      className={`hidden lg:flex fixed inset-y-0 left-0 z-40 ${collapsed ? "w-16" : "w-64"} h-screen border-r flex-col print-hide transition-[width] duration-200`}
       style={{ background: C.card, borderColor: C.border }}
     >
-      <div className="h-16 px-5 flex items-center gap-2 border-b" style={{ borderColor: C.border }}>
+      <div
+        className={`h-16 ${collapsed ? "px-2 justify-center" : "px-5"} flex items-center gap-2 border-b`}
+        style={{ borderColor: C.border }}
+      >
         <div
           className="w-8 h-8 rounded flex items-center justify-center"
           style={{ background: C.primary }}
         >
           <RadarIcon size={18} color="#fff" />
         </div>
-        <div className="leading-tight">
-          <div className="text-[15px] font-bold tracking-tight" style={{ color: C.navy }}>
-            Evitrace
+        {!collapsed && (
+          <div className="leading-tight">
+            <div className="text-[15px] font-bold tracking-tight" style={{ color: C.navy }}>
+              Evitrace
+            </div>
+            <div className="text-[10px] uppercase tracking-wider" style={{ color: C.subtle }}>
+              Promotion Radar
+            </div>
           </div>
-          <div className="text-[10px] uppercase tracking-wider" style={{ color: C.subtle }}>
-            Promotion Radar
-          </div>
-        </div>
+        )}
       </div>
 
-      <nav className="flex-1 p-3 space-y-1">
-        {nav.map((n) => {
-          const active = tab === n.id;
-          const Icon = n.icon;
-          return (
-            <button
-              key={n.id}
-              onClick={() => setTab(n.id)}
-              className="w-full flex items-start gap-3 px-3 py-2.5 rounded text-left transition-colors group"
-              style={{
-                background: active ? C.primarySoft : "transparent",
-                color: active ? C.primary : C.slate,
-              }}
-              onMouseEnter={(e) => {
-                if (!active) e.currentTarget.style.background = "#F4F5F7";
-              }}
-              onMouseLeave={(e) => {
-                if (!active) e.currentTarget.style.background = "transparent";
-              }}
-            >
-              <Icon size={18} />
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold">{n.label}</div>
-                <div
-                  className="text-[11px]"
-                  style={{ color: active ? C.primary : C.subtle }}
-                >
-                  {n.sub}
-                </div>
-              </div>
-            </button>
-          );
-        })}
+      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+        {mainNav.map((n) => <NavButton key={n.id} n={n} />)}
       </nav>
 
-      <div className="p-3 border-t" style={{ borderColor: C.border }}>
-        <Card className="p-3">
-          <div className="flex items-center justify-between mb-2">
-            <div className="text-xs font-semibold" style={{ color: C.navy }}>
-              Promotion to L4
+      <div className="p-3 border-t space-y-2" style={{ borderColor: C.border }}>
+        <NavButton n={settingsItem} />
+        {!collapsed && (
+          <div className="flex items-center gap-2 px-1 pt-1">
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white"
+              style={{ background: "#5243AA" }}
+            >
+              JM
             </div>
-            <span className="text-xs font-bold" style={{ color: C.primary }}>
-              68%
-            </span>
-          </div>
-          <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "#EBECF0" }}>
-            <div className="h-full rounded-full" style={{ width: "68%", background: C.primary }} />
-          </div>
-          <div className="mt-2 text-[11px]" style={{ color: C.subtle }}>
-            5 evidence items shy of target
-          </div>
-        </Card>
-
-        <div className="flex items-center gap-2 mt-3 px-1">
-          <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white"
-            style={{ background: "#5243AA" }}
-          >
-            JM
-          </div>
-          <div className="leading-tight">
-            <div className="text-xs font-semibold" style={{ color: C.navy }}>
-              Jordan Mills
-            </div>
-            <div className="text-[11px]" style={{ color: C.subtle }}>
-              Senior Engineer L3
+            <div className="leading-tight">
+              <div className="text-xs font-semibold" style={{ color: C.navy }}>
+                Jordan Mills
+              </div>
+              <div className="text-[11px]" style={{ color: C.subtle }}>
+                Senior Engineer L3
+              </div>
             </div>
           </div>
-        </div>
+        )}
+        <button
+          onClick={onToggleCollapse}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          className={`w-full flex items-center ${collapsed ? "justify-center" : "justify-end"} gap-2 px-2 py-2 rounded text-xs font-medium hover:bg-[#F4F5F7]`}
+          style={{ color: C.slate }}
+        >
+          {collapsed ? <PanelLeft size={16} /> : <><span>Collapse</span><PanelLeftClose size={16} /></>}
+        </button>
       </div>
     </aside>
   );
+
+  return (
+    <>
+      {DesktopAside}
+      {/* Mobile drawer */}
+      <AnimatePresence>
+        {mobileOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 z-50 lg:hidden print-hide"
+            style={{ background: "rgba(9, 30, 66, 0.45)" }}
+            onClick={onCloseMobile}
+          >
+            <motion.aside
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              onClick={(e) => e.stopPropagation()}
+              className="absolute top-0 left-0 h-full w-72 max-w-[85vw] flex flex-col border-r"
+              style={{ background: C.card, borderColor: C.border }}
+            >
+              <div className="h-16 px-5 flex items-center justify-between border-b" style={{ borderColor: C.border }}>
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded flex items-center justify-center" style={{ background: C.primary }}>
+                    <RadarIcon size={18} color="#fff" />
+                  </div>
+                  <div className="text-[15px] font-bold tracking-tight" style={{ color: C.navy }}>
+                    Evitrace
+                  </div>
+                </div>
+                <button onClick={onCloseMobile} className="p-1.5 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
+                  <X size={18} />
+                </button>
+              </div>
+              <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+                {mainNav.map((n) => <NavButton key={n.id} n={n} />)}
+              </nav>
+              <div className="p-3 border-t" style={{ borderColor: C.border }}>
+                <NavButton n={settingsItem} />
+              </div>
+            </motion.aside>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
+  );
 }
 
-function TopHeader({ title, onCapture }: { title: string; onCapture: () => void }) {
+function TopHeader({
+  title,
+  onCapture,
+  onMenuClick,
+}: {
+  title: string;
+  onCapture: () => void;
+  onMenuClick: () => void;
+}) {
   return (
     <header
-      className="h-16 sticky top-0 z-30 flex items-center justify-between px-8 border-b print-hide"
+      className="h-16 sticky top-0 z-30 flex items-center justify-between gap-3 px-4 md:px-8 border-b print-hide"
       style={{ background: C.card, borderColor: C.border }}
     >
-      <h1 className="text-xl font-bold tracking-tight" style={{ color: C.navy }}>
-        {title}
-      </h1>
-      <div className="flex items-center gap-3">
-        <div className="w-72">
+      <div className="flex items-center gap-2 min-w-0">
+        <button
+          onClick={onMenuClick}
+          className="lg:hidden p-2 rounded hover:bg-[#F4F5F7] shrink-0"
+          style={{ color: C.slate }}
+          aria-label="Open menu"
+        >
+          <Menu size={20} />
+        </button>
+        <h1 className="text-base md:text-xl font-bold tracking-tight truncate" style={{ color: C.navy }}>
+          {title}
+        </h1>
+      </div>
+      <div className="flex items-center gap-2 md:gap-3 shrink-0">
+        <div className="hidden md:block w-72">
           <Input placeholder="Search evidence, objectives, people…" icon={<Search size={14} />} />
         </div>
         <button
-          className="w-9 h-9 rounded flex items-center justify-center hover:bg-[#F4F5F7] relative"
+          className="w-9 h-9 rounded flex items-center justify-center hover:bg-[#F4F5F7] relative shrink-0"
           style={{ color: C.slate }}
         >
           <Bell size={18} />
@@ -1492,7 +1576,8 @@ function TopHeader({ title, onCapture }: { title: string; onCapture: () => void 
         </button>
         <PrimaryBtn onClick={onCapture}>
           <Plus size={16} />
-          Capture Evidence
+          <span className="hidden sm:inline">Capture Evidence</span>
+          <span className="sm:hidden">Capture</span>
         </PrimaryBtn>
       </div>
     </header>
