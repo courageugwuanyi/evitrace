@@ -2637,6 +2637,212 @@ function ObjectiveCard({
 }
 
 /* ============================================================ */
+/*           HELPERS: DATES & COUNTDOWN BADGE                   */
+/* ============================================================ */
+
+function parseDateLoose(s?: string): Date | null {
+  if (!s) return null;
+  const cleaned = s.replace(/^Complete by\s+/i, "");
+  const d = new Date(cleaned);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function weeksBetween(from: Date, to: Date) {
+  const ms = to.getTime() - from.getTime();
+  return Math.ceil(ms / (1000 * 60 * 60 * 24 * 7));
+}
+
+function CountdownBadge({ due }: { due?: string }) {
+  const d = parseDateLoose(due);
+  if (!d) return null;
+  const weeks = weeksBetween(new Date(), d);
+  if (weeks < 0)
+    return (
+      <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-red-100 text-red-800">
+        Overdue by {Math.abs(weeks)} wk
+      </span>
+    );
+  if (weeks === 0)
+    return (
+      <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-amber-100 text-amber-800">
+        Due this week
+      </span>
+    );
+  if (weeks <= 1)
+    return (
+      <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-amber-100 text-amber-800">
+        Last week remaining
+      </span>
+    );
+  return (
+    <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700">
+      {weeks} weeks remaining
+    </span>
+  );
+}
+
+/* ============================================================ */
+/*           OVERLAY: CONFIRM DIALOG                            */
+/* ============================================================ */
+
+function ConfirmDialog({
+  title,
+  description,
+  confirmLabel = "Confirm",
+  cancelLabel = "Cancel",
+  destructive,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  description: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  destructive?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <Backdrop onClose={onCancel}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.96 }}
+        transition={{ duration: 0.15 }}
+        className="bg-white rounded-lg shadow-2xl w-full max-w-md border"
+        style={{ borderColor: C.border }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-5">
+          <div className="flex items-start gap-3">
+            {destructive ? (
+              <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 bg-red-100">
+                <AlertTriangle size={18} className="text-red-600" />
+              </div>
+            ) : (
+              <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 bg-amber-100">
+                <AlertCircle size={18} className="text-amber-600" />
+              </div>
+            )}
+            <div className="flex-1">
+              <div className="text-base font-bold" style={{ color: C.navy }}>
+                {title}
+              </div>
+              <div className="text-sm mt-1.5 leading-relaxed" style={{ color: C.slate }}>
+                {description}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="px-5 py-3 border-t flex items-center justify-end gap-2" style={{ borderColor: C.border, background: C.bg }}>
+          <GhostBtn onClick={onCancel}>{cancelLabel}</GhostBtn>
+          <button
+            onClick={onConfirm}
+            className="px-3 py-1.5 rounded text-sm font-semibold text-white transition-colors"
+            style={{ background: destructive ? C.red : C.primary }}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </motion.div>
+    </Backdrop>
+  );
+}
+
+/* ============================================================ */
+/*           ARCHIVED OBJECTIVES TABLE                          */
+/* ============================================================ */
+
+function ArchivedObjectivesTable({
+  items,
+  onRestore,
+  onDelete,
+}: {
+  items: Objective[];
+  onRestore: (o: Objective) => void;
+  onDelete: (o: Objective) => void;
+}) {
+  if (items.length === 0) {
+    return (
+      <Card className="p-12">
+        <div className="flex flex-col items-center text-center">
+          <div
+            className="w-12 h-12 rounded-full flex items-center justify-center mb-3"
+            style={{ background: C.bg }}
+          >
+            <Archive size={20} style={{ color: C.subtle }} />
+          </div>
+          <div className="text-base font-bold" style={{ color: C.navy }}>
+            No archived objectives
+          </div>
+          <div className="text-sm mt-1" style={{ color: C.subtle }}>
+            Objectives you archive will appear here.
+          </div>
+        </div>
+      </Card>
+    );
+  }
+  return (
+    <Card className="overflow-hidden">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-[11px] font-semibold uppercase tracking-wider border-b" style={{ background: C.bg, borderColor: C.border, color: C.subtle }}>
+            <Th>Objective</Th>
+            <Th>Category</Th>
+            <Th>Authored</Th>
+            <Th>Archived</Th>
+            <Th className="text-right">Actions</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((o) => (
+            <tr key={o.id} className="border-b last:border-0 hover:bg-[#FAFBFC]" style={{ borderColor: C.border }}>
+              <Td>
+                <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.subtle }}>
+                  {o.id}
+                </div>
+                <div className="line-clamp-2 font-medium" style={{ color: C.navy }}>
+                  {o.title}
+                </div>
+              </Td>
+              <Td>
+                <Badge tone="info">{o.competency}</Badge>
+              </Td>
+              <Td className="whitespace-nowrap" style={{ color: C.slate }}>
+                {o.dateAuthored ?? "-"}
+              </Td>
+              <Td className="whitespace-nowrap" style={{ color: C.slate }}>
+                {o.archivedDate ?? "-"}
+              </Td>
+              <Td className="text-right">
+                <div className="inline-flex items-center gap-1">
+                  <button
+                    onClick={() => onRestore(o)}
+                    title="Restore to active board"
+                    className="p-1.5 rounded hover:bg-[#DEEBFF]"
+                    style={{ color: C.primary }}
+                  >
+                    <ArchiveRestore size={15} />
+                  </button>
+                  <button
+                    onClick={() => onDelete(o)}
+                    title="Permanently delete"
+                    className="p-1.5 rounded hover:bg-[#FFEBE6]"
+                    style={{ color: C.red }}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Card>
+  );
+}
+
+/* ============================================================ */
 /*               OVERLAY: CAPTURE MODAL                         */
 /* ============================================================ */
 
