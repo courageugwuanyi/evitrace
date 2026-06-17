@@ -66,6 +66,15 @@ import {
   Loader2,
 } from "lucide-react";
 import {
+  Slack,
+  Gitlab,
+  Trello,
+  Figma,
+  FileSpreadsheet,
+  Presentation,
+  GitBranch,
+} from "lucide-react";
+import {
   Radar,
   RadarChart,
   PolarGrid,
