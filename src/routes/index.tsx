@@ -1114,30 +1114,43 @@ function EvitraceApp() {
           <ObjectiveSlideover
             objective={openObjective}
             onClose={() => setOpenObjective(null)}
-            onComplete={(o) => {
-              setObjectives((x) =>
-                x.map((it) => (it.id === o.id ? { ...it, status: "Completed" as const } : it)),
-              );
-              setEvidence((e) => [
-                {
-                  id: `EV-${300 + e.length}`,
-                  date: new Date().toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "2-digit",
-                    year: "numeric",
-                  }),
-                  source: "Manual Capture",
-                  category: "Objective",
-                  competency: o.competency,
-                  title: o.title,
-                  description: o.notes ?? "Completed objective summary",
-                  link: "",
-                  status: "Pending" as const,
-                },
-                ...e,
-              ]);
+            onSave={(o) => {
+              setObjectives((x) => x.map((it) => (it.id === o.id ? o : it)));
+              setOpenObjective(o);
+              flash("Objective updated");
+            }}
+            onChangeStatus={(o, next) => {
+              const updated = { ...o, status: next };
+              setObjectives((x) => x.map((it) => (it.id === o.id ? updated : it)));
+              setOpenObjective(updated);
+              if (next === "Completed") {
+                setEvidence((e) => [
+                  {
+                    id: `EV-${300 + e.length}`,
+                    date: new Date().toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "2-digit",
+                      year: "numeric",
+                    }),
+                    source: "Manual Capture",
+                    category: "Objective",
+                    competency: o.competency,
+                    title: o.title,
+                    description: o.notes ?? "Completed objective summary",
+                    link: "",
+                    status: "Pending" as const,
+                  },
+                  ...e,
+                ]);
+                flash("Objective completed and added to evidence");
+              } else if (next === "In Progress") {
+                flash("Objective approved and moved to In Progress");
+              }
+            }}
+            onArchive={(o) => {
+              setObjectives((x) => x.filter((it) => it.id !== o.id));
               setOpenObjective(null);
-              flash("Objective completed and added to evidence");
+              flash("Objective archived");
             }}
           />
         )}
