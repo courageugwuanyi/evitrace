@@ -5154,7 +5154,13 @@ function EvidenceSlideover({
           style={{ borderColor: C.border, background: C.bg }}
         >
           <GhostBtn onClick={onClose}>Close</GhostBtn>
-          <PrimaryBtn onClick={() => onSave(draft)} disabled={!dirty}>
+          <PrimaryBtn
+            onClick={() => {
+              onSave(draft);
+              onClose();
+            }}
+            disabled={!dirty}
+          >
             <Save size={14} />
             Save Changes
           </PrimaryBtn>
