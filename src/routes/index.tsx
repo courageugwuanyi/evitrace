@@ -4986,7 +4986,7 @@ function ReportView({
   onStartReview: () => void;
   onOpenHistory: () => void;
 }) {
-  const approved = evidence.filter((e) => e.status === "Reviewed");
+  const approved = evidence.filter((e) => e.status === "Reviewed" && !e.isArchived);
   const completed = objectives.filter((o) => o.status === "Completed");
   const upcoming = objectives.filter((o) => o.status !== "Completed");
 
