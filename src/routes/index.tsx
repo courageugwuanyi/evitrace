@@ -5336,13 +5336,13 @@ function ReportView({
               No score changes were recorded in this review.
             </div>
           ) : (
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5">
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 print:break-inside-avoid">
             {deltas.map((d) => {
               const pct = d.from === 0 ? 0 : Math.round(((d.to - d.from) / d.from) * 100);
               const width = Math.min(100, (d.to / 4) * 100);
               const positive = d.to >= d.from;
               return (
-                <div key={d.name}>
+                <div key={d.name} className="print:break-inside-avoid">
                   <div className="flex items-baseline justify-between mb-1.5">
                     <div className="text-sm font-semibold" style={{ color: C.navy }}>
                       {d.name}
@@ -5388,7 +5388,7 @@ function ReportView({
               {justification.map(({ cat, sub, q }, i) => (
                 <li
                   key={i}
-                  className="p-4 rounded border"
+                  className="p-4 rounded border print:break-inside-avoid"
                   style={{ borderColor: C.border, background: "#FFFFFF" }}
                 >
                   <div className="flex items-center gap-2 flex-wrap">
@@ -5424,7 +5424,7 @@ function ReportView({
             {highlightedEvidence.map((e) => (
               <div
                 key={e.id}
-                className="border-l-4 pl-4 py-3 pr-4 rounded-sm"
+                className="border-l-4 pl-4 py-3 pr-4 rounded-sm print:break-inside-avoid"
                 style={{ borderColor: C.primary, background: "#FAFBFC" }}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -5477,7 +5477,7 @@ function ReportView({
           >
             <ol className="space-y-2.5">
               {topics.map((t, i) => (
-                <li key={i} className="group flex items-start gap-3 text-sm" style={{ color: C.slate }}>
+                <li key={i} className="group flex items-start gap-3 text-sm print:break-inside-avoid" style={{ color: C.slate }}>
                   <span
                     className="shrink-0 w-5 h-5 rounded-full text-[11px] font-bold flex items-center justify-center"
                     style={{ background: C.primarySoft, color: C.primary }}
@@ -5576,7 +5576,7 @@ function ObjectiveColumn({
         {items.map((o) => (
           <div
             key={o.id}
-            className="p-3 rounded border"
+            className="p-3 rounded border print:break-inside-avoid"
             style={{ borderColor: C.border, background: "#FFFFFF" }}
           >
             <div className="flex items-start justify-between gap-2">
