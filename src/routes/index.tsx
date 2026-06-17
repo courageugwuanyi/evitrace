@@ -4915,7 +4915,7 @@ function EvidenceSlideover({
         </div>
 
         {/* Scrollable */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-8">
           <section>
             <div className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: C.subtle }}>
               Competency Mapping
