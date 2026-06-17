@@ -51,6 +51,10 @@ import {
   ClipboardList,
   BarChartHorizontal,
   ArrowLeft,
+  Pencil,
+  GripVertical,
+  Lock,
+  Archive,
 } from "lucide-react";
 import {
   Radar,
