@@ -1178,7 +1178,7 @@ function EvitraceApp() {
                             day: "2-digit",
                             year: "numeric",
                           }),
-                          source: "Manual Capture",
+                          source: "Bitbucket",
                           category: "Objective",
                           competency: target.competency,
                           title: target.title,
@@ -1245,7 +1245,7 @@ function EvitraceApp() {
                     day: "2-digit",
                     year: "numeric",
                   }),
-                  source: "Manual Capture",
+                  source: "Bitbucket",
                   category: "Technical",
                   competency: comps[0] ?? "Delivery",
                   title,
@@ -1306,7 +1306,7 @@ function EvitraceApp() {
                       day: "2-digit",
                       year: "numeric",
                     }),
-                    source: "Manual Capture",
+                    source: "Bitbucket",
                     category: "Objective",
                     competency: o.competency,
                     title: o.title,
@@ -2385,7 +2385,7 @@ function HierarchicalMatrix({
                       <Td className="pl-12" style={{ color: C.slate }}>
                         <div className="text-[13px] leading-snug" style={{ color: C.navy }}>{sub}</div>
                         <div className="text-[11px] mt-0.5" style={{ color: C.subtle }}>
-                          Score: {cur} &mdash; {scale.label}
+                          Score: {cur} - {scale.label}
                         </div>
                       </Td>
                       <Td style={{ color: C.slate }}>{prev}</Td>
@@ -4805,7 +4805,7 @@ function EvidenceSlideover({
                   <Select value={String(rating)} onChange={(e) => setRating(Number(e.target.value))}>
                     {EFFECTIVENESS_SCALE.map((s) => (
                       <option key={s.value} value={s.value}>
-                        {s.value} &mdash; {s.label}
+                        {s.value} - {s.label}
                       </option>
                     ))}
                   </Select>
@@ -4833,7 +4833,7 @@ function EvidenceSlideover({
                 </div>
                 <div className="pt-3 border-t" style={{ borderColor: C.border }}>
                   <div className="text-xs font-semibold mb-1" style={{ color: C.navy }}>
-                    Alex Morgan &mdash; Oct 12
+                    Alex Morgan - Oct 12
                   </div>
                   <div className="text-sm leading-relaxed" style={{ color: C.slate }}>
                     Strong example of cross-team coordination. Tag this for the L4 architecture
@@ -4847,7 +4847,7 @@ function EvidenceSlideover({
                 style={{ borderColor: C.border, background: C.bg, color: C.subtle }}
               >
                 <Clock size={12} />
-                Awaiting manager review &mdash; rating will appear here once submitted.
+                Awaiting manager review - rating will appear here once submitted.
               </div>
             )}
           </section>
