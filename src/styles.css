@@ -159,6 +159,7 @@
     padding: 0 !important;
     color: #0f172a !important;
   }
+  .print-document,
   .print-document * {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
@@ -168,9 +169,13 @@
   .print-document h3,
   .print-document p,
   .print-document li,
-  .print-document span,
-  .print-document div {
+  .print-document div,
+  .print-document span:not(.inline-flex) {
     color: #0f172a !important;
+  }
+  .print-document span.inline-flex,
+  .print-document span.inline-flex * {
+    color: inherit !important;
   }
   .print-document section,
   .print-document .rounded,
