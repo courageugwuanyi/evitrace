@@ -219,6 +219,90 @@ function subRating(cat: string, sub: string): number {
 
 /* ---------- Shared category helpers ---------- */
 const ALL_CATEGORIES = Object.keys(SUBCATEGORIES);
+
+/**
+ * Official Associate Software Engineer competency framework (per Atlassian-style
+ * assessment template). Used in the Evidence Details slide-over to map a logged
+ * artifact to a Category (competency area) and Subcategory/Question.
+ */
+const PDF_FRAMEWORK: Record<string, string[]> = {
+  "Analytical Thinking": [
+    "Identifies critical connections and patterns in information/data.",
+    "Draws logical conclusions based on in-depth analysis of information.",
+    "Recognizes causes and consequences of actions and events that are not readily apparent.",
+    "Anticipates obstacles considering next steps.",
+  ],
+  Communication: [
+    "Recalls others' main points, taking them into account in own communication.",
+    "Checks own understanding of others' communication (e.g. paraphrases, asks questions).",
+    "Elicits comments or feedback on what has been said.",
+    "Maintains continuous, open and consistent communication with others.",
+  ],
+  Teamwork: [
+    "Deals honestly and fairly with others, showing consideration and respect for individual differences.",
+    "Does own fair share of the work.",
+    "Seeks assistance from other team members, as needed.",
+    "Assists other team members.",
+    "Shares all relevant information with others.",
+  ],
+  "Languages and Frameworks": [
+    "Conversant in language's syntax.",
+    "Applies coding concepts (loops, conditional statements, etc.) to new languages.",
+    "Understands and avoids common mistakes with core libraries.",
+    "Describe what code smells are.",
+    "Critiques own code to identify areas for improvement.",
+    "Describe the differences between families of languages (e.g. compiled vs interpreted, native vs managed, garbage collected vs non-managed, etc.).",
+    "Understand the need for responsible disclosure of security vulnerabilities.",
+  ],
+  "Engineering Quality": [
+    "Performs common testing strategies to verify basic application functionality.",
+    "Follows common testing strategies and writing simple tests to ensure software meets expected quality.",
+    "Understands basic testing types and methodologies and their key differences.",
+    "Writes simple tests to test own product code and the application's functionality.",
+  ],
+  "Software Tooling": [
+    "Maintains documentation of tool usage in our products whenever necessary to keep it up-to-date.",
+    "Troubleshoot simple issues that happen to the development tools (e.g. update dependent libraries' versions, increase storage volume size with terraform, etc.).",
+    "Uses common tools (e.g. IDE, version control, build and deployment pipeline, AWS, dependency management, automated testing, etc.) to contribute to the software development process.",
+    "Explains how different tools work together in the Systems Development Life Cycle (SDLC).",
+  ],
+  "Build and Deployment": [
+    "Explains the different phases in a build system run and resolve problems in them.",
+    "Interprets build results to fix local machine build problems.",
+    "Explain what a build is and the how to deploy it to different environments.",
+  ],
+  "Engineering for User Experience": [
+    "Awareness of UX personas for the application or service in question and their purpose.",
+    "Awareness of the goals of good UX in a product/service (e.g. consistency in UI and API, ease of use, efficiency).",
+    "Describes where our software impacts on user experience (UI and API).",
+    "Improves their UX knowledge with relevant learning (e.g. Product User Experience space on 'i').",
+    "Uses a Design System (e.g. Atlassian Design Guide, Invision DSM, etc.) as directed.",
+  ],
+  "Data Management": [
+    "Awareness of several simple, data representations/formats in use for their product/project (e.g. CSV, XML, JSON, YAML). Basic understanding / use of RDBMS.",
+    "Describes a basic data-lifecycle for a product they work on.",
+    "Understands the technology stack of a typical data-management system.",
+  ],
+  Environments: [
+    "Sanitises user input using provided libraries and techniques under direction.",
+    "Awareness that their code is not the only code present in a particular system.",
+    "Support the resolution of environment specific issues.",
+    "Appreciates how environment problems may manifest.",
+    "Uses appropriate datastores with guidance.",
+  ],
+  "Organisation and Patterns": [
+    "Clarifies the difference between stateful and stateless functions/systems.",
+    "Follow and replicate design patterns in a given codebase with support.",
+    "Explains the basic principles of OOP and Functional Programming and the differences between them.",
+    "Knowledge of recursion and data structures details.",
+    "Runs time and space requirements of different algorithms/functions to avoid major performance pitfalls.",
+    "Implements simple algorithms as set out by others.",
+    "Identifies where problem statements are not clear to determine errors and raise issues appropriately.",
+    "Improves the readability of larger, more complex blocks of code.",
+  ],
+};
+const PDF_CATEGORIES = Object.keys(PDF_FRAMEWORK);
+
 function radarLabelToCategory(label: string): string {
   if (label === "Analytical") return "Analytical Thinking";
   if (label === "UX Eng") return "Engineering for UX";
@@ -2668,7 +2752,58 @@ function EvidenceView({
           <div className="text-xs" style={{ color: C.subtle }}>
             {filtered.length} of {visible.length} items
           </div>
-          <GhostBtn>
+          <GhostBtn
+            onClick={() => {
+              const header = [
+                "ID",
+                "Date",
+                "Source",
+                "Category",
+                "Competency",
+                "Title",
+                "Description",
+                "Link",
+                "Status",
+                "Match",
+                "Manager Notes",
+                "Archived",
+              ];
+              const escape = (v: unknown) => {
+                const s = v == null ? "" : String(v);
+                return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+              };
+              const csv = [
+                header.join(","),
+                ...filtered.map((r) =>
+                  [
+                    r.id,
+                    r.date,
+                    r.source,
+                    r.category,
+                    r.competency,
+                    r.title,
+                    r.description,
+                    r.link,
+                    r.status,
+                    r.matchState,
+                    r.managerNotes,
+                    r.isArchived ? "Yes" : "No",
+                  ]
+                    .map(escape)
+                    .join(","),
+                ),
+              ].join("\n");
+              const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `evidence-log-${new Date().toISOString().slice(0, 10)}.csv`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            }}
+          >
             <Download size={14} />
             Export Data
           </GhostBtn>
@@ -4923,14 +5058,43 @@ function EvidenceSlideover({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Category</div>
-                <Select value={draft.category} onChange={(e) => update("category", e.target.value)}>
-                  {["Technical", "Leadership", "Delivery", "Objective"].map((c) => <option key={c}>{c}</option>)}
+                <Select
+                  value={PDF_CATEGORIES.includes(draft.category) ? draft.category : ""}
+                  onChange={(e) => {
+                    const nextCat = e.target.value;
+                    update("category", nextCat);
+                    // Reset subcategory to the first question under the new category
+                    const firstSub = PDF_FRAMEWORK[nextCat]?.[0] ?? "";
+                    update("competency", firstSub);
+                  }}
+                >
+                  {!PDF_CATEGORIES.includes(draft.category) && (
+                    <option value="">Select a competency category…</option>
+                  )}
+                  {PDF_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
                 </Select>
               </div>
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Subcategory / Question</div>
-                <Select value={draft.competency} onChange={(e) => update("competency", e.target.value)}>
-                  {COMPETENCIES.map((c) => <option key={c}>{c}</option>)}
+                <Select
+                  value={
+                    (PDF_FRAMEWORK[draft.category] ?? []).includes(draft.competency)
+                      ? draft.competency
+                      : ""
+                  }
+                  onChange={(e) => update("competency", e.target.value)}
+                  disabled={!PDF_CATEGORIES.includes(draft.category)}
+                >
+                  {!(PDF_FRAMEWORK[draft.category] ?? []).includes(draft.competency) && (
+                    <option value="">
+                      {PDF_CATEGORIES.includes(draft.category)
+                        ? "Select a subcategory / question…"
+                        : "Pick a category first"}
+                    </option>
+                  )}
+                  {(PDF_FRAMEWORK[draft.category] ?? []).map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
                 </Select>
               </div>
             </div>
@@ -5041,7 +5205,13 @@ function EvidenceSlideover({
           style={{ borderColor: C.border, background: C.bg }}
         >
           <GhostBtn onClick={onClose}>Close</GhostBtn>
-          <PrimaryBtn onClick={() => onSave(draft)} disabled={!dirty}>
+          <PrimaryBtn
+            onClick={() => {
+              onSave(draft);
+              onClose();
+            }}
+            disabled={!dirty}
+          >
             <Save size={14} />
             Save Changes
           </PrimaryBtn>
