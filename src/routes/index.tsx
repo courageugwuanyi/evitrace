@@ -1197,7 +1197,21 @@ function EvitraceApp() {
               }
             }}
             onArchive={(o) => {
-              setObjectives((x) => x.filter((it) => it.id !== o.id));
+              setObjectives((x) =>
+                x.map((it) =>
+                  it.id === o.id
+                    ? {
+                        ...it,
+                        isArchived: true,
+                        archivedDate: new Date().toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "2-digit",
+                          year: "numeric",
+                        }),
+                      }
+                    : it,
+                ),
+              );
               setOpenObjective(null);
               flash("Objective archived");
             }}
