@@ -2893,7 +2893,8 @@ function ArchivedObjectivesTable({
   }
   return (
     <Card className="overflow-hidden">
-      <table className="w-full text-sm">
+      <div className="overflow-x-auto">
+      <table className="w-full text-sm min-w-[640px]">
         <thead>
           <tr className="text-left text-[11px] font-semibold uppercase tracking-wider border-b" style={{ background: C.bg, borderColor: C.border, color: C.subtle }}>
             <Th>Objective</Th>
