@@ -4946,7 +4946,7 @@ function EvidenceSlideover({
             <textarea
               value={draft.description}
               onChange={(e) => update("description", e.target.value)}
-              className="w-full min-h-[100px] text-sm rounded border px-3 py-2 outline-none focus:ring-2"
+              className="w-full min-h-[160px] resize-y text-sm rounded border px-3 py-2 outline-none focus:ring-2"
               style={{ borderColor: C.border, color: C.slate }}
             />
           </section>
