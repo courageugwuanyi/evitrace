@@ -2752,7 +2752,58 @@ function EvidenceView({
           <div className="text-xs" style={{ color: C.subtle }}>
             {filtered.length} of {visible.length} items
           </div>
-          <GhostBtn>
+          <GhostBtn
+            onClick={() => {
+              const header = [
+                "ID",
+                "Date",
+                "Source",
+                "Category",
+                "Competency",
+                "Title",
+                "Description",
+                "Link",
+                "Status",
+                "Match",
+                "Manager Notes",
+                "Archived",
+              ];
+              const escape = (v: unknown) => {
+                const s = v == null ? "" : String(v);
+                return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+              };
+              const csv = [
+                header.join(","),
+                ...filtered.map((r) =>
+                  [
+                    r.id,
+                    r.date,
+                    r.source,
+                    r.category,
+                    r.competency,
+                    r.title,
+                    r.description,
+                    r.link,
+                    r.status,
+                    r.matchState,
+                    r.managerNotes,
+                    r.isArchived ? "Yes" : "No",
+                  ]
+                    .map(escape)
+                    .join(","),
+                ),
+              ].join("\n");
+              const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `evidence-log-${new Date().toISOString().slice(0, 10)}.csv`;
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            }}
+          >
             <Download size={14} />
             Export Data
           </GhostBtn>
