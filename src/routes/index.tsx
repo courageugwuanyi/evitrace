@@ -1105,7 +1105,7 @@ function EvitraceApp() {
       />
 
       <div
-        className={`${sidebarCollapsed ? "lg:ml-16" : "lg:ml-64"} flex flex-col min-h-screen min-w-0 transition-[margin] duration-200`}
+        className={`${sidebarCollapsed ? "lg:ml-16" : "lg:ml-64"} flex flex-col min-h-screen min-w-0 transition-[margin] duration-200 print:ml-0`}
       >
         <TopHeader
           title={pageTitle[tab]}
