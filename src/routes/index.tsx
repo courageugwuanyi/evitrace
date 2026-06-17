@@ -1366,10 +1366,29 @@ function EvitraceApp() {
           <EvidenceSlideover
             item={openEvidence}
             onClose={() => setOpenEvidence(null)}
-            onDelete={(id: string) => {
-              setEvidence((e) => e.filter((x) => x.id !== id));
+            onSave={(updated) => {
+              setEvidence((e) => e.map((x) => (x.id === updated.id ? updated : x)));
+              setOpenEvidence(updated);
+              flash("Evidence updated");
+            }}
+            onArchive={(id) => {
+              setEvidence((e) =>
+                e.map((x) =>
+                  x.id === id
+                    ? {
+                        ...x,
+                        isArchived: true,
+                        archivedDate: new Date().toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "2-digit",
+                          year: "numeric",
+                        }),
+                      }
+                    : x,
+                ),
+              );
               setOpenEvidence(null);
-              flash("Evidence deleted");
+              flash("Evidence archived");
             }}
           />
         )}
