@@ -51,6 +51,10 @@ import {
   ClipboardList,
   BarChartHorizontal,
   ArrowLeft,
+  Pencil,
+  GripVertical,
+  Lock,
+  Archive,
 } from "lucide-react";
 import {
   Radar,
@@ -702,7 +706,12 @@ const initialInbox = [
   },
 ];
 
-type SuccessCriterion = { criteria: string; evidence: string; done?: boolean };
+type SuccessCriterion = {
+  criteria: string;
+  evidence: string;
+  attachments?: { label: string; url: string }[];
+  done?: boolean;
+};
 
 type Objective = {
   id: string;
@@ -1016,6 +1025,36 @@ function EvitraceApp() {
                   items={objectives}
                   onOpen={setOpenObjective}
                   onCreate={() => setShowCreateObjective(true)}
+                  onMove={(id, status) => {
+                    const target = objectives.find((o) => o.id === id);
+                    if (!target || target.status === status || target.status === "Completed") return;
+                    setObjectives((x) =>
+                      x.map((it) => (it.id === id ? { ...it, status } : it)),
+                    );
+                    if (status === "Completed") {
+                      setEvidence((e) => [
+                        {
+                          id: `EV-${300 + e.length}`,
+                          date: new Date().toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "2-digit",
+                            year: "numeric",
+                          }),
+                          source: "Manual Capture",
+                          category: "Objective",
+                          competency: target.competency,
+                          title: target.title,
+                          description: target.notes ?? "Completed objective summary",
+                          link: "",
+                          status: "Pending" as const,
+                        },
+                        ...e,
+                      ]);
+                      flash("Objective completed and added to evidence");
+                    } else {
+                      flash(`Moved to ${status}`);
+                    }
+                  }}
                 />
               )}
               {tab === "report" && (
@@ -1105,30 +1144,43 @@ function EvitraceApp() {
           <ObjectiveSlideover
             objective={openObjective}
             onClose={() => setOpenObjective(null)}
-            onComplete={(o) => {
-              setObjectives((x) =>
-                x.map((it) => (it.id === o.id ? { ...it, status: "Completed" as const } : it)),
-              );
-              setEvidence((e) => [
-                {
-                  id: `EV-${300 + e.length}`,
-                  date: new Date().toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "2-digit",
-                    year: "numeric",
-                  }),
-                  source: "Manual Capture",
-                  category: "Objective",
-                  competency: o.competency,
-                  title: o.title,
-                  description: o.notes ?? "Completed objective summary",
-                  link: "",
-                  status: "Pending" as const,
-                },
-                ...e,
-              ]);
+            onSave={(o) => {
+              setObjectives((x) => x.map((it) => (it.id === o.id ? o : it)));
+              setOpenObjective(o);
+              flash("Objective updated");
+            }}
+            onChangeStatus={(o, next) => {
+              const updated = { ...o, status: next };
+              setObjectives((x) => x.map((it) => (it.id === o.id ? updated : it)));
+              setOpenObjective(updated);
+              if (next === "Completed") {
+                setEvidence((e) => [
+                  {
+                    id: `EV-${300 + e.length}`,
+                    date: new Date().toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "2-digit",
+                      year: "numeric",
+                    }),
+                    source: "Manual Capture",
+                    category: "Objective",
+                    competency: o.competency,
+                    title: o.title,
+                    description: o.notes ?? "Completed objective summary",
+                    link: "",
+                    status: "Pending" as const,
+                  },
+                  ...e,
+                ]);
+                flash("Objective completed and added to evidence");
+              } else if (next === "In Progress") {
+                flash("Objective approved and moved to In Progress");
+              }
+            }}
+            onArchive={(o) => {
+              setObjectives((x) => x.filter((it) => it.id !== o.id));
               setOpenObjective(null);
-              flash("Objective completed and added to evidence");
+              flash("Objective archived");
             }}
           />
         )}
@@ -2350,22 +2402,26 @@ function ObjectivesView({
   items,
   onOpen,
   onCreate,
+  onMove,
 }: {
   items: Objective[];
   onOpen: (o: Objective) => void;
   onCreate: () => void;
+  onMove: (id: string, status: Objective["status"]) => void;
 }) {
   const cols: { id: Objective["status"]; label: string; tone: "warning" | "info" | "success" }[] = [
     { id: "Pending Approval", label: "Pending Approval", tone: "warning" },
     { id: "In Progress", label: "In Progress", tone: "info" },
     { id: "Completed", label: "Completed", tone: "success" },
   ];
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [overCol, setOverCol] = useState<Objective["status"] | null>(null);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="text-sm" style={{ color: C.subtle }}>
-          Proactive goals that close competency gaps outside your daily work
+          Drag cards between columns to update status, or open one to edit.
         </div>
         <PrimaryBtn onClick={onCreate}>
           <Plus size={16} />
@@ -2376,8 +2432,26 @@ function ObjectivesView({
       <div className="grid grid-cols-3 gap-5">
         {cols.map((col) => {
           const list = items.filter((i) => i.status === col.id);
+          const isOver = overCol === col.id;
           return (
-            <div key={col.id} className="space-y-3">
+            <div
+              key={col.id}
+              className="space-y-3 rounded-lg p-2 -m-2 transition-colors"
+              style={{ background: isOver ? C.primarySoft : "transparent" }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setOverCol(col.id);
+              }}
+              onDragLeave={() => setOverCol((c) => (c === col.id ? null : c))}
+              onDrop={(e) => {
+                e.preventDefault();
+                setOverCol(null);
+                if (dragId) {
+                  onMove(dragId, col.id);
+                  setDragId(null);
+                }
+              }}
+            >
               <div className="flex items-center justify-between px-1">
                 <div className="flex items-center gap-2">
                   <Badge tone={col.tone}>{col.label}</Badge>
@@ -2388,14 +2462,24 @@ function ObjectivesView({
               </div>
               <div className="space-y-3 min-h-[200px]">
                 {list.map((o) => (
-                  <ObjectiveCard key={o.id} o={o} onOpen={() => onOpen(o)} />
+                  <ObjectiveCard
+                    key={o.id}
+                    o={o}
+                    onOpen={() => onOpen(o)}
+                    onDragStart={() => setDragId(o.id)}
+                    onDragEnd={() => {
+                      setDragId(null);
+                      setOverCol(null);
+                    }}
+                    dragging={dragId === o.id}
+                  />
                 ))}
                 {list.length === 0 && (
                   <div
                     className="border border-dashed rounded p-6 text-center text-xs"
                     style={{ borderColor: C.border, color: C.subtle }}
                   >
-                    Nothing here yet.
+                    {isOver ? "Drop to move here" : "Nothing here yet."}
                   </div>
                 )}
               </div>
@@ -2407,7 +2491,19 @@ function ObjectivesView({
   );
 }
 
-function ObjectiveCard({ o, onOpen }: { o: Objective; onOpen: () => void }) {
+function ObjectiveCard({
+  o,
+  onOpen,
+  onDragStart,
+  onDragEnd,
+  dragging,
+}: {
+  o: Objective;
+  onOpen: () => void;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
+  dragging?: boolean;
+}) {
   const statusIcon =
     o.status === "Completed" ? (
       <CheckCircle size={13} style={{ color: C.green }} />
@@ -2415,15 +2511,32 @@ function ObjectiveCard({ o, onOpen }: { o: Objective; onOpen: () => void }) {
       <Clock size={13} style={{ color: C.amber }} />
     );
   return (
-    <motion.button
+    <motion.div
       whileHover={{ y: -2 }}
       transition={{ duration: 0.15 }}
-      onClick={onOpen}
       className="w-full text-left"
+      draggable={o.status !== "Completed"}
+      onDragStart={(e) => {
+        (e as unknown as React.DragEvent).dataTransfer?.setData("text/plain", o.id);
+        onDragStart?.();
+      }}
+      onDragEnd={onDragEnd}
+      style={{ opacity: dragging ? 0.4 : 1 }}
     >
-      <Card className="p-4 hover:border-[#0052CC] transition-colors">
-        <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.subtle }}>
-          {o.id}
+      <Card
+        className="p-4 hover:border-[#0052CC] transition-colors cursor-pointer"
+        onClick={onOpen}
+      >
+        <div className="flex items-center justify-between">
+          <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.subtle }}>
+            {o.id}
+          </div>
+          {o.status !== "Completed" && (
+            <GripVertical size={14} style={{ color: C.subtle }} />
+          )}
+          {o.status === "Completed" && (
+            <Lock size={12} style={{ color: C.subtle }} />
+          )}
         </div>
         <div className="text-sm font-semibold mt-1 leading-snug" style={{ color: C.navy }}>
           {o.title}
@@ -2445,7 +2558,7 @@ function ObjectiveCard({ o, onOpen }: { o: Objective; onOpen: () => void }) {
           </span>
         </div>
       </Card>
-    </motion.button>
+    </motion.div>
   );
 }
 
@@ -2630,16 +2743,37 @@ function CreateObjectiveModal({
   const objCategories = Object.keys(SUBCATEGORIES);
   const [competency, setCompetency] = useState(objCategories[0]);
   const [subcategory, setSubcategory] = useState(SUBCATEGORIES[objCategories[0]][0]);
+  const [title, setTitle] = useState("");
+  const [statement, setStatement] = useState("");
+  const [deadline, setDeadline] = useState("");
   const [s, setS] = useState("");
   const [m, setM] = useState("");
   const [a, setA] = useState("");
   const [r, setR] = useState("");
   const [t, setT] = useState("");
+  const [learn, setLearn] = useState<SuccessCriterion[]>([
+    { criteria: "", evidence: "", attachments: [] },
+  ]);
+  const [demonstrate, setDemonstrate] = useState<SuccessCriterion[]>([
+    { criteria: "", evidence: "", attachments: [] },
+  ]);
+  const [share, setShare] = useState<SuccessCriterion[]>([
+    { criteria: "", evidence: "", attachments: [] },
+  ]);
 
   function onCatChange(v: string) {
     setCompetency(v);
     setSubcategory(SUBCATEGORIES[v][0]);
   }
+
+  const formatDate = (iso: string) =>
+    iso
+      ? new Date(iso).toLocaleDateString("en-US", {
+          month: "short",
+          day: "2-digit",
+          year: "numeric",
+        })
+      : "TBD";
 
   return (
     <Backdrop onClose={onClose}>
@@ -2668,25 +2802,59 @@ function CreateObjectiveModal({
 
         <div className="grid grid-cols-5 flex-1 overflow-hidden">
           {/* Form */}
-          <div className="col-span-3 p-6 overflow-y-auto space-y-4">
-            <Field label="Target Category">
-              <Select value={competency} onChange={(e) => onCatChange(e.target.value)}>
-                {objCategories.map((c) => (
-                  <option key={c}>{c}</option>
-                ))}
-              </Select>
-              <div className="text-[11px] mt-1.5 leading-relaxed" style={{ color: C.subtle }}>
-                {COMPETENCY_DESC[competency]}
+          <div className="col-span-3 p-6 overflow-y-auto space-y-6">
+            <div className="space-y-4">
+              <Field label="Objective Title">
+                <Input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="Short, action-oriented title"
+                />
+              </Field>
+              <Field label="Objective Statement">
+                <Textarea
+                  rows={3}
+                  value={statement}
+                  onChange={(e) => setStatement(e.target.value)}
+                  placeholder="Describe what you intend to achieve and why it matters."
+                />
+              </Field>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Deadline">
+                  <Input
+                    type="date"
+                    value={deadline}
+                    onChange={(e) => setDeadline(e.target.value)}
+                    icon={<Calendar size={14} />}
+                  />
+                </Field>
+                <Field label="Target Category">
+                  <Select value={competency} onChange={(e) => onCatChange(e.target.value)}>
+                    {objCategories.map((c) => (
+                      <option key={c}>{c}</option>
+                    ))}
+                  </Select>
+                </Field>
               </div>
-            </Field>
-            <Field label="Target Subcategory / Question">
-              <Select value={subcategory} onChange={(e) => setSubcategory(e.target.value)}>
-                {SUBCATEGORIES[competency].map((sc) => (
-                  <option key={sc}>{sc}</option>
-                ))}
-              </Select>
-            </Field>
-            <SmartField
+              <Field label="Target Subcategory / Question">
+                <Select value={subcategory} onChange={(e) => setSubcategory(e.target.value)}>
+                  {SUBCATEGORIES[competency].map((sc) => (
+                    <option key={sc}>{sc}</option>
+                  ))}
+                </Select>
+                <div className="text-[11px] mt-1.5 leading-relaxed" style={{ color: C.subtle }}>
+                  {COMPETENCY_DESC[competency]}
+                </div>
+              </Field>
+            </div>
+
+            <hr style={{ borderColor: C.border }} />
+
+            <div className="space-y-4">
+              <div className="text-xs font-bold uppercase tracking-wider" style={{ color: C.subtle }}>
+                SMART Breakdown
+              </div>
+              <SmartField
               letter="S"
               name="Specific"
               hint="Clearly state who, what action, and context. Avoid vague verbs like 'understand'."
@@ -2714,12 +2882,68 @@ function CreateObjectiveModal({
               value={r}
               onChange={setR}
             />
-            <Field label="T - Time-bound">
-              <Input type="date" value={t} onChange={(e) => setT(e.target.value)} icon={<Calendar size={14} />} />
-              <div className="text-[11px] mt-1.5" style={{ color: C.subtle }}>
-                Specific timeframe or deadline.
+              <div>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <div
+                    className="w-6 h-6 rounded flex items-center justify-center text-xs font-bold text-white"
+                    style={{ background: C.primary }}
+                  >
+                    T
+                  </div>
+                  <div className="text-sm font-semibold" style={{ color: C.navy }}>
+                    Time-bound
+                  </div>
+                </div>
+                <Input
+                  type="date"
+                  value={t}
+                  onChange={(e) => setT(e.target.value)}
+                  icon={<Calendar size={14} />}
+                />
+                <div className="text-[11px] mt-1" style={{ color: C.subtle }}>
+                  Specific timeframe or deadline.
+                </div>
               </div>
-            </Field>
+            </div>
+
+            <hr style={{ borderColor: C.border }} />
+
+            <CriteriaSection
+              title="Learn"
+              icon={BookOpen}
+              tone="info"
+              evidenceLabel="Materials Used"
+              evidencePlaceholder="Link to docs, videos, courses"
+              rows={learn}
+              onChange={setLearn}
+              criteriaPlaceholder="What will you learn?"
+            />
+
+            <hr style={{ borderColor: C.border }} />
+
+            <CriteriaSection
+              title="Demonstrate"
+              icon={Wrench}
+              tone="warning"
+              evidenceLabel="Evidence"
+              evidencePlaceholder="Link to PR, code snippet, doc"
+              rows={demonstrate}
+              onChange={setDemonstrate}
+              criteriaPlaceholder="How will you apply what you learned?"
+            />
+
+            <hr style={{ borderColor: C.border }} />
+
+            <CriteriaSection
+              title="Share"
+              icon={Share2}
+              tone="success"
+              evidenceLabel="Presentation Artifacts"
+              evidencePlaceholder="Link to slides, YouTube, doc"
+              rows={share}
+              onChange={setShare}
+              criteriaPlaceholder="How will you teach others?"
+            />
           </div>
 
           {/* Guidance */}
@@ -2777,17 +3001,28 @@ function CreateObjectiveModal({
         <div className="p-4 border-t flex items-center justify-end gap-2" style={{ borderColor: C.border }}>
           <GhostBtn onClick={onClose}>Cancel</GhostBtn>
           <PrimaryBtn
-            disabled={!s || !m}
+            disabled={!title || !statement || !deadline}
             onClick={() =>
               onSubmit({
-                title: s.slice(0, 80) || "New objective",
+                title,
                 competency,
-                due: t || "TBD",
+                due: formatDate(deadline),
+                statement,
+                dateAuthored: new Date().toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "2-digit",
+                  year: "numeric",
+                }),
                 specific: s,
                 measurable: m,
                 achievable: a,
                 relevant: r,
-                timebound: t,
+                timebound: t ? `Complete by ${formatDate(t)}` : `Complete by ${formatDate(deadline)}`,
+                successCriteria: {
+                  learn: learn.filter((x) => x.criteria.trim()),
+                  demonstrate: demonstrate.filter((x) => x.criteria.trim()),
+                  share: share.filter((x) => x.criteria.trim()),
+                },
               })
             }
           >
@@ -2833,6 +3068,90 @@ function SmartField({
   );
 }
 
+function CriteriaSection({
+  title,
+  icon: Icon,
+  tone,
+  evidenceLabel,
+  evidencePlaceholder,
+  rows,
+  onChange,
+  criteriaPlaceholder,
+}: {
+  title: string;
+  icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>;
+  tone: "info" | "warning" | "success";
+  evidenceLabel: string;
+  evidencePlaceholder: string;
+  rows: SuccessCriterion[];
+  onChange: (rows: SuccessCriterion[]) => void;
+  criteriaPlaceholder: string;
+}) {
+  const update = (i: number, patch: Partial<SuccessCriterion>) =>
+    onChange(rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const remove = (i: number) => onChange(rows.filter((_, idx) => idx !== i));
+  const add = () => onChange([...rows, { criteria: "", evidence: "", attachments: [] }]);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Icon size={14} style={{ color: C.primary }} />
+          <div className="text-sm font-bold" style={{ color: C.navy }}>
+            {title}
+          </div>
+          <Badge tone={tone}>{rows.length}</Badge>
+        </div>
+        <GhostBtn onClick={add}>
+          <Plus size={12} />
+          Add row
+        </GhostBtn>
+      </div>
+      <div className="space-y-3">
+        {rows.map((row, i) => (
+          <div
+            key={i}
+            className="p-3 rounded border space-y-2"
+            style={{ borderColor: C.border, background: "#FAFBFC" }}
+          >
+            <div className="flex items-start gap-2">
+              <div className="flex-1 space-y-2">
+                <Input
+                  value={row.criteria}
+                  onChange={(e) => update(i, { criteria: e.target.value })}
+                  placeholder={criteriaPlaceholder}
+                />
+                <Input
+                  value={row.evidence}
+                  onChange={(e) => update(i, { evidence: e.target.value })}
+                  placeholder={`${evidenceLabel}: ${evidencePlaceholder}`}
+                  icon={<LinkIcon size={12} />}
+                />
+              </div>
+              <button
+                onClick={() => remove(i)}
+                className="p-1.5 rounded hover:bg-[#FFEBE6]"
+                style={{ color: C.red }}
+                title="Remove row"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          </div>
+        ))}
+        {rows.length === 0 && (
+          <div
+            className="text-xs px-3 py-4 rounded border border-dashed text-center"
+            style={{ borderColor: C.border, color: C.subtle }}
+          >
+            No criteria added yet.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ============================================================ */
 /*       OVERLAY: OBJECTIVE DETAILS SLIDE-OVER                  */
 /* ============================================================ */
@@ -2840,17 +3159,36 @@ function SmartField({
 function ObjectiveSlideover({
   objective,
   onClose,
-  onComplete,
+  onSave,
+  onChangeStatus,
+  onArchive,
 }: {
   objective: Objective;
   onClose: () => void;
-  onComplete: (o: Objective) => void;
+  onSave: (o: Objective) => void;
+  onChangeStatus: (o: Objective, next: Objective["status"]) => void;
+  onArchive: (o: Objective) => void;
 }) {
   const [smartOpen, setSmartOpen] = useState(false);
   const [links, setLinks] = useState(objective.links ?? []);
   const [newLink, setNewLink] = useState("");
   const [notes, setNotes] = useState(objective.notes ?? "");
-  const [status, setStatus] = useState(objective.status);
+  const locked = objective.status === "Completed";
+  const [editMode, setEditMode] = useState(false);
+  const isEditable = !locked && editMode;
+
+  const nextStatus: Objective["status"] | null =
+    objective.status === "Pending Approval"
+      ? "In Progress"
+      : objective.status === "In Progress"
+        ? "Completed"
+        : null;
+  const nextLabel =
+    objective.status === "Pending Approval"
+      ? "Approve & Move to In Progress"
+      : objective.status === "In Progress"
+        ? "Mark as Completed"
+        : "";
 
   return (
     <motion.div
@@ -2880,20 +3218,58 @@ function ObjectiveSlideover({
                 {objective.id}
               </span>
             </div>
-            <button onClick={onClose} className="p-1.5 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
-              <X size={18} />
-            </button>
+            <div className="flex items-center gap-1">
+              {!locked && (
+                <>
+                  <button
+                    onClick={() => setEditMode((v) => !v)}
+                    title={editMode ? "Done editing" : "Edit"}
+                    className="p-1.5 rounded hover:bg-[#F4F5F7]"
+                    style={{ color: editMode ? C.primary : C.slate }}
+                  >
+                    <Pencil size={16} />
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (confirm("Archive this objective? This cannot be undone.")) {
+                        onArchive(objective);
+                      }
+                    }}
+                    title="Archive"
+                    className="p-1.5 rounded hover:bg-[#FFEBE6]"
+                    style={{ color: C.red }}
+                  >
+                    <Archive size={16} />
+                  </button>
+                </>
+              )}
+              <button onClick={onClose} className="p-1.5 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
+                <X size={18} />
+              </button>
+            </div>
           </div>
           <div className="text-xl font-bold mt-2 leading-snug" style={{ color: C.navy }}>
             {objective.title}
           </div>
           <div className="flex items-center gap-2 mt-3">
-            <Select value={status} onChange={(e) => setStatus(e.target.value as Objective["status"])}>
-              <option>Pending Approval</option>
-              <option>In Progress</option>
-              <option>Completed</option>
-            </Select>
+            <Badge
+              tone={
+                objective.status === "Completed"
+                  ? "success"
+                  : objective.status === "In Progress"
+                    ? "info"
+                    : "warning"
+              }
+            >
+              {locked && <Lock size={10} className="inline mr-1" />}
+              {objective.status}
+            </Badge>
             <Badge tone="info">{objective.competency}</Badge>
+            {locked && (
+              <span className="text-[11px]" style={{ color: C.subtle }}>
+                Locked - read only
+              </span>
+            )}
           </div>
         </div>
 
@@ -3063,23 +3439,25 @@ function ObjectiveSlideover({
                   No resources added yet.
                 </div>
               )}
-              <div className="flex items-center gap-2 pt-1">
-                <Input
-                  value={newLink}
-                  onChange={(e) => setNewLink(e.target.value)}
-                  placeholder="Add URL…"
-                />
-                <GhostBtn
-                  onClick={() => {
-                    if (!newLink) return;
-                    setLinks((l) => [...l, { label: newLink.replace(/^https?:\/\//, ""), url: newLink }]);
-                    setNewLink("");
-                  }}
-                >
-                  <Plus size={14} />
-                  Add
-                </GhostBtn>
-              </div>
+              {isEditable && (
+                <div className="flex items-center gap-2 pt-1">
+                  <Input
+                    value={newLink}
+                    onChange={(e) => setNewLink(e.target.value)}
+                    placeholder="Add URL..."
+                  />
+                  <GhostBtn
+                    onClick={() => {
+                      if (!newLink) return;
+                      setLinks((l) => [...l, { label: newLink.replace(/^https?:\/\//, ""), url: newLink }]);
+                      setNewLink("");
+                    }}
+                  >
+                    <Plus size={14} />
+                    Add
+                  </GhostBtn>
+                </div>
+              )}
             </div>
           </section>
 
@@ -3091,18 +3469,24 @@ function ObjectiveSlideover({
                 Evidence & Artifacts
               </div>
             </div>
-            <div
-              className="border-2 border-dashed rounded p-6 text-center cursor-pointer hover:border-[#0052CC] transition-colors"
-              style={{ borderColor: C.border }}
-            >
-              <UploadCloud size={28} className="mx-auto" style={{ color: C.primary }} />
-              <div className="text-sm font-semibold mt-2" style={{ color: C.navy }}>
-                Drop files here or click to upload
+            {isEditable ? (
+              <div
+                className="border-2 border-dashed rounded p-6 text-center cursor-pointer hover:border-[#0052CC] transition-colors"
+                style={{ borderColor: C.border }}
+              >
+                <UploadCloud size={28} className="mx-auto" style={{ color: C.primary }} />
+                <div className="text-sm font-semibold mt-2" style={{ color: C.navy }}>
+                  Drop files here or click to upload
+                </div>
+                <div className="text-xs mt-1" style={{ color: C.subtle }}>
+                  PDF, images, or code snippets
+                </div>
               </div>
-              <div className="text-xs mt-1" style={{ color: C.subtle }}>
-                PDF, images, or code snippets
+            ) : (
+              <div className="text-xs" style={{ color: C.subtle }}>
+                {locked ? "Locked - artifacts are read-only." : "Enter edit mode to upload artifacts."}
               </div>
-            </div>
+            )}
           </section>
 
           {/* Notes */}
@@ -3118,6 +3502,8 @@ function ObjectiveSlideover({
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="What are your key takeaways so far? Summarize your findings here."
+              disabled={!isEditable}
+              readOnly={!isEditable}
             />
           </section>
         </div>
@@ -3128,10 +3514,29 @@ function ObjectiveSlideover({
           style={{ borderColor: C.border, background: C.bg }}
         >
           <GhostBtn onClick={onClose}>Close</GhostBtn>
-          <PrimaryBtn onClick={() => onComplete({ ...objective, notes, links })}>
-            <CheckCircle size={16} />
-            Complete & Add to Evidence Log
-          </PrimaryBtn>
+          <div className="flex items-center gap-2">
+            {isEditable && (
+              <GhostBtn
+                onClick={() => {
+                  onSave({ ...objective, notes, links });
+                  setEditMode(false);
+                }}
+              >
+                <Save size={14} />
+                Save changes
+              </GhostBtn>
+            )}
+            {nextStatus && (
+              <PrimaryBtn
+                onClick={() =>
+                  onChangeStatus({ ...objective, notes, links }, nextStatus)
+                }
+              >
+                <CheckCircle size={16} />
+                {nextLabel}
+              </PrimaryBtn>
+            )}
+          </div>
         </div>
       </motion.div>
     </motion.div>
