@@ -2408,8 +2408,8 @@ function EvidenceView({
   );
 }
 
-function Th({ children }: { children: React.ReactNode }) {
-  return <th className="px-4 py-3 font-semibold">{children}</th>;
+function Th({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return <th className={`px-4 py-3 font-semibold ${className}`}>{children}</th>;
 }
 function Td({
   children,
