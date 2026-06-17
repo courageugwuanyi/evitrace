@@ -4199,6 +4199,13 @@ function SettingsView() {
         {section === "notifications" && <NotificationsSettings />}
         {section === "extension" && <ExtensionSettings />}
         {section === "framework" && <FrameworkSettings />}
+        <div className="flex justify-end gap-2 pt-2">
+          <GhostBtn>Cancel</GhostBtn>
+          <PrimaryBtn onClick={() => toast.success("Settings saved")}>
+            <Save size={14} />
+            Save Settings
+          </PrimaryBtn>
+        </div>
       </div>
     </div>
   );
