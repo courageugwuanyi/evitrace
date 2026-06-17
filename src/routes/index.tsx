@@ -5472,7 +5472,7 @@ function ReportView({
         <section className="mt-10 print:break-inside-avoid">
           <SectionHeading icon={<MessageSquare size={18} />} title="1-on-1 Discussion Topics" />
           <div
-            className="mt-4 p-5 rounded border"
+            className="mt-4 p-5 rounded border print:break-inside-avoid"
             style={{ background: C.bg, borderColor: C.border }}
           >
             <ol className="space-y-2.5">
