@@ -3520,9 +3520,7 @@ function ObjectiveSlideover({
                   </button>
                   <button
                     onClick={() => {
-                      if (confirm("Archive this objective? This cannot be undone.")) {
-                        onArchive(objective);
-                      }
+                      setConfirmArchive(true);
                     }}
                     title="Archive"
                     className="p-1.5 rounded hover:bg-[#FFEBE6]"
@@ -3554,6 +3552,7 @@ function ObjectiveSlideover({
               {objective.status}
             </Badge>
             <Badge tone="info">{objective.competency}</Badge>
+            <CountdownBadge due={objective.due} />
             {locked && (
               <span className="text-[11px]" style={{ color: C.subtle }}>
                 Locked - read only
