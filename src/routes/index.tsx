@@ -1679,6 +1679,20 @@ function TopHeader({
   onCapture: () => void;
   onMenuClick: () => void;
 }) {
+  const [notifs, setNotifs] = useState<{ id: string; icon: React.ComponentType<{ size?: number }>; title: string; body: string; when: string; read: boolean }[]>([
+    { id: "N-1", icon: MessageSquare, title: "Manager added feedback to EV-198", body: "Alex Morgan suggested rewording your JWT remediation evidence.", when: "12m ago", read: false },
+    { id: "N-2", icon: Sparkles, title: "Auto-captured event ready for review", body: "A new Bitbucket PR was detected and waiting in your inbox.", when: "1h ago", read: false },
+    { id: "N-3", icon: UserCheck, title: "Objective approved", body: "UX-01 was moved to In Progress after manager approval.", when: "Yesterday", read: false },
+    { id: "N-4", icon: FileCheck2, title: "Q3 assessment archived", body: "Your Q3 readiness report was saved to Reviews & Reports.", when: "3d ago", read: true },
+  ]);
+  const [open, setOpen] = useState(false);
+  const unread = notifs.filter((n) => !n.read).length;
+  function toggle() {
+    setOpen((o) => {
+      if (!o && unread > 0) setNotifs((ns) => ns.map((n) => ({ ...n, read: true })));
+      return !o;
+    });
+  }
   return (
     <header
       className="h-16 sticky top-0 z-30 flex items-center justify-between gap-3 px-4 md:px-8 border-b print-hide"
@@ -1701,16 +1715,76 @@ function TopHeader({
         <div className="hidden md:block w-72">
           <Input placeholder="Search evidence, objectives, people…" icon={<Search size={14} />} />
         </div>
-        <button
-          className="w-9 h-9 rounded flex items-center justify-center hover:bg-[#F4F5F7] relative shrink-0"
-          style={{ color: C.slate }}
-        >
-          <Bell size={18} />
-          <span
-            className="absolute top-2 right-2 w-2 h-2 rounded-full"
-            style={{ background: C.red }}
-          />
-        </button>
+        <div className="relative shrink-0">
+          <button
+            onClick={toggle}
+            aria-label="Notifications"
+            className="w-9 h-9 rounded flex items-center justify-center hover:bg-[#F4F5F7] relative"
+            style={{ color: C.slate }}
+          >
+            <Bell size={18} />
+            {unread > 0 && (
+              <span
+                className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold text-white flex items-center justify-center bg-red-500"
+              >
+                {unread}
+              </span>
+            )}
+          </button>
+          <AnimatePresence>
+            {open && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+                <motion.div
+                  initial={{ opacity: 0, y: -4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  transition={{ duration: 0.12 }}
+                  className="absolute right-0 top-11 z-40 w-[340px] max-w-[90vw] bg-white rounded-lg shadow-2xl border"
+                  style={{ borderColor: C.border }}
+                >
+                  <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: C.border }}>
+                    <div className="text-sm font-bold" style={{ color: C.navy }}>Notifications</div>
+                    <button
+                      onClick={() => setNotifs((ns) => ns.map((n) => ({ ...n, read: true })))}
+                      className="text-[11px] font-semibold hover:underline"
+                      style={{ color: C.primary }}
+                    >
+                      Mark all read
+                    </button>
+                  </div>
+                  <div className="max-h-[400px] overflow-y-auto">
+                    {notifs.length === 0 && (
+                      <div className="px-4 py-8 text-center text-xs" style={{ color: C.subtle }}>No notifications.</div>
+                    )}
+                    {notifs.map((n) => {
+                      const Icon = n.icon;
+                      return (
+                        <div
+                          key={n.id}
+                          className="px-4 py-3 border-b flex gap-3 hover:bg-[#FAFBFC]"
+                          style={{ borderColor: C.border }}
+                        >
+                          <div
+                            className="w-8 h-8 rounded flex items-center justify-center shrink-0"
+                            style={{ background: C.primarySoft, color: C.primary }}
+                          >
+                            <Icon size={14} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-semibold truncate" style={{ color: C.navy }}>{n.title}</div>
+                            <div className="text-[11px] mt-0.5 leading-snug" style={{ color: C.slate }}>{n.body}</div>
+                            <div className="text-[10px] mt-1" style={{ color: C.subtle }}>{n.when}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
+        </div>
         <PrimaryBtn onClick={onCapture}>
           <Plus size={16} />
           <span className="hidden sm:inline">Capture Evidence</span>
