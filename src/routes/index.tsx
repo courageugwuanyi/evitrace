@@ -1025,6 +1025,36 @@ function EvitraceApp() {
                   items={objectives}
                   onOpen={setOpenObjective}
                   onCreate={() => setShowCreateObjective(true)}
+                  onMove={(id, status) => {
+                    const target = objectives.find((o) => o.id === id);
+                    if (!target || target.status === status || target.status === "Completed") return;
+                    setObjectives((x) =>
+                      x.map((it) => (it.id === id ? { ...it, status } : it)),
+                    );
+                    if (status === "Completed") {
+                      setEvidence((e) => [
+                        {
+                          id: `EV-${300 + e.length}`,
+                          date: new Date().toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "2-digit",
+                            year: "numeric",
+                          }),
+                          source: "Manual Capture",
+                          category: "Objective",
+                          competency: target.competency,
+                          title: target.title,
+                          description: target.notes ?? "Completed objective summary",
+                          link: "",
+                          status: "Pending" as const,
+                        },
+                        ...e,
+                      ]);
+                      flash("Objective completed and added to evidence");
+                    } else {
+                      flash(`Moved to ${status}`);
+                    }
+                  }}
                 />
               )}
               {tab === "report" && (
