@@ -706,7 +706,12 @@ const initialInbox = [
   },
 ];
 
-type SuccessCriterion = { criteria: string; evidence: string; done?: boolean };
+type SuccessCriterion = {
+  criteria: string;
+  evidence: string;
+  attachments?: { label: string; url: string }[];
+  done?: boolean;
+};
 
 type Objective = {
   id: string;
