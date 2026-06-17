@@ -5007,14 +5007,43 @@ function EvidenceSlideover({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Category</div>
-                <Select value={draft.category} onChange={(e) => update("category", e.target.value)}>
-                  {["Technical", "Leadership", "Delivery", "Objective"].map((c) => <option key={c}>{c}</option>)}
+                <Select
+                  value={PDF_CATEGORIES.includes(draft.category) ? draft.category : ""}
+                  onChange={(e) => {
+                    const nextCat = e.target.value;
+                    update("category", nextCat);
+                    // Reset subcategory to the first question under the new category
+                    const firstSub = PDF_FRAMEWORK[nextCat]?.[0] ?? "";
+                    update("competency", firstSub);
+                  }}
+                >
+                  {!PDF_CATEGORIES.includes(draft.category) && (
+                    <option value="">Select a competency category…</option>
+                  )}
+                  {PDF_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
                 </Select>
               </div>
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Subcategory / Question</div>
-                <Select value={draft.competency} onChange={(e) => update("competency", e.target.value)}>
-                  {COMPETENCIES.map((c) => <option key={c}>{c}</option>)}
+                <Select
+                  value={
+                    (PDF_FRAMEWORK[draft.category] ?? []).includes(draft.competency)
+                      ? draft.competency
+                      : ""
+                  }
+                  onChange={(e) => update("competency", e.target.value)}
+                  disabled={!PDF_CATEGORIES.includes(draft.category)}
+                >
+                  {!(PDF_FRAMEWORK[draft.category] ?? []).includes(draft.competency) && (
+                    <option value="">
+                      {PDF_CATEGORIES.includes(draft.category)
+                        ? "Select a subcategory / question…"
+                        : "Pick a category first"}
+                    </option>
+                  )}
+                  {(PDF_FRAMEWORK[draft.category] ?? []).map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
                 </Select>
               </div>
             </div>
