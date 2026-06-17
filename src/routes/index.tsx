@@ -5255,7 +5255,7 @@ function ReportView({
             <LinkIcon size={14} />
             Copy Share Link
           </GhostBtn>
-          <PrimaryBtn onClick={exportPdf}>
+          <PrimaryBtn onClick={() => window.print()} className="print:hidden">
             <Download size={14} />
             Export to PDF
           </PrimaryBtn>
