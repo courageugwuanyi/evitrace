@@ -929,6 +929,8 @@ type Tab = "dashboard" | "radar" | "evidence" | "objectives" | "report" | "setti
 
 function EvitraceApp() {
   const [tab, setTab] = useState<Tab>("dashboard");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [evidence, setEvidence] = useState(initialEvidence);
   const [inbox, setInbox] = useState(initialInbox);
   const [radarData, setRadarData] = useState(initialRadar);
@@ -994,12 +996,28 @@ function EvitraceApp() {
 
   return (
     <div className="min-h-screen" style={{ background: C.bg, color: C.navy, fontFamily: "Inter, system-ui, sans-serif" }}>
-      <Sidebar tab={tab} setTab={setTab} />
+      <Sidebar
+        tab={tab}
+        setTab={(t) => {
+          setTab(t);
+          setMobileSidebarOpen(false);
+        }}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
+        mobileOpen={mobileSidebarOpen}
+        onCloseMobile={() => setMobileSidebarOpen(false)}
+      />
 
-      <div className="lg:ml-64 flex flex-col min-h-screen min-w-0">
-        <TopHeader title={pageTitle[tab]} onCapture={() => setShowCapture(true)} />
+      <div
+        className={`${sidebarCollapsed ? "lg:ml-16" : "lg:ml-64"} flex flex-col min-h-screen min-w-0 transition-[margin] duration-200`}
+      >
+        <TopHeader
+          title={pageTitle[tab]}
+          onCapture={() => setShowCapture(true)}
+          onMenuClick={() => setMobileSidebarOpen(true)}
+        />
 
-        <main className="flex-1 px-8 py-6 print-main">
+        <main className="flex-1 px-4 py-4 md:px-8 md:py-6 print-main">
           <AnimatePresence mode="wait">
             <motion.div
               key={tab}
