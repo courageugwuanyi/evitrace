@@ -1558,7 +1558,7 @@ function Sidebar({
 
   const DesktopAside = (
     <aside
-      className={`hidden lg:flex fixed inset-y-0 left-0 z-40 ${collapsed ? "w-16" : "w-64"} h-screen border-r flex-col print-hide transition-[width] duration-200`}
+      className={`hidden lg:flex fixed inset-y-0 left-0 z-40 ${collapsed ? "w-16" : "w-64"} h-screen border-r flex-col print-hide print:hidden transition-[width] duration-200`}
       style={{ background: C.card, borderColor: C.border }}
     >
       <div
