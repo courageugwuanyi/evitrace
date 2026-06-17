@@ -55,6 +55,9 @@ import {
   GripVertical,
   Lock,
   Archive,
+  ArchiveRestore,
+  RotateCcw,
+  Eye,
 } from "lucide-react";
 import {
   Radar,
@@ -721,6 +724,8 @@ type Objective = {
   status: "Pending Approval" | "In Progress" | "Completed";
   statement?: string;
   dateAuthored?: string;
+  isArchived?: boolean;
+  archivedDate?: string;
   specific?: string;
   measurable?: string;
   achievable?: string;
@@ -1025,6 +1030,20 @@ function EvitraceApp() {
                   items={objectives}
                   onOpen={setOpenObjective}
                   onCreate={() => setShowCreateObjective(true)}
+                  onRestore={(o) => {
+                    setObjectives((x) =>
+                      x.map((it) =>
+                        it.id === o.id
+                          ? { ...it, isArchived: false, archivedDate: undefined, status: "In Progress" as const }
+                          : it,
+                      ),
+                    );
+                    flash("Objective restored to Kanban board");
+                  }}
+                  onDelete={(o) => {
+                    setObjectives((x) => x.filter((it) => it.id !== o.id));
+                    flash("Objective permanently deleted");
+                  }}
                   onMove={(id, status) => {
                     const target = objectives.find((o) => o.id === id);
                     if (!target || target.status === status || target.status === "Completed") return;
@@ -1178,7 +1197,21 @@ function EvitraceApp() {
               }
             }}
             onArchive={(o) => {
-              setObjectives((x) => x.filter((it) => it.id !== o.id));
+              setObjectives((x) =>
+                x.map((it) =>
+                  it.id === o.id
+                    ? {
+                        ...it,
+                        isArchived: true,
+                        archivedDate: new Date().toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "2-digit",
+                          year: "numeric",
+                        }),
+                      }
+                    : it,
+                ),
+              );
               setOpenObjective(null);
               flash("Objective archived");
             }}
@@ -2375,8 +2408,8 @@ function EvidenceView({
   );
 }
 
-function Th({ children }: { children: React.ReactNode }) {
-  return <th className="px-4 py-3 font-semibold">{children}</th>;
+function Th({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return <th className={`px-4 py-3 font-semibold ${className}`}>{children}</th>;
 }
 function Td({
   children,
@@ -2403,11 +2436,15 @@ function ObjectivesView({
   onOpen,
   onCreate,
   onMove,
+  onRestore,
+  onDelete,
 }: {
   items: Objective[];
   onOpen: (o: Objective) => void;
   onCreate: () => void;
   onMove: (id: string, status: Objective["status"]) => void;
+  onRestore: (o: Objective) => void;
+  onDelete: (o: Objective) => void;
 }) {
   const cols: { id: Objective["status"]; label: string; tone: "warning" | "info" | "success" }[] = [
     { id: "Pending Approval", label: "Pending Approval", tone: "warning" },
@@ -2416,22 +2453,42 @@ function ObjectivesView({
   ];
   const [dragId, setDragId] = useState<string | null>(null);
   const [overCol, setOverCol] = useState<Objective["status"] | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<Objective | null>(null);
+
+  const active = items.filter((i) => !i.isArchived);
+  const archived = items.filter((i) => i.isArchived);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div className="text-sm" style={{ color: C.subtle }}>
-          Drag cards between columns to update status, or open one to edit.
+        <div className="flex items-center gap-3">
+          <PrimaryBtn onClick={onCreate}>
+            <Plus size={16} />
+            Create SMART Objective
+          </PrimaryBtn>
+          <div className="text-sm hidden md:block" style={{ color: C.subtle }}>
+            {showArchived
+              ? "Read-only archive of past objectives."
+              : "Drag cards between columns to update status, or open one to edit."}
+          </div>
         </div>
-        <PrimaryBtn onClick={onCreate}>
-          <Plus size={16} />
-          Create SMART Objective
-        </PrimaryBtn>
+        <GhostBtn onClick={() => setShowArchived((v) => !v)}>
+          {showArchived ? <Eye size={14} /> : <Archive size={14} />}
+          {showArchived ? `Back to Board` : `View Archived (${archived.length})`}
+        </GhostBtn>
       </div>
 
+      {showArchived ? (
+        <ArchivedObjectivesTable
+          items={archived}
+          onRestore={onRestore}
+          onDelete={(o) => setConfirmDelete(o)}
+        />
+      ) : (
       <div className="grid grid-cols-3 gap-5">
         {cols.map((col) => {
-          const list = items.filter((i) => i.status === col.id);
+          const list = active.filter((i) => i.status === col.id);
           const isOver = overCol === col.id;
           return (
             <div
@@ -2487,6 +2544,23 @@ function ObjectivesView({
           );
         })}
       </div>
+      )}
+
+      <AnimatePresence>
+        {confirmDelete && (
+          <ConfirmDialog
+            title="Permanently delete this objective?"
+            description="This action cannot be undone. All criteria, evidence links, and history for this objective will be removed."
+            confirmLabel="Yes, delete permanently"
+            destructive
+            onCancel={() => setConfirmDelete(null)}
+            onConfirm={() => {
+              onDelete(confirmDelete);
+              setConfirmDelete(null);
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -2559,6 +2633,212 @@ function ObjectiveCard({
         </div>
       </Card>
     </motion.div>
+  );
+}
+
+/* ============================================================ */
+/*           HELPERS: DATES & COUNTDOWN BADGE                   */
+/* ============================================================ */
+
+function parseDateLoose(s?: string): Date | null {
+  if (!s) return null;
+  const cleaned = s.replace(/^Complete by\s+/i, "");
+  const d = new Date(cleaned);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function weeksBetween(from: Date, to: Date) {
+  const ms = to.getTime() - from.getTime();
+  return Math.ceil(ms / (1000 * 60 * 60 * 24 * 7));
+}
+
+function CountdownBadge({ due }: { due?: string }) {
+  const d = parseDateLoose(due);
+  if (!d) return null;
+  const weeks = weeksBetween(new Date(), d);
+  if (weeks < 0)
+    return (
+      <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-red-100 text-red-800">
+        Overdue by {Math.abs(weeks)} wk
+      </span>
+    );
+  if (weeks === 0)
+    return (
+      <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-amber-100 text-amber-800">
+        Due this week
+      </span>
+    );
+  if (weeks <= 1)
+    return (
+      <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-amber-100 text-amber-800">
+        Last week remaining
+      </span>
+    );
+  return (
+    <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700">
+      {weeks} weeks remaining
+    </span>
+  );
+}
+
+/* ============================================================ */
+/*           OVERLAY: CONFIRM DIALOG                            */
+/* ============================================================ */
+
+function ConfirmDialog({
+  title,
+  description,
+  confirmLabel = "Confirm",
+  cancelLabel = "Cancel",
+  destructive,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  description: string;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  destructive?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <Backdrop onClose={onCancel}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.96 }}
+        transition={{ duration: 0.15 }}
+        className="bg-white rounded-lg shadow-2xl w-full max-w-md border"
+        style={{ borderColor: C.border }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-5">
+          <div className="flex items-start gap-3">
+            {destructive ? (
+              <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 bg-red-100">
+                <AlertTriangle size={18} className="text-red-600" />
+              </div>
+            ) : (
+              <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 bg-amber-100">
+                <AlertCircle size={18} className="text-amber-600" />
+              </div>
+            )}
+            <div className="flex-1">
+              <div className="text-base font-bold" style={{ color: C.navy }}>
+                {title}
+              </div>
+              <div className="text-sm mt-1.5 leading-relaxed" style={{ color: C.slate }}>
+                {description}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="px-5 py-3 border-t flex items-center justify-end gap-2" style={{ borderColor: C.border, background: C.bg }}>
+          <GhostBtn onClick={onCancel}>{cancelLabel}</GhostBtn>
+          <button
+            onClick={onConfirm}
+            className="px-3 py-1.5 rounded text-sm font-semibold text-white transition-colors"
+            style={{ background: destructive ? C.red : C.primary }}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </motion.div>
+    </Backdrop>
+  );
+}
+
+/* ============================================================ */
+/*           ARCHIVED OBJECTIVES TABLE                          */
+/* ============================================================ */
+
+function ArchivedObjectivesTable({
+  items,
+  onRestore,
+  onDelete,
+}: {
+  items: Objective[];
+  onRestore: (o: Objective) => void;
+  onDelete: (o: Objective) => void;
+}) {
+  if (items.length === 0) {
+    return (
+      <Card className="p-12">
+        <div className="flex flex-col items-center text-center">
+          <div
+            className="w-12 h-12 rounded-full flex items-center justify-center mb-3"
+            style={{ background: C.bg }}
+          >
+            <Archive size={20} style={{ color: C.subtle }} />
+          </div>
+          <div className="text-base font-bold" style={{ color: C.navy }}>
+            No archived objectives
+          </div>
+          <div className="text-sm mt-1" style={{ color: C.subtle }}>
+            Objectives you archive will appear here.
+          </div>
+        </div>
+      </Card>
+    );
+  }
+  return (
+    <Card className="overflow-hidden">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-[11px] font-semibold uppercase tracking-wider border-b" style={{ background: C.bg, borderColor: C.border, color: C.subtle }}>
+            <Th>Objective</Th>
+            <Th>Category</Th>
+            <Th>Authored</Th>
+            <Th>Archived</Th>
+            <Th className="text-right">Actions</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((o) => (
+            <tr key={o.id} className="border-b last:border-0 hover:bg-[#FAFBFC]" style={{ borderColor: C.border }}>
+              <Td>
+                <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.subtle }}>
+                  {o.id}
+                </div>
+                <div className="line-clamp-2 font-medium" style={{ color: C.navy }}>
+                  {o.title}
+                </div>
+              </Td>
+              <Td>
+                <Badge tone="info">{o.competency}</Badge>
+              </Td>
+              <Td className="whitespace-nowrap" style={{ color: C.slate }}>
+                {o.dateAuthored ?? "-"}
+              </Td>
+              <Td className="whitespace-nowrap" style={{ color: C.slate }}>
+                {o.archivedDate ?? "-"}
+              </Td>
+              <Td className="text-right">
+                <div className="inline-flex items-center gap-1">
+                  <button
+                    onClick={() => onRestore(o)}
+                    title="Restore to active board"
+                    className="p-1.5 rounded hover:bg-[#DEEBFF]"
+                    style={{ color: C.primary }}
+                  >
+                    <ArchiveRestore size={15} />
+                  </button>
+                  <button
+                    onClick={() => onDelete(o)}
+                    title="Permanently delete"
+                    className="p-1.5 rounded hover:bg-[#FFEBE6]"
+                    style={{ color: C.red }}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Card>
   );
 }
 
@@ -3173,9 +3453,18 @@ function ObjectiveSlideover({
   const [links, setLinks] = useState(objective.links ?? []);
   const [newLink, setNewLink] = useState("");
   const [notes, setNotes] = useState(objective.notes ?? "");
+  const [statement, setStatement] = useState(objective.statement ?? "");
+  const [criteria, setCriteria] = useState(
+    objective.successCriteria ?? { learn: [], demonstrate: [], share: [] },
+  );
   const locked = objective.status === "Completed";
   const [editMode, setEditMode] = useState(false);
   const isEditable = !locked && editMode;
+  const [confirmArchive, setConfirmArchive] = useState(false);
+
+  function buildUpdated(): Objective {
+    return { ...objective, notes, links, statement, successCriteria: criteria };
+  }
 
   const nextStatus: Objective["status"] | null =
     objective.status === "Pending Approval"
@@ -3231,9 +3520,7 @@ function ObjectiveSlideover({
                   </button>
                   <button
                     onClick={() => {
-                      if (confirm("Archive this objective? This cannot be undone.")) {
-                        onArchive(objective);
-                      }
+                      setConfirmArchive(true);
                     }}
                     title="Archive"
                     className="p-1.5 rounded hover:bg-[#FFEBE6]"
@@ -3265,6 +3552,7 @@ function ObjectiveSlideover({
               {objective.status}
             </Badge>
             <Badge tone="info">{objective.competency}</Badge>
+            <CountdownBadge due={objective.due} />
             {locked && (
               <span className="text-[11px]" style={{ color: C.subtle }}>
                 Locked - read only
@@ -3320,7 +3608,7 @@ function ObjectiveSlideover({
           </div>
 
           {/* Objective Statement */}
-          {objective.statement && (
+          {(objective.statement || isEditable) && (
             <section
               className="p-4 rounded border"
               style={{ borderColor: C.border, background: "#FAFBFC" }}
@@ -3328,19 +3616,31 @@ function ObjectiveSlideover({
               <div className="text-[11px] font-bold uppercase tracking-wider mb-1.5" style={{ color: C.subtle }}>
                 Objective Statement
               </div>
-              <div className="text-sm leading-relaxed" style={{ color: C.navy }}>
-                {objective.statement}
-              </div>
-              {objective.dateAuthored && (
-                <div className="text-[11px] mt-2" style={{ color: C.subtle }}>
-                  Authored {objective.dateAuthored}
+              {isEditable ? (
+                <Textarea
+                  rows={3}
+                  value={statement}
+                  onChange={(e) => setStatement(e.target.value)}
+                  placeholder="Describe what you intend to achieve and why it matters."
+                />
+              ) : (
+                <div className="text-sm leading-relaxed" style={{ color: C.navy }}>
+                  {statement || <span style={{ color: C.subtle }}>No statement.</span>}
                 </div>
               )}
+              <div className="flex items-center justify-between mt-2 gap-3 flex-wrap">
+                {objective.dateAuthored && (
+                  <div className="text-[11px]" style={{ color: C.subtle }}>
+                    Authored {objective.dateAuthored} - Deadline {objective.due}
+                  </div>
+                )}
+                <CountdownBadge due={objective.due} />
+              </div>
             </section>
           )}
 
           {/* Success Criteria - Learn / Demonstrate / Share */}
-          {objective.successCriteria && (
+          {(criteria || isEditable) && (
             <section>
               <div className="flex items-center gap-2 mb-3">
                 <Target size={14} style={{ color: C.slate }} />
@@ -3351,17 +3651,36 @@ function ObjectiveSlideover({
               <div className="space-y-4">
                 {(
                   [
-                    { key: "learn", label: "Learn", icon: BookOpen, tone: "info" as const },
+                    { key: "learn" as const, label: "Learn", icon: BookOpen, tone: "info" as const, evidenceLabel: "Materials Used", evidencePlaceholder: "Link to docs, videos, courses", criteriaPlaceholder: "What will you learn?" },
                     {
-                      key: "demonstrate",
+                      key: "demonstrate" as const,
                       label: "Demonstrate",
                       icon: Wrench,
                       tone: "warning" as const,
+                      evidenceLabel: "Evidence",
+                      evidencePlaceholder: "Link to PR, code snippet, doc",
+                      criteriaPlaceholder: "How will you apply what you learned?",
                     },
-                    { key: "share", label: "Share", icon: Share2, tone: "success" as const },
+                    { key: "share" as const, label: "Share", icon: Share2, tone: "success" as const, evidenceLabel: "Presentation Artifacts", evidencePlaceholder: "Link to slides, YouTube, doc", criteriaPlaceholder: "How will you teach others?" },
                   ] as const
-                ).map(({ key, label, icon: Icon, tone }) => {
-                  const rows = objective.successCriteria![key];
+                ).map(({ key, label, icon: Icon, tone, evidenceLabel, evidencePlaceholder, criteriaPlaceholder }) => {
+                  const rows = criteria[key] ?? [];
+                  if (isEditable) {
+                    return (
+                      <div key={key} className="rounded border p-3" style={{ borderColor: C.border }}>
+                        <CriteriaSection
+                          title={label}
+                          icon={Icon}
+                          tone={tone}
+                          evidenceLabel={evidenceLabel}
+                          evidencePlaceholder={evidencePlaceholder}
+                          rows={rows}
+                          onChange={(next) => setCriteria((c) => ({ ...c, [key]: next }))}
+                          criteriaPlaceholder={criteriaPlaceholder}
+                        />
+                      </div>
+                    );
+                  }
                   return (
                     <div
                       key={key}
@@ -3396,11 +3715,28 @@ function ObjectiveSlideover({
                                 Evidence: {r.evidence}
                               </div>
                             </div>
-                            <Badge tone={r.done ? "success" : "neutral"}>
-                              {r.done ? "Done" : "Open"}
-                            </Badge>
+                            {r.evidence && /^https?:\/\//i.test(r.evidence) ? (
+                              <button
+                                onClick={() => window.open(r.evidence, "_blank", "noopener")}
+                                className="text-[11px] font-semibold px-2 py-1 rounded border inline-flex items-center gap-1 hover:bg-[#DEEBFF]"
+                                style={{ borderColor: C.border, color: C.primary }}
+                                title="Open evidence link"
+                              >
+                                <ExternalLink size={11} />
+                                Open
+                              </button>
+                            ) : (
+                              <Badge tone={r.done ? "success" : "neutral"}>
+                                {r.done ? "Done" : "Open"}
+                              </Badge>
+                            )}
                           </div>
                         ))}
+                        {rows.length === 0 && (
+                          <div className="px-4 py-3 text-xs" style={{ color: C.subtle }}>
+                            No criteria added.
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -3420,19 +3756,46 @@ function ObjectiveSlideover({
             </div>
             <div className="space-y-2">
               {links.map((l, i) => (
-                <a
+                <div
                   key={i}
-                  href={l.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center justify-between px-3 py-2 rounded border hover:border-[#0052CC] transition-colors"
+                  className="flex items-center justify-between px-3 py-2 rounded border"
                   style={{ borderColor: C.border }}
                 >
-                  <span className="text-sm" style={{ color: C.navy }}>
-                    {l.label}
-                  </span>
-                  <ExternalLink size={14} style={{ color: C.primary }} />
-                </a>
+                  {isEditable ? (
+                    <Input
+                      value={l.label}
+                      onChange={(e) =>
+                        setLinks((arr) => arr.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x)))
+                      }
+                      placeholder="Label"
+                    />
+                  ) : (
+                    <span className="text-sm" style={{ color: C.navy }}>
+                      {l.label}
+                    </span>
+                  )}
+                  <div className="flex items-center gap-1 ml-2">
+                    <button
+                      onClick={() => window.open(l.url, "_blank", "noopener")}
+                      className="text-[11px] font-semibold px-2 py-1 rounded border inline-flex items-center gap-1 hover:bg-[#DEEBFF]"
+                      style={{ borderColor: C.border, color: C.primary }}
+                      title="Open link"
+                    >
+                      <ExternalLink size={11} />
+                      Open
+                    </button>
+                    {isEditable && (
+                      <button
+                        onClick={() => setLinks((arr) => arr.filter((_, idx) => idx !== i))}
+                        className="p-1.5 rounded hover:bg-[#FFEBE6]"
+                        style={{ color: C.red }}
+                        title="Remove"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </div>
+                </div>
               ))}
               {links.length === 0 && (
                 <div className="text-xs" style={{ color: C.subtle }}>
@@ -3513,12 +3876,20 @@ function ObjectiveSlideover({
           className="px-6 py-4 border-t flex items-center justify-between"
           style={{ borderColor: C.border, background: C.bg }}
         >
-          <GhostBtn onClick={onClose}>Close</GhostBtn>
+          <div className="flex items-center gap-2">
+            <GhostBtn onClick={onClose}>Close</GhostBtn>
+            {locked && (
+              <GhostBtn onClick={() => onChangeStatus(objective, "In Progress")}>
+                <RotateCcw size={14} />
+                Revert to In Progress
+              </GhostBtn>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             {isEditable && (
               <GhostBtn
                 onClick={() => {
-                  onSave({ ...objective, notes, links });
+                  onSave(buildUpdated());
                   setEditMode(false);
                 }}
               >
@@ -3529,7 +3900,7 @@ function ObjectiveSlideover({
             {nextStatus && (
               <PrimaryBtn
                 onClick={() =>
-                  onChangeStatus({ ...objective, notes, links }, nextStatus)
+                  onChangeStatus(buildUpdated(), nextStatus)
                 }
               >
                 <CheckCircle size={16} />
@@ -3539,6 +3910,21 @@ function ObjectiveSlideover({
           </div>
         </div>
       </motion.div>
+      <AnimatePresence>
+        {confirmArchive && (
+          <ConfirmDialog
+            title="Archive this objective?"
+            description="Archived objectives are removed from the Kanban board but can be restored from the Archive view. They will not be permanently deleted."
+            confirmLabel="Archive"
+            destructive
+            onCancel={() => setConfirmArchive(false)}
+            onConfirm={() => {
+              setConfirmArchive(false);
+              onArchive(objective);
+            }}
+          />
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
