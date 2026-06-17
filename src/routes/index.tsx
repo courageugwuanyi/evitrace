@@ -1142,7 +1142,20 @@ function EvitraceApp() {
                 />
               )}
               {tab === "evidence" && (
-                <EvidenceView rows={evidence} onOpenRow={setOpenEvidence} />
+                <EvidenceView
+                  rows={evidence}
+                  onOpenRow={setOpenEvidence}
+                  onPermanentDelete={(id) => {
+                    setEvidence((e) => e.filter((x) => x.id !== id));
+                    flash("Evidence permanently deleted");
+                  }}
+                  onRestore={(id) => {
+                    setEvidence((e) =>
+                      e.map((x) => (x.id === id ? { ...x, isArchived: false, archivedDate: undefined } : x)),
+                    );
+                    flash("Evidence restored to log");
+                  }}
+                />
               )}
               {tab === "objectives" && (
                 <ObjectivesView
