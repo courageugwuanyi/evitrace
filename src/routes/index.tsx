@@ -4994,7 +4994,7 @@ function EvidenceSlideover({
               <UserCheck size={14} style={{ color: C.slate }} />
               <div className="text-sm font-bold" style={{ color: C.navy }}>Manager Review</div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+            <div className="space-y-4">
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Review Status</div>
                 <Select value={draft.status} onChange={(e) => update("status", e.target.value as EvidenceStatus)}>
@@ -5022,13 +5022,13 @@ function EvidenceSlideover({
                 </div>
               </div>
             </div>
-            <div>
+            <div className="mt-4">
               <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Manager Assessment</div>
               <textarea
                 value={draft.managerNotes}
                 onChange={(e) => update("managerNotes", e.target.value)}
                 placeholder="Manager corroborates context, asks for more detail, suggests rewording, or links related artifacts."
-                className="w-full min-h-[100px] text-sm rounded border px-3 py-2 outline-none focus:ring-2"
+                className="w-full min-h-[120px] resize-y text-sm rounded border px-3 py-2 outline-none focus:ring-2"
                 style={{ borderColor: C.border, color: C.slate, background: "#fff" }}
               />
             </div>
