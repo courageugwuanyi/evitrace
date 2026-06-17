@@ -3876,12 +3876,20 @@ function ObjectiveSlideover({
           className="px-6 py-4 border-t flex items-center justify-between"
           style={{ borderColor: C.border, background: C.bg }}
         >
-          <GhostBtn onClick={onClose}>Close</GhostBtn>
+          <div className="flex items-center gap-2">
+            <GhostBtn onClick={onClose}>Close</GhostBtn>
+            {locked && (
+              <GhostBtn onClick={() => onChangeStatus(objective, "In Progress")}>
+                <RotateCcw size={14} />
+                Revert to In Progress
+              </GhostBtn>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             {isEditable && (
               <GhostBtn
                 onClick={() => {
-                  onSave({ ...objective, notes, links });
+                  onSave(buildUpdated());
                   setEditMode(false);
                 }}
               >
@@ -3892,7 +3900,7 @@ function ObjectiveSlideover({
             {nextStatus && (
               <PrimaryBtn
                 onClick={() =>
-                  onChangeStatus({ ...objective, notes, links }, nextStatus)
+                  onChangeStatus(buildUpdated(), nextStatus)
                 }
               >
                 <CheckCircle size={16} />
@@ -3902,6 +3910,21 @@ function ObjectiveSlideover({
           </div>
         </div>
       </motion.div>
+      <AnimatePresence>
+        {confirmArchive && (
+          <ConfirmDialog
+            title="Archive this objective?"
+            description="Archived objectives are removed from the Kanban board but can be restored from the Archive view. They will not be permanently deleted."
+            confirmLabel="Archive"
+            destructive
+            onCancel={() => setConfirmArchive(false)}
+            onConfirm={() => {
+              setConfirmArchive(false);
+              onArchive(objective);
+            }}
+          />
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
