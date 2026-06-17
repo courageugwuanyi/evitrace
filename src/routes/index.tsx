@@ -724,6 +724,8 @@ type Objective = {
   status: "Pending Approval" | "In Progress" | "Completed";
   statement?: string;
   dateAuthored?: string;
+  isArchived?: boolean;
+  archivedDate?: string;
   specific?: string;
   measurable?: string;
   achievable?: string;
