@@ -4899,7 +4899,7 @@ function EvidenceSlideover({
             className="text-xl font-bold mt-2 leading-snug w-full bg-transparent outline-none border border-transparent hover:border-[#DFE1E6] focus:border-[#0052CC] focus:bg-white rounded px-1 -mx-1 py-0.5"
             style={{ color: C.navy }}
           />
-          <div className="flex items-center gap-3 mt-3 text-xs" style={{ color: C.subtle }}>
+          <div className="flex flex-wrap items-center gap-2 mt-3 text-xs" style={{ color: C.subtle }}>
             <span className="flex items-center gap-1.5">
               <Calendar size={12} />
               {item.date}
@@ -4917,16 +4917,10 @@ function EvidenceSlideover({
         {/* Scrollable */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
           <section>
-            <div className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: C.subtle }}>
+            <div className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: C.subtle }}>
               Competency Mapping
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Competency</div>
-                <Select value={draft.competency} onChange={(e) => update("competency", e.target.value)}>
-                  {COMPETENCIES.map((c) => <option key={c}>{c}</option>)}
-                </Select>
-              </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Category</div>
                 <Select value={draft.category} onChange={(e) => update("category", e.target.value)}>
@@ -4934,16 +4928,9 @@ function EvidenceSlideover({
                 </Select>
               </div>
               <div>
-                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Source</div>
-                <Select value={draft.source} onChange={(e) => update("source", e.target.value)}>
-                  {["Bitbucket", "GitHub", "GitLab", "Jira", "Slack", "Teams", "Confluence", "Figma", "Trello", "Excel", "PowerPoint", "Word"].map((s) => <option key={s}>{s}</option>)}
-                </Select>
-              </div>
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Review Status</div>
-                <Select value={draft.status} onChange={(e) => update("status", e.target.value as EvidenceStatus)}>
-                  <option>Pending Review</option>
-                  <option>Reviewed</option>
+                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Subcategory / Question</div>
+                <Select value={draft.competency} onChange={(e) => update("competency", e.target.value)}>
+                  {COMPETENCIES.map((c) => <option key={c}>{c}</option>)}
                 </Select>
               </div>
             </div>
@@ -4959,8 +4946,7 @@ function EvidenceSlideover({
             <textarea
               value={draft.description}
               onChange={(e) => update("description", e.target.value)}
-              rows={5}
-              className="w-full text-sm rounded border px-3 py-2 outline-none focus:ring-2"
+              className="w-full min-h-[100px] text-sm rounded border px-3 py-2 outline-none focus:ring-2"
               style={{ borderColor: C.border, color: C.slate }}
             />
           </section>
@@ -4972,71 +4958,83 @@ function EvidenceSlideover({
                 Links & Artifacts
               </div>
             </div>
-            <div className="flex gap-2">
-              <Input
-                value={draft.link}
-                onChange={(e) => update("link", e.target.value)}
-                placeholder="example.com/path or full URL"
-                icon={<LinkIcon size={14} />}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Source</div>
+                <Select value={draft.source} onChange={(e) => update("source", e.target.value)}>
+                  {["Bitbucket", "GitHub", "GitLab", "Jira", "Slack", "Teams", "Confluence", "Figma", "Trello", "Excel", "PowerPoint", "Word"].map((s) => <option key={s}>{s}</option>)}
+                </Select>
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Link</div>
+                <div className="flex gap-2">
+                  <Input
+                    value={draft.link}
+                    onChange={(e) => update("link", e.target.value)}
+                    placeholder="example.com/path or full URL"
+                    icon={<LinkIcon size={14} />}
+                  />
+                  {draft.link && (
+                    <GhostBtn
+                      onClick={() => {
+                        const u = /^https?:\/\//i.test(draft.link) ? draft.link : `https://${draft.link}`;
+                        window.open(u, "_blank", "noopener");
+                      }}
+                    >
+                      <ExternalLink size={12} /> Open
+                    </GhostBtn>
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+            <div className="flex items-center gap-2 mb-3">
+              <UserCheck size={14} style={{ color: C.slate }} />
+              <div className="text-sm font-bold" style={{ color: C.navy }}>Manager Review</div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Review Status</div>
+                <Select value={draft.status} onChange={(e) => update("status", e.target.value as EvidenceStatus)}>
+                  <option>Pending Review</option>
+                  <option>Reviewed</option>
+                </Select>
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Competency Match</div>
+                <div className="grid grid-cols-4 gap-2">
+                  {(["Yes", "Somewhat", "No", "Unset"] as EvidenceMatch[]).map((m) => (
+                    <button
+                      key={m}
+                      onClick={() => update("matchState", m)}
+                      className="px-2 py-1.5 rounded border text-xs font-semibold transition-colors"
+                      style={{
+                        borderColor: draft.matchState === m ? C.primary : C.border,
+                        background: draft.matchState === m ? C.primarySoft : "#fff",
+                        color: draft.matchState === m ? C.primary : C.slate,
+                      }}
+                    >
+                      {m === "Unset" ? "Not Set" : m}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Manager Assessment</div>
+              <textarea
+                value={draft.managerNotes}
+                onChange={(e) => update("managerNotes", e.target.value)}
+                placeholder="Manager corroborates context, asks for more detail, suggests rewording, or links related artifacts."
+                className="w-full min-h-[100px] text-sm rounded border px-3 py-2 outline-none focus:ring-2"
+                style={{ borderColor: C.border, color: C.slate, background: "#fff" }}
               />
-              {draft.link && (
-                <GhostBtn
-                  onClick={() => {
-                    const u = /^https?:\/\//i.test(draft.link) ? draft.link : `https://${draft.link}`;
-                    window.open(u, "_blank", "noopener");
-                  }}
-                >
-                  <ExternalLink size={12} /> Open
-                </GhostBtn>
-              )}
-            </div>
-          </section>
-
-          <section>
-            <div className="flex items-center gap-2 mb-2">
-              <FileCheck2 size={14} style={{ color: C.slate }} />
-              <div className="text-sm font-bold" style={{ color: C.navy }}>Competency Match</div>
-            </div>
-            <div className="grid grid-cols-4 gap-2">
-              {(["Yes", "Somewhat", "No", "Unset"] as EvidenceMatch[]).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => update("matchState", m)}
-                  className="px-2 py-1.5 rounded border text-xs font-semibold transition-colors"
-                  style={{
-                    borderColor: draft.matchState === m ? C.primary : C.border,
-                    background: draft.matchState === m ? C.primarySoft : "#fff",
-                    color: draft.matchState === m ? C.primary : C.slate,
-                  }}
-                >
-                  {m === "Unset" ? "Not Set" : m}
-                </button>
-              ))}
-            </div>
-            <div className="text-[11px] mt-1.5" style={{ color: C.subtle }}>
-              Confirmed during 1-on-1 sync. "Somewhat" means the evidence needs rephrasing or more context.
-            </div>
-          </section>
-
-          <section>
-            <div className="flex items-center gap-2 mb-2">
-              <MessageSquare size={14} style={{ color: C.slate }} />
-              <div className="text-sm font-bold" style={{ color: C.navy }}>Manager Assessment</div>
-            </div>
-            <textarea
-              value={draft.managerNotes}
-              onChange={(e) => update("managerNotes", e.target.value)}
-              rows={5}
-              placeholder="Manager corroborates context, asks for more detail, suggests rewording, or links related artifacts. No ratings here; ratings happen in the periodic Reviews & Reports assessment."
-              className="w-full text-sm rounded border px-3 py-2 outline-none focus:ring-2"
-              style={{ borderColor: C.border, color: C.slate, background: C.bg }}
-            />
-            <div className="flex items-start gap-2 mt-2 p-2 rounded text-[11px]" style={{ background: "#DEEBFF", color: "#0747A6" }}>
-              <Info size={12} className="mt-0.5 shrink-0" />
-              <span>Feedback only. Ratings are captured in the periodic competency assessment under Reviews & Reports.</span>
             </div>
           </section>
         </div>
+
 
         <div
           className="px-6 py-4 border-t flex items-center justify-end gap-2"
