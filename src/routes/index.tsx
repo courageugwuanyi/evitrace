@@ -5264,7 +5264,7 @@ function ReportView({
 
       {/* Document */}
       <article
-        className="max-w-4xl mx-auto bg-white border rounded shadow-md p-10 print-document"
+        className="max-w-4xl mx-auto bg-white border rounded shadow-md p-10 print-document print:w-full print:m-0 print:p-0 print:text-slate-900 print:border-slate-200"
         style={{ borderColor: C.border }}
       >
         {/* 1. Header */}
