@@ -75,6 +75,13 @@ import {
   GitBranch,
 } from "lucide-react";
 import {
+  MessageCircleHeart,
+  Notebook,
+  Camera,
+  KeyRound,
+  Send,
+} from "lucide-react";
+import {
   Radar,
   RadarChart,
   PolarGrid,
