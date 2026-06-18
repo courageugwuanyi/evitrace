@@ -5418,6 +5418,16 @@ function ReportView({
   ]);
   const [draft, setDraft] = useState("");
 
+  type LearningResource = {
+    id: string;
+    competency: string;
+    title: string;
+    url: string;
+    notes: string;
+  };
+  const [resources, setResources] = useState<LearningResource[]>([]);
+  const [resourceModalOpen, setResourceModalOpen] = useState(false);
+
   function addTopic() {
     const t = draft.trim();
     if (!t) return;
