@@ -5713,7 +5713,82 @@ function ReportView({
           )}
         </section>
 
-        {/* 6. Objectives */}
+        {/* 6. Suggested Learning Resources */}
+        <section className="mt-10 print:break-inside-avoid">
+          <div className="flex items-start justify-between gap-3">
+            <SectionHeading icon={<BookOpen size={18} />} title="Suggested Learning Resources" />
+            <GhostBtn
+              onClick={() => setResourceModalOpen(true)}
+              className="border print-hide"
+              style={{ borderColor: C.border }}
+            >
+              <Plus size={14} />
+              Add Learning Resource
+            </GhostBtn>
+          </div>
+          <p className="mt-2 text-sm" style={{ color: C.subtle }}>
+            Resources curated by the manager to address competencies rated below target.
+          </p>
+          {resources.length === 0 ? (
+            <div
+              className="mt-4 text-sm p-4 rounded border border-dashed"
+              style={{ color: C.subtle, borderColor: C.border }}
+            >
+              No learning resources added yet. Click "Add Learning Resource" to curate
+              materials for the engineer.
+            </div>
+          ) : (
+            <ul className="mt-4 space-y-3">
+              {resources.map((r) => (
+                <li
+                  key={r.id}
+                  className="p-4 rounded border flex items-start justify-between gap-4 print:break-inside-avoid"
+                  style={{ borderColor: C.border, background: "#FFFFFF" }}
+                >
+                  <div className="flex-1 min-w-0">
+                    <span
+                      className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap h-fit"
+                      style={{ background: C.primarySoft, color: C.primary }}
+                    >
+                      {r.competency}
+                    </span>
+                    <div className="mt-2 text-[15px] font-bold text-slate-900">
+                      {r.title}
+                    </div>
+                    {r.notes && (
+                      <div className="mt-1 text-sm text-slate-500 leading-relaxed">
+                        {r.notes}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0 print-hide">
+                    <button
+                      type="button"
+                      onClick={() => window.open(r.url, "_blank")}
+                      className="inline-flex items-center gap-1.5 px-3 h-9 text-sm font-semibold rounded border transition-colors hover:bg-[#F4F5F7]"
+                      style={{ borderColor: C.primary, color: C.primary }}
+                    >
+                      <ExternalLink size={14} />
+                      Open Resource
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setResources((rs) => rs.filter((x) => x.id !== r.id))
+                      }
+                      aria-label="Remove resource"
+                      className="w-9 h-9 inline-flex items-center justify-center rounded text-slate-400 hover:text-red-600 hover:bg-[#F4F5F7] transition-colors"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {/* 7. Objectives */}
         <section className="mt-10 print:break-inside-avoid">
           <SectionHeading icon={<ListTodo size={18} />} title="Active Objectives" />
           <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
