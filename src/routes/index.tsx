@@ -1178,7 +1178,7 @@ const initialObjectives: Objective[] = [
 /*                        APP ROOT                              */
 /* ============================================================ */
 
-type Tab = "dashboard" | "radar" | "evidence" | "objectives" | "report" | "settings";
+type Tab = "dashboard" | "radar" | "evidence" | "objectives" | "feedback" | "report" | "settings";
 
 function EvitraceApp() {
   const [tab, setTab] = useState<Tab>("dashboard");
@@ -1206,6 +1206,7 @@ function EvitraceApp() {
     radar: "Promotion Readiness",
     evidence: "Evidence Log",
     objectives: "Objectives",
+    feedback: "360 Feedback",
     report: "Reviews & Reports",
     settings: "Settings",
   };
