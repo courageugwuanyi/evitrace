@@ -78,14 +78,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
+      { title: "Evitrace" },
+      { name: "description", content: "Evitrace Compass is a SaaS frontend for engineering competency and promotion tracking." },
       { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { property: "og:title", content: "Evitrace" },
+      { property: "og:description", content: "Evitrace Compass is a SaaS frontend for engineering competency and promotion tracking." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "Evitrace" },
+      { name: "twitter:description", content: "Evitrace Compass is a SaaS frontend for engineering competency and promotion tracking." },
+      { property: "og:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/5c37ba1b-6d2b-4e6b-b738-05c7773a7689" },
+      { name: "twitter:image", content: "https://storage.googleapis.com/gpt-engineer-file-uploads/attachments/og-images/5c37ba1b-6d2b-4e6b-b738-05c7773a7689" },
     ],
     links: [
       {
