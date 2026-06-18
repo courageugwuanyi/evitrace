@@ -4780,29 +4780,80 @@ function SettingRow({
 }
 
 function ProfileSettings() {
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [photo, setPhoto] = useState<string | null>(null);
+  const [title, setTitle] = useState("Senior Engineer L3 - Payments");
+  const [editing, setEditing] = useState(false);
+
+  function onPickPhoto(file: File | null | undefined) {
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setTimeout(() => {
+      setPhoto(url);
+      toast.success("Profile picture updated");
+    }, 400);
+  }
+
   return (
     <Card className="p-6">
       <SectionHeader title="Profile" sub="Your personal information and role" />
       <div className="mt-5 flex items-center gap-4">
-        <div
-          className="w-16 h-16 rounded-full flex items-center justify-center text-lg font-semibold text-white"
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          className="relative group w-16 h-16 rounded-full overflow-hidden focus:outline-none focus-visible:ring-2"
           style={{ background: "#5243AA" }}
+          aria-label="Change profile photo"
         >
-          JM
-        </div>
-        <div>
+          {photo ? (
+            <img src={photo} alt="Profile" className="w-full h-full object-cover" />
+          ) : (
+            <span className="absolute inset-0 flex items-center justify-center text-lg font-semibold text-white">
+              JM
+            </span>
+          )}
+          <span
+            className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+            style={{ background: "rgba(9,30,66,0.55)" }}
+          >
+            <Camera size={18} color="#fff" />
+          </span>
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => onPickPhoto(e.target.files?.[0])}
+        />
+        <div className="min-w-0">
           <div className="text-base font-semibold" style={{ color: C.navy }}>
             Jordan Mills
           </div>
-          <div className="text-sm" style={{ color: C.subtle }}>
-            Senior Engineer L3 - Payments
+          <div className="flex items-center gap-2">
+            <div className="text-sm" style={{ color: C.subtle }}>
+              {title}
+            </div>
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium hover:bg-[#F4F5F7]"
+              style={{ color: C.primary }}
+              aria-label="Edit job title"
+            >
+              <Pencil size={12} />
+              Edit
+            </button>
           </div>
         </div>
         <div className="ml-auto">
-          <GhostBtn>Upload photo</GhostBtn>
+          <GhostBtn onClick={() => fileRef.current?.click()}>
+            <Camera size={14} />
+            Upload photo
+          </GhostBtn>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4 mt-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
         <Field label="Full name">
           <Input defaultValue="Jordan Mills" />
         </Field>
@@ -4829,7 +4880,94 @@ function ProfileSettings() {
         <GhostBtn>Cancel</GhostBtn>
         <PrimaryBtn>Save changes</PrimaryBtn>
       </div>
+
+      <AnimatePresence>
+        {editing && (
+          <EditTitleModal
+            current={title}
+            onClose={() => setEditing(false)}
+            onSave={(next) => {
+              setTitle(next);
+              setEditing(false);
+              toast.success("Job title updated");
+            }}
+          />
+        )}
+      </AnimatePresence>
     </Card>
+  );
+}
+
+function EditTitleModal({
+  current,
+  onClose,
+  onSave,
+}: {
+  current: string;
+  onClose: () => void;
+  onSave: (next: string) => void;
+}) {
+  const [next, setNext] = useState(current);
+  const [pwd, setPwd] = useState("");
+  const canSave = pwd.trim().length > 0 && next.trim().length > 0;
+  return (
+    <Backdrop onClose={onClose}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.97, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.97, y: 8 }}
+        transition={{ duration: 0.2 }}
+        className="bg-white rounded-lg shadow-2xl w-full max-w-md border"
+        style={{ borderColor: C.border }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-5 border-b flex items-center justify-between" style={{ borderColor: C.border }}>
+          <div className="flex items-center gap-2">
+            <div
+              className="w-8 h-8 rounded flex items-center justify-center"
+              style={{ background: C.primarySoft, color: C.primary }}
+            >
+              <Lock size={16} />
+            </div>
+            <div>
+              <div className="text-sm font-bold" style={{ color: C.navy }}>
+                Edit Job Title
+              </div>
+              <div className="text-xs" style={{ color: C.subtle }}>
+                Confirm your password to save changes.
+              </div>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
+            <X size={16} />
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          <Field label="New Job Title">
+            <Input
+              value={next}
+              onChange={(e) => setNext(e.target.value)}
+              placeholder="e.g. Senior Software Engineer"
+            />
+          </Field>
+          <Field label="Confirm Password">
+            <Input
+              type="password"
+              value={pwd}
+              onChange={(e) => setPwd(e.target.value)}
+              placeholder="Enter your password"
+              icon={<KeyRound size={14} />}
+            />
+          </Field>
+        </div>
+        <div className="p-4 border-t flex justify-end gap-2" style={{ borderColor: C.border }}>
+          <GhostBtn onClick={onClose}>Cancel</GhostBtn>
+          <PrimaryBtn onClick={() => canSave && onSave(next.trim())} disabled={!canSave}>
+            Save Changes
+          </PrimaryBtn>
+        </div>
+      </motion.div>
+    </Backdrop>
   );
 }
 
