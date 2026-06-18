@@ -2155,6 +2155,45 @@ function StatCard({
   );
 }
 
+function PendingReviewCard() {
+  const items = [
+    { label: "Evidence Logs", count: 3, tone: "warning" as const, icon: <FileText size={12} /> },
+    { label: "SMART Objective", count: 1, tone: "info" as const, icon: <Target size={12} /> },
+    { label: "Peer Feedbacks", count: 0, tone: "neutral" as const, icon: <MessageCircleHeart size={12} /> },
+  ];
+  const total = items.reduce((a, b) => a + b.count, 0);
+  return (
+    <Card className="p-5">
+      <div className="flex items-center justify-between">
+        <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+          Items Pending Manager Review
+        </div>
+        <div
+          className="w-8 h-8 rounded flex items-center justify-center"
+          style={{ background: C.amberSoft, color: "#974F00" }}
+        >
+          <Clock size={18} />
+        </div>
+      </div>
+      <div className="mt-3 flex items-baseline gap-2">
+        <div className="text-3xl font-bold tracking-tight" style={{ color: C.navy }}>
+          {total}
+        </div>
+        <div className="text-xs" style={{ color: C.subtle }}>
+          awaiting Alex Morgan
+        </div>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {items.map((it) => (
+          <Badge key={it.label} tone={it.tone} icon={it.icon}>
+            {it.count} {it.label}
+          </Badge>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 function SectionHeader({
   title,
   sub,
