@@ -5474,48 +5474,18 @@ function ReportView({
   return (
     <div>
       {/* Action Hub bar */}
-      <div className="flex items-center justify-between mb-6 print-hide">
-        <div className="text-sm" style={{ color: C.subtle }}>
-          Viewing report {review.id}. Use the archive to switch between historical assessments.
-        </div>
-        <div className="flex items-center gap-2">
-          <GhostBtn onClick={onClearReview}>
-            <ArrowLeft size={14} />
-            Back to archive
-          </GhostBtn>
-          <GhostBtn onClick={onOpenHistory}>
-            <History size={14} />
-            Assessment History
-          </GhostBtn>
-          <PrimaryBtn onClick={onStartReview}>
-            <ClipboardList size={14} />
-            Start Performance Review
-          </PrimaryBtn>
-        </div>
-      </div>
-
-      {/* Sticky action bar */}
-      <div
-        className="sticky top-0 z-20 -mx-8 px-8 py-3 mb-6 border-b flex items-center justify-between print-hide"
-        style={{ background: C.bg, borderColor: C.border }}
-      >
-        <nav className="flex items-center gap-1.5 text-xs" style={{ color: C.subtle }}>
-          <span>Reviews &amp; Reports</span>
-          <ChevronRight size={12} />
-          <span className="font-semibold" style={{ color: C.navy }}>
-            {review.period}
-          </span>
-        </nav>
-        <div className="flex items-center gap-2">
-          <GhostBtn onClick={copyLink}>
-            <LinkIcon size={14} />
-            Copy Share Link
-          </GhostBtn>
-          <PrimaryBtn onClick={() => window.print()} className="print:hidden">
-            <Download size={14} />
-            Export to PDF
-          </PrimaryBtn>
-        </div>
+      <div className="flex items-center justify-between mb-6 print-hide gap-3">
+        <GhostBtn onClick={onClearReview} className="-ml-2">
+          <ArrowLeft size={14} />
+          Back to Assessments Archive
+        </GhostBtn>
+        <PrimaryBtn
+          onClick={onStartReview}
+          className="!px-6 !h-10 whitespace-nowrap"
+        >
+          <ClipboardList size={14} />
+          Start Performance Review
+        </PrimaryBtn>
       </div>
 
       {/* Document */}
@@ -5525,19 +5495,34 @@ function ReportView({
       >
         {/* 1. Header */}
         <header className="print:break-inside-avoid">
-          <div className="flex items-center gap-2 mb-2">
-            <div
-              className="w-8 h-8 rounded flex items-center justify-center"
-              style={{ background: C.primary }}
-            >
-              <RadarIcon size={18} color="#fff" />
+          <div className="flex items-start justify-between gap-4 mb-2 flex-wrap">
+            <div className="flex items-center gap-2 min-w-0">
+              <div
+                className="w-8 h-8 rounded flex items-center justify-center shrink-0"
+                style={{ background: C.primary }}
+              >
+                <RadarIcon size={18} color="#fff" />
+              </div>
+              <h1
+                className="text-3xl font-bold tracking-tight"
+                style={{ color: C.navy }}
+              >
+                {review.period}
+              </h1>
             </div>
-            <h1
-              className="text-3xl font-bold tracking-tight"
-              style={{ color: C.navy }}
-            >
-              Evitrace Performance Report
-            </h1>
+            <div className="flex items-center gap-2 print-hide">
+              <GhostBtn onClick={copyLink} className="border" >
+                <LinkIcon size={14} />
+                Copy Share Link
+              </GhostBtn>
+              <GhostBtn onClick={() => window.print()} className="border">
+                <Download size={14} />
+                Export to PDF
+              </GhostBtn>
+            </div>
+          </div>
+          <div className="text-sm font-semibold mb-1" style={{ color: C.subtle }}>
+            Evitrace Performance Report
           </div>
           <div className="mt-3 space-y-1 text-sm" style={{ color: C.slate }}>
             <div>
