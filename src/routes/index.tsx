@@ -4717,6 +4717,273 @@ type SettingsSection =
   | "extension"
   | "framework";
 
+/* ============================================================ */
+/*               TAB: 360 FEEDBACK                              */
+/* ============================================================ */
+
+type FeedbackType = "Manager Requested" | "Ad-hoc" | "Peer Review";
+type FeedbackItem = {
+  id: string;
+  date: string;
+  provider: string;
+  type: FeedbackType;
+  notes: string;
+  anonymous: boolean;
+};
+
+const initialFeedback: FeedbackItem[] = [
+  {
+    id: "FB-101",
+    date: "Jun 12, 2026",
+    provider: "Daniela Espitia",
+    type: "Manager Requested",
+    notes:
+      "Jordan ran the payments incident retro with clarity, calling out concrete next steps and owners. Communication was crisp and the team left aligned on remediation.",
+    anonymous: false,
+  },
+  {
+    id: "FB-102",
+    date: "Jun 04, 2026",
+    provider: "Anonymous",
+    type: "Peer Review",
+    notes:
+      "Strong reviewer on PRs. Pushes for thoughtful tests but sometimes batches feedback late in the day, which slows turnaround for time-zoned colleagues.",
+    anonymous: true,
+  },
+  {
+    id: "FB-103",
+    date: "May 28, 2026",
+    provider: "Edward Harper",
+    type: "Ad-hoc",
+    notes:
+      "Pairing on the JWT remediation was excellent. Jordan walked me through the threat model and made the security tradeoffs easy to follow.",
+    anonymous: false,
+  },
+  {
+    id: "FB-104",
+    date: "May 19, 2026",
+    provider: "Anonymous",
+    type: "Manager Requested",
+    notes:
+      "Would like to see more proactive updates on long-running objectives. Status is great when asked, but a weekly written note would help stakeholders plan.",
+    anonymous: true,
+  },
+  {
+    id: "FB-105",
+    date: "May 07, 2026",
+    provider: "Chelsea Howard",
+    type: "Peer Review",
+    notes:
+      "Collaboration with design has improved noticeably this quarter. Jordan brings UX considerations into engineering reviews early.",
+    anonymous: false,
+  },
+];
+
+function FeedbackTypeBadge({ type }: { type: FeedbackType }) {
+  const tone: "info" | "success" | "neutral" =
+    type === "Manager Requested" ? "info" : type === "Peer Review" ? "success" : "neutral";
+  return <Badge tone={tone}>{type}</Badge>;
+}
+
+function FeedbackView() {
+  const [items, setItems] = useState<FeedbackItem[]>(initialFeedback);
+  const [filter, setFilter] = useState<"All" | FeedbackType>("All");
+  const [asking, setAsking] = useState(false);
+
+  const filtered = useMemo(
+    () => (filter === "All" ? items : items.filter((i) => i.type === filter)),
+    [items, filter],
+  );
+
+  function addRequest(reviewer: string, focus: string) {
+    setItems((x) => [
+      {
+        id: `FB-${100 + x.length + 10}`,
+        date: new Date().toLocaleDateString("en-US", {
+          month: "short",
+          day: "2-digit",
+          year: "numeric",
+        }),
+        provider: reviewer,
+        type: "Manager Requested",
+        notes: `Requested feedback on: ${focus}. Awaiting response.`,
+        anonymous: false,
+      },
+      ...x,
+    ]);
+    setAsking(false);
+    toast.success("Feedback request sent");
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <div className="text-sm" style={{ color: C.subtle }}>
+            Peer and manager-requested feedback collected over time.
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Pill active={filter === "All"} onClick={() => setFilter("All")}>
+            All
+          </Pill>
+          <Pill active={filter === "Manager Requested"} onClick={() => setFilter("Manager Requested")}>
+            Manager Requested
+          </Pill>
+          <Pill active={filter === "Peer Review"} onClick={() => setFilter("Peer Review")}>
+            Peer
+          </Pill>
+          <Pill active={filter === "Ad-hoc"} onClick={() => setFilter("Ad-hoc")}>
+            Ad-hoc
+          </Pill>
+          <PrimaryBtn onClick={() => setAsking(true)}>
+            <Send size={14} />
+            Ask for Feedback
+          </PrimaryBtn>
+        </div>
+      </div>
+
+      <Card className="p-0 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr
+                className="text-left text-[11px] uppercase tracking-wide"
+                style={{ background: "#F4F5F7", color: C.subtle }}
+              >
+                <th className="px-4 py-3 font-semibold whitespace-nowrap">Date</th>
+                <th className="px-4 py-3 font-semibold whitespace-nowrap">Provider</th>
+                <th className="px-4 py-3 font-semibold whitespace-nowrap">Type</th>
+                <th className="px-4 py-3 font-semibold">Feedback Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-4 py-12 text-center text-sm" style={{ color: C.subtle }}>
+                    No feedback in this filter yet.
+                  </td>
+                </tr>
+              )}
+              {filtered.map((f) => (
+                <tr
+                  key={f.id}
+                  className="border-t align-top"
+                  style={{ borderColor: C.border }}
+                >
+                  <td className="px-4 py-3 whitespace-nowrap" style={{ color: C.slate }}>
+                    {f.date}
+                  </td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold text-white"
+                        style={{ background: f.anonymous ? "#6B778C" : "#5243AA" }}
+                      >
+                        {f.anonymous
+                          ? "?"
+                          : f.provider
+                              .split(" ")
+                              .map((p) => p[0])
+                              .slice(0, 2)
+                              .join("")}
+                      </div>
+                      <span className="font-semibold" style={{ color: C.navy }}>
+                        {f.provider}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <FeedbackTypeBadge type={f.type} />
+                  </td>
+                  <td className="px-4 py-3" style={{ color: C.slate }}>
+                    <div className="max-w-2xl leading-relaxed">{f.notes}</div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      <AnimatePresence>
+        {asking && <AskFeedbackModal onClose={() => setAsking(false)} onSubmit={addRequest} />}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function AskFeedbackModal({
+  onClose,
+  onSubmit,
+}: {
+  onClose: () => void;
+  onSubmit: (reviewer: string, focus: string) => void;
+}) {
+  const [reviewer, setReviewer] = useState("");
+  const [focus, setFocus] = useState("");
+  const canSend = reviewer.trim().length > 0 && focus.trim().length > 0;
+  return (
+    <Backdrop onClose={onClose}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.97, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.97, y: 8 }}
+        transition={{ duration: 0.2 }}
+        className="bg-white rounded-lg shadow-2xl w-full max-w-lg border"
+        style={{ borderColor: C.border }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-5 border-b flex items-center justify-between" style={{ borderColor: C.border }}>
+          <div className="flex items-center gap-2">
+            <div
+              className="w-8 h-8 rounded flex items-center justify-center"
+              style={{ background: C.primarySoft, color: C.primary }}
+            >
+              <MessageCircleHeart size={16} />
+            </div>
+            <div>
+              <div className="text-sm font-bold" style={{ color: C.navy }}>
+                Request 360 Feedback
+              </div>
+              <div className="text-xs" style={{ color: C.subtle }}>
+                Responses can be submitted anonymously.
+              </div>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
+            <X size={16} />
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          <Field label="Reviewer (name or email)">
+            <Input
+              value={reviewer}
+              onChange={(e) => setReviewer(e.target.value)}
+              placeholder="e.g. Daniela Espitia"
+            />
+          </Field>
+          <Field label="Focus area">
+            <Textarea
+              value={focus}
+              onChange={(e) => setFocus(e.target.value)}
+              rows={4}
+              placeholder="What would you like feedback on? e.g. Collaboration on the payments migration."
+            />
+          </Field>
+        </div>
+        <div className="p-4 border-t flex justify-end gap-2" style={{ borderColor: C.border }}>
+          <GhostBtn onClick={onClose}>Cancel</GhostBtn>
+          <PrimaryBtn onClick={() => canSend && onSubmit(reviewer.trim(), focus.trim())} disabled={!canSend}>
+            <Send size={14} />
+            Send Request
+          </PrimaryBtn>
+        </div>
+      </motion.div>
+    </Backdrop>
+  );
+}
+
 function SettingsView() {
   const [section, setSection] = useState<SettingsSection>("profile");
   const items: { id: SettingsSection; label: string; icon: React.ComponentType<{ size?: number }> }[] = [
