@@ -6003,6 +6003,7 @@ function IntegrationRow({
 function FrameworkSettings() {
   const [dragOver, setDragOver] = useState(false);
   const [parsing, setParsing] = useState(false);
+  const [mismatch, setMismatch] = useState(false);
   const [activeFramework, setActiveFramework] = useState<{
     name: string;
     summary: string;
@@ -6014,24 +6015,49 @@ function FrameworkSettings() {
 
   function handleFile(file: File) {
     const name = file.name.toLowerCase();
-    const validExt = name.endsWith(".json") || name.endsWith(".csv");
-    const validType =
-      file.type === "application/json" ||
-      file.type === "text/csv" ||
-      validExt;
-    if (!validType) {
-      toast.error("Invalid file format. Please upload a valid JSON or CSV framework schema.");
+    const validExt =
+      name.endsWith(".json") ||
+      name.endsWith(".csv") ||
+      name.endsWith(".pdf") ||
+      name.endsWith(".xlsx");
+    if (!validExt) {
+      toast.error("Unsupported file type. Use .CSV, .JSON, .PDF, or .XLSX.");
       return;
     }
+    setMismatch(false);
     setParsing(true);
     setTimeout(() => {
       setParsing(false);
+      // Mock validation: treat PDFs as "unrelatable" to demonstrate mismatch
+      const looksUnrelatable = name.endsWith(".pdf");
+      if (looksUnrelatable) {
+        setMismatch(true);
+        return;
+      }
       setActiveFramework({
-        name: file.name.replace(/\.(json|csv)$/i, ""),
+        name: file.name.replace(/\.(json|csv|pdf|xlsx)$/i, ""),
         summary: "8 Categories, 42 Questions",
       });
       toast.success("Framework successfully updated.");
     }, 1000);
+  }
+
+  function downloadTemplate() {
+    const sample = {
+      version: "1.0",
+      categories: COMPETENCIES.map((name) => ({
+        name,
+        weight: 1,
+        questions: ["Example signal 1", "Example signal 2"],
+      })),
+    };
+    const blob = new Blob([JSON.stringify(sample, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "evitrace-framework-template.json";
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   return (
@@ -6063,7 +6089,7 @@ function FrameworkSettings() {
         <input
           ref={inputRef}
           type="file"
-          accept=".json,.csv,application/json,text/csv"
+          accept=".json,.csv,.pdf,.xlsx,application/json,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
@@ -6085,11 +6111,36 @@ function FrameworkSettings() {
               Drag and drop your framework file here
             </div>
             <div className="text-xs mt-1" style={{ color: C.subtle }}>
-              Supports .JSON or .CSV
+              Supports .CSV, .JSON, .PDF, or .XLSX
             </div>
           </>
         )}
       </div>
+
+      {mismatch && (
+        <div
+          className="mt-4 p-4 rounded border flex gap-3"
+          style={{ borderColor: "#FFC400", background: "#FFFBE6" }}
+        >
+          <AlertTriangle size={18} style={{ color: "#FF8B00" }} className="shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-bold" style={{ color: C.navy }}>
+              Format Mismatch: We couldn't automatically map your framework.
+            </div>
+            <div className="text-xs mt-1" style={{ color: C.slate }}>
+              Please adapt your framework to match our standard 8-axis category format for a
+              seamless override.
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <GhostBtn onClick={downloadTemplate}>
+                <Download size={14} />
+                Download Standard Template
+              </GhostBtn>
+              <GhostBtn onClick={() => setMismatch(false)}>Dismiss</GhostBtn>
+            </div>
+          </div>
+        </div>
+      )}
 
       {activeFramework && (
         <div
