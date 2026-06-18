@@ -1188,6 +1188,484 @@ const initialObjectives: Objective[] = [
 
 type Tab = "dashboard" | "radar" | "evidence" | "objectives" | "feedback" | "report" | "settings";
 
+/* ============================================================ */
+/*        AUTH: context, gate, signup / signin screens          */
+/* ============================================================ */
+
+type AuthUser = {
+  fullName: string;
+  email: string;
+  password: string;
+  currentLevel: string;
+  targetLevel: string;
+  team: string;
+  manager: string;
+  managerEmail: string;
+  skipLevel: string;
+};
+
+type AuthCtx = {
+  user: AuthUser | null;
+  signin: (email: string, password: string) => boolean;
+  signup: (u: AuthUser) => void;
+  signout: () => void;
+  updateUser: (patch: Partial<AuthUser>, password: string) => boolean;
+};
+
+const AuthContext = React.createContext<AuthCtx | null>(null);
+function useAuth(): AuthCtx {
+  const v = React.useContext(AuthContext);
+  if (!v) throw new Error("AuthContext missing");
+  return v;
+}
+
+const LEVEL_OPTIONS = ["L1", "L2", "L3", "L4", "L5", "L6", "L7"];
+
+function App() {
+  const [user, setUser] = useState<AuthUser | null>(null);
+  const ctx = useMemo<AuthCtx>(
+    () => ({
+      user,
+      signin: (email, password) => {
+        if (user && user.email === email && user.password === password) return true;
+        if (!user) {
+          setUser({
+            fullName: "Jordan Mills",
+            email,
+            password,
+            currentLevel: "L3",
+            targetLevel: "L4",
+            team: "Payments Platform",
+            manager: "Alex Morgan",
+            managerEmail: "alex.morgan@acme.com",
+            skipLevel: "Priya Shah",
+          });
+          return true;
+        }
+        return false;
+      },
+      signup: (u) => setUser(u),
+      signout: () => setUser(null),
+      updateUser: (patch, pwd) => {
+        if (!user) return false;
+        if (pwd !== user.password) return false;
+        setUser({ ...user, ...patch });
+        return true;
+      },
+    }),
+    [user],
+  );
+  return (
+    <AuthContext.Provider value={ctx}>
+      {user ? <EvitraceApp /> : <AuthScreens />}
+    </AuthContext.Provider>
+  );
+}
+
+function AuthScreens() {
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  return (
+    <div
+      className="min-h-screen flex items-center justify-center px-4 py-10"
+      style={{ background: C.bg, color: C.navy, fontFamily: "Inter, system-ui, sans-serif" }}
+    >
+      <div className="w-full max-w-md">
+        <div className="flex items-center justify-center gap-2 mb-6">
+          <div
+            className="w-9 h-9 rounded flex items-center justify-center"
+            style={{ background: C.primary }}
+          >
+            <RadarIcon size={20} color="#fff" />
+          </div>
+          <div className="leading-tight">
+            <div className="text-base font-bold tracking-tight" style={{ color: C.navy }}>
+              Evitrace
+            </div>
+            <div className="text-[10px] uppercase tracking-wider" style={{ color: C.subtle }}>
+              Performance Intelligence
+            </div>
+          </div>
+        </div>
+        {mode === "signin" ? (
+          <SigninForm onSwitch={() => setMode("signup")} />
+        ) : (
+          <SignupForm onSwitch={() => setMode("signin")} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SsoButton({ provider }: { provider: "Google" | "Microsoft" }) {
+  const letter = provider === "Google" ? "G" : "M";
+  const bg = provider === "Google" ? "#EA4335" : "#0078D4";
+  return (
+    <button
+      type="button"
+      onClick={() => toast.success(`${provider} sign-in (demo)`)}
+      className="w-full h-10 px-3 rounded border flex items-center justify-center gap-2 text-sm font-semibold hover:bg-[#F4F5F7] transition-colors"
+      style={{ borderColor: C.border, color: C.navy, background: "#fff" }}
+    >
+      <span
+        className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold text-white"
+        style={{ background: bg }}
+      >
+        {letter}
+      </span>
+      Continue with {provider}
+    </button>
+  );
+}
+
+function SigninForm({ onSwitch }: { onSwitch: () => void }) {
+  const { signin } = useAuth();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!email || !password) {
+      toast.error("Enter your email and password");
+      return;
+    }
+    const ok = signin(email, password);
+    if (!ok) toast.error("Invalid credentials");
+  }
+  return (
+    <Card className="p-6">
+      <div className="text-lg font-bold" style={{ color: C.navy }}>
+        Welcome back
+      </div>
+      <div className="text-xs mt-1" style={{ color: C.subtle }}>
+        Sign in to track your evidence and competencies.
+      </div>
+      <div className="mt-5 grid grid-cols-1 gap-2">
+        <SsoButton provider="Google" />
+        <SsoButton provider="Microsoft" />
+      </div>
+      <div className="flex items-center gap-3 my-5">
+        <div className="flex-1 h-px" style={{ background: C.border }} />
+        <span className="text-[11px] uppercase tracking-wider" style={{ color: C.subtle }}>
+          or
+        </span>
+        <div className="flex-1 h-px" style={{ background: C.border }} />
+      </div>
+      <form onSubmit={submit} className="space-y-3">
+        <Field label="Email">
+          <Input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@company.com"
+            icon={<Mail size={14} />}
+          />
+        </Field>
+        <Field label="Password">
+          <Input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Your password"
+            icon={<KeyRound size={14} />}
+          />
+        </Field>
+        <PrimaryBtn type="submit" className="w-full justify-center mt-2">
+          <LogIn size={14} />
+          Sign in
+        </PrimaryBtn>
+      </form>
+      <div className="text-xs text-center mt-4" style={{ color: C.subtle }}>
+        New to Evitrace?{" "}
+        <button
+          type="button"
+          onClick={onSwitch}
+          className="font-semibold"
+          style={{ color: C.primary }}
+        >
+          Create an account
+        </button>
+      </div>
+    </Card>
+  );
+}
+
+function SignupForm({ onSwitch }: { onSwitch: () => void }) {
+  const { signup } = useAuth();
+  const [f, setF] = useState<AuthUser>({
+    fullName: "",
+    email: "",
+    password: "",
+    currentLevel: "L3",
+    targetLevel: "L4",
+    team: "",
+    manager: "",
+    managerEmail: "",
+    skipLevel: "",
+  });
+  const upd = <K extends keyof AuthUser>(k: K, v: AuthUser[K]) =>
+    setF((p) => ({ ...p, [k]: v }));
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const required: (keyof AuthUser)[] = [
+      "fullName",
+      "email",
+      "password",
+      "team",
+      "manager",
+      "managerEmail",
+      "skipLevel",
+    ];
+    for (const k of required) {
+      if (!String(f[k]).trim()) {
+        toast.error("Please complete all required fields");
+        return;
+      }
+    }
+    signup(f);
+    toast.success("Account created");
+  }
+  return (
+    <Card className="p-6">
+      <div className="text-lg font-bold" style={{ color: C.navy }}>
+        Create your account
+      </div>
+      <div className="text-xs mt-1" style={{ color: C.subtle }}>
+        We will pre-fill your profile and team settings from this.
+      </div>
+      <div className="mt-5 grid grid-cols-1 gap-2">
+        <SsoButton provider="Google" />
+        <SsoButton provider="Microsoft" />
+      </div>
+      <div className="flex items-center gap-3 my-5">
+        <div className="flex-1 h-px" style={{ background: C.border }} />
+        <span className="text-[11px] uppercase tracking-wider" style={{ color: C.subtle }}>
+          or
+        </span>
+        <div className="flex-1 h-px" style={{ background: C.border }} />
+      </div>
+      <form onSubmit={submit} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="sm:col-span-2">
+          <Field label="Full name">
+            <Input
+              value={f.fullName}
+              onChange={(e) => upd("fullName", e.target.value)}
+              placeholder="Jordan Mills"
+              icon={<User size={14} />}
+            />
+          </Field>
+        </div>
+        <div className="sm:col-span-2">
+          <Field label="Email">
+            <Input
+              type="email"
+              value={f.email}
+              onChange={(e) => upd("email", e.target.value)}
+              placeholder="you@company.com"
+              icon={<Mail size={14} />}
+            />
+          </Field>
+        </div>
+        <div className="sm:col-span-2">
+          <Field label="Password">
+            <Input
+              type="password"
+              value={f.password}
+              onChange={(e) => upd("password", e.target.value)}
+              placeholder="Create a password"
+              icon={<KeyRound size={14} />}
+            />
+          </Field>
+        </div>
+        <Field label="Current level">
+          <Select value={f.currentLevel} onChange={(e) => upd("currentLevel", e.target.value)}>
+            {LEVEL_OPTIONS.map((l) => (
+              <option key={l}>{l}</option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Target level">
+          <Select value={f.targetLevel} onChange={(e) => upd("targetLevel", e.target.value)}>
+            {LEVEL_OPTIONS.map((l) => (
+              <option key={l}>{l}</option>
+            ))}
+          </Select>
+        </Field>
+        <div className="sm:col-span-2">
+          <Field label="Business unit / Team">
+            <Input
+              value={f.team}
+              onChange={(e) => upd("team", e.target.value)}
+              placeholder="Payments Platform"
+              icon={<Building2 size={14} />}
+            />
+          </Field>
+        </div>
+        <Field label="Reporting manager">
+          <Input
+            value={f.manager}
+            onChange={(e) => upd("manager", e.target.value)}
+            placeholder="Alex Morgan"
+            icon={<User size={14} />}
+          />
+        </Field>
+        <Field label="Manager email">
+          <Input
+            type="email"
+            value={f.managerEmail}
+            onChange={(e) => upd("managerEmail", e.target.value)}
+            placeholder="alex.morgan@acme.com"
+            icon={<Mail size={14} />}
+          />
+        </Field>
+        <div className="sm:col-span-2">
+          <Field label="Skip-level reviewer">
+            <Input
+              value={f.skipLevel}
+              onChange={(e) => upd("skipLevel", e.target.value)}
+              placeholder="Priya Shah"
+              icon={<ShieldCheck size={14} />}
+            />
+          </Field>
+        </div>
+        <div className="sm:col-span-2 mt-2">
+          <PrimaryBtn type="submit" className="w-full justify-center">
+            Create account
+          </PrimaryBtn>
+        </div>
+      </form>
+      <div className="text-xs text-center mt-4" style={{ color: C.subtle }}>
+        Already have an account?{" "}
+        <button
+          type="button"
+          onClick={onSwitch}
+          className="font-semibold"
+          style={{ color: C.primary }}
+        >
+          Sign in
+        </button>
+      </div>
+    </Card>
+  );
+}
+
+function SecureEditDialog({
+  label,
+  current,
+  options,
+  onClose,
+  onSave,
+}: {
+  label: string;
+  current: string;
+  options?: string[];
+  onClose: () => void;
+  onSave: (next: string, password: string) => boolean;
+}) {
+  const [next, setNext] = useState(current);
+  const [pwd, setPwd] = useState("");
+  const canSave = pwd.trim().length > 0 && next.trim().length > 0;
+  return (
+    <Backdrop onClose={onClose}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.97, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.97, y: 8 }}
+        transition={{ duration: 0.2 }}
+        className="bg-white rounded-lg shadow-2xl w-full max-w-md border"
+        style={{ borderColor: C.border }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-5 border-b flex items-center justify-between" style={{ borderColor: C.border }}>
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded flex items-center justify-center" style={{ background: C.primarySoft, color: C.primary }}>
+              <Lock size={16} />
+            </div>
+            <div>
+              <div className="text-sm font-bold" style={{ color: C.navy }}>Edit {label}</div>
+              <div className="text-xs" style={{ color: C.subtle }}>Confirm your password to save changes.</div>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
+            <X size={16} />
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          <Field label={`New ${label}`}>
+            {options ? (
+              <Select value={next} onChange={(e) => setNext(e.target.value)}>
+                {options.map((o) => <option key={o}>{o}</option>)}
+              </Select>
+            ) : (
+              <Input value={next} onChange={(e) => setNext(e.target.value)} />
+            )}
+          </Field>
+          <Field label="Current Password">
+            <Input
+              type="password"
+              value={pwd}
+              onChange={(e) => setPwd(e.target.value)}
+              placeholder="Enter your password"
+              icon={<KeyRound size={14} />}
+            />
+          </Field>
+        </div>
+        <div className="p-4 border-t flex justify-end gap-2" style={{ borderColor: C.border }}>
+          <GhostBtn onClick={onClose}>Cancel</GhostBtn>
+          <PrimaryBtn
+            disabled={!canSave}
+            onClick={() => {
+              if (!canSave) return;
+              const ok = onSave(next.trim(), pwd);
+              if (!ok) toast.error("Incorrect password");
+              else {
+                toast.success(`${label} updated`);
+                onClose();
+              }
+            }}
+          >
+            Save Changes
+          </PrimaryBtn>
+        </div>
+      </motion.div>
+    </Backdrop>
+  );
+}
+
+function SecureField({
+  label,
+  value,
+  options,
+  onSave,
+}: {
+  label: string;
+  value: string;
+  options?: string[];
+  onSave: (next: string, password: string) => boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  return (
+    <Field label={label}>
+      <div className="flex gap-2">
+        <Input value={value} readOnly />
+        <GhostBtn onClick={() => setEditing(true)}>
+          <Pencil size={12} />
+          Edit
+        </GhostBtn>
+      </div>
+      <AnimatePresence>
+        {editing && (
+          <SecureEditDialog
+            label={label}
+            current={value}
+            options={options}
+            onClose={() => setEditing(false)}
+            onSave={onSave}
+          />
+        )}
+      </AnimatePresence>
+    </Field>
+  );
+}
+
 function EvitraceApp() {
   const [tab, setTab] = useState<Tab>("dashboard");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
