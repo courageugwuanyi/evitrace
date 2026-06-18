@@ -2161,8 +2161,8 @@ function SectionHeader({
   right?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between">
-      <div>
+    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
+      <div className="min-w-0">
         <div className="text-sm font-bold" style={{ color: C.navy }}>
           {title}
         </div>
@@ -2172,7 +2172,7 @@ function SectionHeader({
           </div>
         )}
       </div>
-      {right}
+      {right && <div className="shrink-0">{right}</div>}
     </div>
   );
 }
