@@ -2879,8 +2879,19 @@ function EvidenceView({
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[960px]">
+      <div className="overflow-x-auto pb-1">
+        <table className={`w-full text-sm table-fixed ${showArchived ? "min-w-[1320px]" : "min-w-[1100px]"}`}>
+          <colgroup>
+            <col className="w-[100px]" />
+            <col className="w-[120px]" />
+            <col className="w-[300px]" />
+            <col className="w-[220px]" />
+            <col className="w-[80px]" />
+            <col className="w-[110px]" />
+            <col className="w-[160px]" />
+            {showArchived && <col className="w-[100px]" />}
+            {showArchived && <col className="w-[130px]" />}
+          </colgroup>
           <thead style={{ background: "#F4F5F7", color: C.subtle }}>
             <tr className="text-left text-[11px] uppercase tracking-wider">
               <Th>Date</Th>
@@ -2909,10 +2920,15 @@ function EvidenceView({
                   <SourceChip source={r.source} />
                 </Td>
                 <Td>
-                  <Badge tone="info">{r.competency}</Badge>
+                  <span
+                    className="inline-flex items-start gap-1.5 px-2 py-1.5 rounded text-[11px] font-semibold leading-snug break-words line-clamp-2 max-w-full"
+                    style={{ background: C.primarySoft, color: C.primary }}
+                  >
+                    {r.competency}
+                  </span>
                 </Td>
-                <Td className="font-semibold max-w-xs" style={{ color: C.navy }}>
-                  {r.title}
+                <Td className="font-semibold" style={{ color: C.navy }}>
+                  <span className="line-clamp-2 break-words">{r.title}</span>
                 </Td>
                 <Td>
                   {r.link ? (
@@ -2974,7 +2990,7 @@ function EvidenceView({
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={showArchived ? 8 : 6} className="text-center py-12 text-sm" style={{ color: C.subtle }}>
+                <td colSpan={showArchived ? 9 : 7} className="text-center py-12 text-sm" style={{ color: C.subtle }}>
                   {showArchived ? "No archived evidence." : "No evidence matches your filters."}
                 </td>
               </tr>
