@@ -5544,25 +5544,21 @@ function ReportView({
         <section className="mt-8 print:break-inside-avoid">
           <SectionHeading icon={<Target size={18} />} title="Executive Summary" />
           <p className="mt-3 text-[15px] leading-relaxed" style={{ color: C.slate }}>
-            This review captured updated effectiveness scores across{" "}
-            <span style={{ color: C.navy, fontWeight: 600 }}>{Object.keys(review.scores).length}</span>{" "}
-            competency categories.{" "}
-            {deltas.filter((d) => d.to > d.from).length > 0 && (
-              <>
-                Notable growth was recorded in{" "}
-                <span style={{ color: C.navy, fontWeight: 600 }}>
-                  {deltas
-                    .filter((d) => d.to > d.from)
-                    .slice(0, 2)
-                    .map((d) => d.name)
-                    .join(" and ")}
-                </span>
-                .{" "}
-              </>
-            )}
-            <span style={{ color: C.navy, fontWeight: 600 }}>{approved.length}</span> pieces of
-            evidence are verified in the log. Current readiness for L4 is at{" "}
-            <span style={{ color: C.primary, fontWeight: 700 }}>{overallReadiness ?? 0}%</span>.
+            Engineer{" "}
+            <span style={{ color: C.navy, fontWeight: 600 }}>{review.engineer}</span>{" "}
+            is currently tracking at{" "}
+            <span style={{ color: C.primary, fontWeight: 700 }}>{overallReadiness ?? 0}%</span>{" "}
+            overall readiness for the L4 Senior target. Demonstrates exceptional proficiency
+            in{" "}
+            <span style={{ color: C.navy, fontWeight: 600 }}>
+              {topStrengths.length > 0 ? topStrengths.join(" and ") : "Analytical Thinking and Code Quality"}
+            </span>
+            . Primary growth opportunities exist in{" "}
+            <span style={{ color: C.navy, fontWeight: 600 }}>
+              {primaryGaps.length > 0 ? primaryGaps.join(" and ") : "System Design and Leadership"}
+            </span>
+            , requiring targeted focus in the upcoming cycle to bridge the remaining gaps.
+            Verified evidence log: {approved.length} item{approved.length === 1 ? "" : "s"}.
           </p>
         </section>
 
