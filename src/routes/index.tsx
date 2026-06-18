@@ -2880,7 +2880,7 @@ function EvidenceView({
       </div>
 
       <div className="overflow-x-auto pb-1">
-        <table className={`w-full text-sm table-fixed ${showArchived ? "min-w-[1650px]" : "min-w-[1430px]"}`}>
+        <table className={`w-full text-sm table-auto ${showArchived ? "min-w-[1650px]" : "min-w-[1430px]"}`}>
           <colgroup>
             <col className="w-[100px]" />
             <col className="w-[110px]" />
@@ -2897,14 +2897,14 @@ function EvidenceView({
           <thead style={{ background: "#F4F5F7", color: C.subtle }}>
             <tr className="text-left text-[11px] uppercase tracking-wider">
               <Th>Date</Th>
-              <Th className="whitespace-nowrap">Source</Th>
-              <Th className="whitespace-nowrap">Category</Th>
+              <Th>Source</Th>
+              <Th>Category</Th>
               <Th>Competency</Th>
               <Th>Title</Th>
               <Th>Description</Th>
-              <Th className="whitespace-nowrap">Link</Th>
-              <Th className="whitespace-nowrap">Match</Th>
-              <Th className="whitespace-nowrap">Status</Th>
+              <Th>Link</Th>
+              <Th>Match</Th>
+              <Th>Status</Th>
               {showArchived && <Th>Archived</Th>}
               {showArchived && <Th>Actions</Th>}
             </tr>
@@ -2917,13 +2917,13 @@ function EvidenceView({
                 className={`border-t hover:bg-[#FAFBFC] transition-colors ${showArchived ? "" : "cursor-pointer"}`}
                 style={{ borderColor: C.border }}
               >
-                <Td className="whitespace-nowrap" style={{ color: C.slate }}>
+                <Td style={{ color: C.slate }}>
                   {r.date}
                 </Td>
-                <Td className="whitespace-nowrap">
+                <Td>
                   <SourceChip source={r.source} />
                 </Td>
-                <Td className="whitespace-nowrap">
+                <Td>
                   <Badge tone="neutral">{r.category}</Badge>
                 </Td>
                 <Td>
@@ -2940,7 +2940,7 @@ function EvidenceView({
                 <Td style={{ color: C.slate }}>
                   <span className="line-clamp-2 break-words">{r.description}</span>
                 </Td>
-                <Td className="whitespace-nowrap">
+                <Td>
                   {r.link ? (
                     <a
                       onClick={(e) => e.stopPropagation()}
@@ -2957,10 +2957,10 @@ function EvidenceView({
                     <span style={{ color: C.subtle }}>-</span>
                   )}
                 </Td>
-                <Td className="whitespace-nowrap">
+                <Td>
                   <MatchBadge match={r.matchState} />
                 </Td>
-                <Td className="whitespace-nowrap">
+                <Td>
                   {r.status === "Reviewed" ? (
                     <Badge tone="success" icon={<CheckCircle size={11} />}>
                       Reviewed
@@ -2972,7 +2972,7 @@ function EvidenceView({
                   )}
                 </Td>
                 {showArchived && (
-                  <Td className="whitespace-nowrap" style={{ color: C.slate }}>{r.archivedDate ?? "-"}</Td>
+                  <Td style={{ color: C.slate }}>{r.archivedDate ?? "-"}</Td>
                 )}
                 {showArchived && (
                   <Td>
