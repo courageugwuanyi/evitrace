@@ -1748,7 +1748,7 @@ function Sidebar({
               Evitrace
             </div>
             <div className="text-[10px] uppercase tracking-wider" style={{ color: C.subtle }}>
-              Continuous Performance Intelligence
+              Performance Intelligence
             </div>
           </div>
         )}
