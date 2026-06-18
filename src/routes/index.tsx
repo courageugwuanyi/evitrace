@@ -4897,6 +4897,11 @@ function ExtensionSettings() {
   const [jira, setJira] = useState(true);
   const [gh, setGh] = useState(true);
   const [slack, setSlack] = useState(false);
+  const [bitbucket, setBitbucket] = useState(false);
+  const [slackIntg, setSlackIntg] = useState(false);
+  const [teams, setTeams] = useState(false);
+  const [confluence, setConfluence] = useState(false);
+  const [notion, setNotion] = useState(false);
   return (
     <Card className="p-6">
       <SectionHeader title="Extension Preferences" sub="Capture sources and trigger windows" />
@@ -4922,7 +4927,104 @@ function ExtensionSettings() {
           right={<Toggle on={slack} onChange={setSlack} />}
         />
       </div>
+
+      <div className="mt-8">
+        <SectionHeader
+          title="Extension & Integration Preferences"
+          sub="Enable auto-capture across the tools your team already uses."
+        />
+        <div className="mt-3">
+          <IntegrationRow
+            icon={<GitBranch size={16} />}
+            iconBg="#DEEBFF"
+            iconColor="#0052CC"
+            title="Bitbucket"
+            desc="Capture merged pull requests and code reviews."
+            on={bitbucket}
+            onChange={setBitbucket}
+          />
+          <IntegrationRow
+            icon={<Slack size={16} />}
+            iconBg="#F4ECFB"
+            iconColor="#5243AA"
+            title="Slack"
+            desc="Capture saved messages and channel highlights."
+            on={slackIntg}
+            onChange={setSlackIntg}
+          />
+          <IntegrationRow
+            icon={<MessageSquare size={16} />}
+            iconBg="#E6F0FF"
+            iconColor="#4B53BC"
+            title="Microsoft Teams"
+            desc="Capture meeting recaps and team channel mentions."
+            on={teams}
+            onChange={setTeams}
+          />
+          <IntegrationRow
+            icon={<BookOpen size={16} />}
+            iconBg="#DEEBFF"
+            iconColor="#0052CC"
+            title="Confluence"
+            desc="Capture pages you author, edit, or get tagged in."
+            on={confluence}
+            onChange={setConfluence}
+          />
+          <IntegrationRow
+            icon={<Notebook size={16} />}
+            iconBg="#F4F5F7"
+            iconColor="#172B4D"
+            title="Notion"
+            desc="Capture databases and docs you contribute to."
+            on={notion}
+            onChange={setNotion}
+          />
+        </div>
+      </div>
     </Card>
+  );
+}
+
+function IntegrationRow({
+  icon,
+  iconBg,
+  iconColor,
+  title,
+  desc,
+  on,
+  onChange,
+}: {
+  icon: React.ReactNode;
+  iconBg: string;
+  iconColor: string;
+  title: string;
+  desc: string;
+  on: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div
+      className="flex items-center justify-between py-3 border-b last:border-b-0"
+      style={{ borderColor: C.border }}
+    >
+      <div className="flex items-center gap-3 pr-6 min-w-0">
+        <div
+          className="w-9 h-9 rounded flex items-center justify-center shrink-0"
+          style={{ background: iconBg, color: iconColor }}
+        >
+          {icon}
+        </div>
+        <div className="min-w-0">
+          <div className="text-sm font-semibold" style={{ color: C.navy }}>
+            {title}
+          </div>
+          <div className="text-xs mt-0.5" style={{ color: C.subtle }}>
+            {desc}
+          </div>
+        </div>
+      </div>
+      <Toggle on={on} onChange={onChange} />
+    </div>
   );
 }
 
