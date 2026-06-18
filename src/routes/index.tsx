@@ -2880,7 +2880,7 @@ function EvidenceView({
       </div>
 
       <div className="overflow-x-auto pb-1">
-        <table className={`w-full text-sm table-fixed ${showArchived ? "min-w-[1430px]" : "min-w-[1210px]"}`}>
+        <table className={`w-full text-sm table-fixed ${showArchived ? "min-w-[1470px]" : "min-w-[1250px]"}`}>
           <colgroup>
             <col className="w-[100px]" />
             <col className="w-[110px]" />
@@ -2888,8 +2888,8 @@ function EvidenceView({
             <col className="w-[260px]" />
             <col className="w-[260px]" />
             <col className="w-[70px]" />
-            <col className="w-[120px]" />
-            <col className="w-[160px]" />
+            <col className="w-[140px]" />
+            <col className="w-[180px]" />
             {showArchived && <col className="w-[100px]" />}
             {showArchived && <col className="w-[120px]" />}
           </colgroup>
