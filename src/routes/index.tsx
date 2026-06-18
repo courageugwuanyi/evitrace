@@ -5394,6 +5394,23 @@ function ReportView({
     return Math.round((avg / 4) * 100);
   }, [review]);
 
+  const topStrengths = useMemo(
+    () =>
+      [...deltas]
+        .sort((a, b) => b.to - a.to)
+        .slice(0, 2)
+        .map((d) => d.name),
+    [deltas],
+  );
+  const primaryGaps = useMemo(
+    () =>
+      [...deltas]
+        .sort((a, b) => a.to - b.to)
+        .slice(0, 2)
+        .map((d) => d.name),
+    [deltas],
+  );
+
   const [topics, setTopics] = useState<string[]>([
     "Discuss timeline for the formal L4 promotion panel.",
     "Request budget for AWS Advanced Networking certification.",
