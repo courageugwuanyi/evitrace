@@ -2880,22 +2880,24 @@ function EvidenceView({
       </div>
 
       <div className="overflow-x-auto pb-1">
-        <table className={`w-full text-sm table-fixed ${showArchived ? "min-w-[1320px]" : "min-w-[1100px]"}`}>
+        <table className={`w-full text-sm table-fixed ${showArchived ? "min-w-[1430px]" : "min-w-[1210px]"}`}>
           <colgroup>
             <col className="w-[100px]" />
-            <col className="w-[120px]" />
-            <col className="w-[300px]" />
-            <col className="w-[220px]" />
-            <col className="w-[80px]" />
             <col className="w-[110px]" />
+            <col className="w-[130px]" />
+            <col className="w-[260px]" />
+            <col className="w-[260px]" />
+            <col className="w-[70px]" />
+            <col className="w-[120px]" />
             <col className="w-[160px]" />
             {showArchived && <col className="w-[100px]" />}
-            {showArchived && <col className="w-[130px]" />}
+            {showArchived && <col className="w-[120px]" />}
           </colgroup>
           <thead style={{ background: "#F4F5F7", color: C.subtle }}>
             <tr className="text-left text-[11px] uppercase tracking-wider">
               <Th>Date</Th>
               <Th>Source</Th>
+              <Th>Category</Th>
               <Th>Competency</Th>
               <Th>Title</Th>
               <Th>Link</Th>
@@ -2918,6 +2920,9 @@ function EvidenceView({
                 </Td>
                 <Td>
                   <SourceChip source={r.source} />
+                </Td>
+                <Td>
+                  <Badge tone="neutral">{r.category}</Badge>
                 </Td>
                 <Td>
                   <span
@@ -2990,7 +2995,7 @@ function EvidenceView({
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={showArchived ? 9 : 7} className="text-center py-12 text-sm" style={{ color: C.subtle }}>
+                <td colSpan={showArchived ? 10 : 8} className="text-center py-12 text-sm" style={{ color: C.subtle }}>
                   {showArchived ? "No archived evidence." : "No evidence matches your filters."}
                 </td>
               </tr>
