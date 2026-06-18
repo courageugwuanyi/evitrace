@@ -2880,29 +2880,31 @@ function EvidenceView({
       </div>
 
       <div className="overflow-x-auto pb-1">
-        <table className={`w-full text-sm table-fixed ${showArchived ? "min-w-[1470px]" : "min-w-[1250px]"}`}>
+        <table className={`w-full text-sm table-fixed ${showArchived ? "min-w-[1650px]" : "min-w-[1430px]"}`}>
           <colgroup>
             <col className="w-[100px]" />
             <col className="w-[110px]" />
             <col className="w-[130px]" />
-            <col className="w-[260px]" />
-            <col className="w-[260px]" />
-            <col className="w-[70px]" />
-            <col className="w-[140px]" />
-            <col className="w-[180px]" />
+            <col className="w-[220px]" />
+            <col className="w-[220px]" />
+            <col className="w-[280px]" />
+            <col className="w-[90px]" />
+            <col className="w-[130px]" />
+            <col className="w-[150px]" />
             {showArchived && <col className="w-[100px]" />}
             {showArchived && <col className="w-[120px]" />}
           </colgroup>
           <thead style={{ background: "#F4F5F7", color: C.subtle }}>
             <tr className="text-left text-[11px] uppercase tracking-wider">
               <Th>Date</Th>
-              <Th>Source</Th>
-              <Th>Category</Th>
+              <Th className="whitespace-nowrap">Source</Th>
+              <Th className="whitespace-nowrap">Category</Th>
               <Th>Competency</Th>
               <Th>Title</Th>
-              <Th>Link</Th>
-              <Th>Match</Th>
-              <Th>Status</Th>
+              <Th>Description</Th>
+              <Th className="whitespace-nowrap">Link</Th>
+              <Th className="whitespace-nowrap">Match</Th>
+              <Th className="whitespace-nowrap">Status</Th>
               {showArchived && <Th>Archived</Th>}
               {showArchived && <Th>Actions</Th>}
             </tr>
@@ -2918,10 +2920,10 @@ function EvidenceView({
                 <Td className="whitespace-nowrap" style={{ color: C.slate }}>
                   {r.date}
                 </Td>
-                <Td>
+                <Td className="whitespace-nowrap">
                   <SourceChip source={r.source} />
                 </Td>
-                <Td>
+                <Td className="whitespace-nowrap">
                   <Badge tone="neutral">{r.category}</Badge>
                 </Td>
                 <Td>
@@ -2935,7 +2937,10 @@ function EvidenceView({
                 <Td className="font-semibold" style={{ color: C.navy }}>
                   <span className="line-clamp-2 break-words">{r.title}</span>
                 </Td>
-                <Td>
+                <Td style={{ color: C.slate }}>
+                  <span className="line-clamp-2 break-words">{r.description}</span>
+                </Td>
+                <Td className="whitespace-nowrap">
                   {r.link ? (
                     <a
                       onClick={(e) => e.stopPropagation()}
@@ -2952,10 +2957,10 @@ function EvidenceView({
                     <span style={{ color: C.subtle }}>-</span>
                   )}
                 </Td>
-                <Td>
+                <Td className="whitespace-nowrap">
                   <MatchBadge match={r.matchState} />
                 </Td>
-                <Td>
+                <Td className="whitespace-nowrap">
                   {r.status === "Reviewed" ? (
                     <Badge tone="success" icon={<CheckCircle size={11} />}>
                       Reviewed
@@ -2995,7 +3000,7 @@ function EvidenceView({
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={showArchived ? 10 : 8} className="text-center py-12 text-sm" style={{ color: C.subtle }}>
+                <td colSpan={showArchived ? 11 : 9} className="text-center py-12 text-sm" style={{ color: C.subtle }}>
                   {showArchived ? "No archived evidence." : "No evidence matches your filters."}
                 </td>
               </tr>
