@@ -625,12 +625,10 @@ function Badge({
   tone = "neutral",
   children,
   icon,
-  className = "",
 }: {
   tone?: "neutral" | "success" | "warning" | "info" | "danger";
   children: React.ReactNode;
   icon?: React.ReactNode;
-  className?: string;
 }) {
   const map = {
     neutral: { bg: "#F4F5F7", fg: C.slate },
@@ -642,7 +640,7 @@ function Badge({
   const s = map[tone];
   return (
     <span
-      className={`inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold uppercase tracking-wide rounded whitespace-nowrap overflow-hidden text-ellipsis ${className || "max-w-full"}`}
+      className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold uppercase tracking-wide rounded whitespace-nowrap overflow-hidden text-ellipsis max-w-full"
       style={{ background: s.bg, color: s.fg }}
     >
       {icon}
@@ -650,7 +648,6 @@ function Badge({
     </span>
   );
 }
-
 
 /* ============================================================ */
 /*           SOURCE ICON MAPPING                                */
@@ -2883,18 +2880,7 @@ function EvidenceView({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-sm table-fixed min-w-[960px]">
-          <colgroup>
-            <col className="w-20" />
-            <col className="w-24" />
-            <col className="w-[250px] md:w-80" />
-            <col className="w-auto" />
-            <col className="w-16" />
-            <col className="w-20" />
-            <col className="w-24" />
-            {showArchived && <col className="w-20" />}
-            {showArchived && <col className="w-20" />}
-          </colgroup>
+        <table className="w-full text-sm min-w-[960px]">
           <thead style={{ background: "#F4F5F7", color: C.subtle }}>
             <tr className="text-left text-[11px] uppercase tracking-wider">
               <Th>Date</Th>
@@ -2908,7 +2894,6 @@ function EvidenceView({
               {showArchived && <Th>Actions</Th>}
             </tr>
           </thead>
-
           <tbody>
             {filtered.map((r) => (
               <tr
@@ -2924,9 +2909,7 @@ function EvidenceView({
                   <SourceChip source={r.source} />
                 </Td>
                 <Td>
-                  <Badge tone="info" className="truncate max-w-[250px] md:max-w-xs">
-                    {r.competency}
-                  </Badge>
+                  <Badge tone="info">{r.competency}</Badge>
                 </Td>
                 <Td className="font-semibold max-w-xs" style={{ color: C.navy }}>
                   {r.title}
