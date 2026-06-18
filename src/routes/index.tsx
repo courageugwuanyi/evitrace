@@ -866,7 +866,7 @@ const initialEvidence: EvidenceRecord[] = [
     date: "Dec 02, 2026",
     source: "Bitbucket",
     category: "Technical",
-    competency: "Maintains continuous, open and consistent communication with others, ensuring all stakeholders are aligned and informed across multiple teams and time zones",
+    competency: "System Design",
     title: "Migrated billing service to event-driven model",
     description: "Designed Kafka topology and rollout plan; zero downtime cutover.",
     link: "bitbucket.org/acme/billing/pull-requests/482",
