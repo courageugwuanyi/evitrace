@@ -2161,8 +2161,8 @@ function SectionHeader({
   right?: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between">
-      <div>
+    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
+      <div className="min-w-0">
         <div className="text-sm font-bold" style={{ color: C.navy }}>
           {title}
         </div>
@@ -2172,7 +2172,7 @@ function SectionHeader({
           </div>
         )}
       </div>
-      {right}
+      {right && <div className="shrink-0">{right}</div>}
     </div>
   );
 }
@@ -5394,12 +5394,39 @@ function ReportView({
     return Math.round((avg / 4) * 100);
   }, [review]);
 
+  const topStrengths = useMemo(
+    () =>
+      [...deltas]
+        .sort((a, b) => b.to - a.to)
+        .slice(0, 2)
+        .map((d) => d.name),
+    [deltas],
+  );
+  const primaryGaps = useMemo(
+    () =>
+      [...deltas]
+        .sort((a, b) => a.to - b.to)
+        .slice(0, 2)
+        .map((d) => d.name),
+    [deltas],
+  );
+
   const [topics, setTopics] = useState<string[]>([
     "Discuss timeline for the formal L4 promotion panel.",
     "Request budget for AWS Advanced Networking certification.",
     "Align on which Q4 initiative best demonstrates System Design at L4.",
   ]);
   const [draft, setDraft] = useState("");
+
+  type LearningResource = {
+    id: string;
+    competency: string;
+    title: string;
+    url: string;
+    notes: string;
+  };
+  const [resources, setResources] = useState<LearningResource[]>([]);
+  const [resourceModalOpen, setResourceModalOpen] = useState(false);
 
   function addTopic() {
     const t = draft.trim();
@@ -5437,7 +5464,7 @@ function ReportView({
               <History size={14} />
               Open in modal
             </GhostBtn>
-            <PrimaryBtn onClick={onStartReview}>
+            <PrimaryBtn onClick={onStartReview} className="!px-6 !h-10 whitespace-nowrap">
               <ClipboardList size={14} />
               Start Performance Review
             </PrimaryBtn>
@@ -5474,48 +5501,18 @@ function ReportView({
   return (
     <div>
       {/* Action Hub bar */}
-      <div className="flex items-center justify-between mb-6 print-hide">
-        <div className="text-sm" style={{ color: C.subtle }}>
-          Viewing report {review.id}. Use the archive to switch between historical assessments.
-        </div>
-        <div className="flex items-center gap-2">
-          <GhostBtn onClick={onClearReview}>
-            <ArrowLeft size={14} />
-            Back to archive
-          </GhostBtn>
-          <GhostBtn onClick={onOpenHistory}>
-            <History size={14} />
-            Assessment History
-          </GhostBtn>
-          <PrimaryBtn onClick={onStartReview}>
-            <ClipboardList size={14} />
-            Start Performance Review
-          </PrimaryBtn>
-        </div>
-      </div>
-
-      {/* Sticky action bar */}
-      <div
-        className="sticky top-0 z-20 -mx-8 px-8 py-3 mb-6 border-b flex items-center justify-between print-hide"
-        style={{ background: C.bg, borderColor: C.border }}
-      >
-        <nav className="flex items-center gap-1.5 text-xs" style={{ color: C.subtle }}>
-          <span>Reviews &amp; Reports</span>
-          <ChevronRight size={12} />
-          <span className="font-semibold" style={{ color: C.navy }}>
-            {review.period}
-          </span>
-        </nav>
-        <div className="flex items-center gap-2">
-          <GhostBtn onClick={copyLink}>
-            <LinkIcon size={14} />
-            Copy Share Link
-          </GhostBtn>
-          <PrimaryBtn onClick={() => window.print()} className="print:hidden">
-            <Download size={14} />
-            Export to PDF
-          </PrimaryBtn>
-        </div>
+      <div className="flex items-center justify-between mb-6 print-hide gap-3">
+        <GhostBtn onClick={onClearReview} className="-ml-2">
+          <ArrowLeft size={14} />
+          Back to Assessments Archive
+        </GhostBtn>
+        <PrimaryBtn
+          onClick={onStartReview}
+          className="!px-6 !h-10 whitespace-nowrap"
+        >
+          <ClipboardList size={14} />
+          Start Performance Review
+        </PrimaryBtn>
       </div>
 
       {/* Document */}
@@ -5525,19 +5522,34 @@ function ReportView({
       >
         {/* 1. Header */}
         <header className="print:break-inside-avoid">
-          <div className="flex items-center gap-2 mb-2">
-            <div
-              className="w-8 h-8 rounded flex items-center justify-center"
-              style={{ background: C.primary }}
-            >
-              <RadarIcon size={18} color="#fff" />
+          <div className="flex items-start justify-between gap-4 mb-2 flex-wrap">
+            <div className="flex items-center gap-2 min-w-0">
+              <div
+                className="w-8 h-8 rounded flex items-center justify-center shrink-0"
+                style={{ background: C.primary }}
+              >
+                <RadarIcon size={18} color="#fff" />
+              </div>
+              <h1
+                className="text-3xl font-bold tracking-tight"
+                style={{ color: C.navy }}
+              >
+                {review.period}
+              </h1>
             </div>
-            <h1
-              className="text-3xl font-bold tracking-tight"
-              style={{ color: C.navy }}
-            >
-              Evitrace Performance Report
-            </h1>
+            <div className="flex items-center gap-2 print-hide">
+              <GhostBtn onClick={copyLink} className="border" >
+                <LinkIcon size={14} />
+                Copy Share Link
+              </GhostBtn>
+              <GhostBtn onClick={() => window.print()} className="border">
+                <Download size={14} />
+                Export to PDF
+              </GhostBtn>
+            </div>
+          </div>
+          <div className="text-sm font-semibold mb-1" style={{ color: C.subtle }}>
+            Evitrace Performance Report
           </div>
           <div className="mt-3 space-y-1 text-sm" style={{ color: C.slate }}>
             <div>
@@ -5559,25 +5571,21 @@ function ReportView({
         <section className="mt-8 print:break-inside-avoid">
           <SectionHeading icon={<Target size={18} />} title="Executive Summary" />
           <p className="mt-3 text-[15px] leading-relaxed" style={{ color: C.slate }}>
-            This review captured updated effectiveness scores across{" "}
-            <span style={{ color: C.navy, fontWeight: 600 }}>{Object.keys(review.scores).length}</span>{" "}
-            competency categories.{" "}
-            {deltas.filter((d) => d.to > d.from).length > 0 && (
-              <>
-                Notable growth was recorded in{" "}
-                <span style={{ color: C.navy, fontWeight: 600 }}>
-                  {deltas
-                    .filter((d) => d.to > d.from)
-                    .slice(0, 2)
-                    .map((d) => d.name)
-                    .join(" and ")}
-                </span>
-                .{" "}
-              </>
-            )}
-            <span style={{ color: C.navy, fontWeight: 600 }}>{approved.length}</span> pieces of
-            evidence are verified in the log. Current readiness for L4 is at{" "}
-            <span style={{ color: C.primary, fontWeight: 700 }}>{overallReadiness ?? 0}%</span>.
+            Engineer{" "}
+            <span style={{ color: C.navy, fontWeight: 600 }}>{review.engineer}</span>{" "}
+            is currently tracking at{" "}
+            <span style={{ color: C.primary, fontWeight: 700 }}>{overallReadiness ?? 0}%</span>{" "}
+            overall readiness for the L4 Senior target. Demonstrates exceptional proficiency
+            in{" "}
+            <span style={{ color: C.navy, fontWeight: 600 }}>
+              {topStrengths.length > 0 ? topStrengths.join(" and ") : "Analytical Thinking and Code Quality"}
+            </span>
+            . Primary growth opportunities exist in{" "}
+            <span style={{ color: C.navy, fontWeight: 600 }}>
+              {primaryGaps.length > 0 ? primaryGaps.join(" and ") : "System Design and Leadership"}
+            </span>
+            , requiring targeted focus in the upcoming cycle to bridge the remaining gaps.
+            Verified evidence log: {approved.length} item{approved.length === 1 ? "" : "s"}.
           </p>
         </section>
 
@@ -5705,7 +5713,82 @@ function ReportView({
           )}
         </section>
 
-        {/* 6. Objectives */}
+        {/* 6. Suggested Learning Resources */}
+        <section className="mt-10 print:break-inside-avoid">
+          <div className="flex items-start justify-between gap-3">
+            <SectionHeading icon={<BookOpen size={18} />} title="Suggested Learning Resources" />
+            <GhostBtn
+              onClick={() => setResourceModalOpen(true)}
+              className="border print-hide"
+              style={{ borderColor: C.border }}
+            >
+              <Plus size={14} />
+              Add Learning Resource
+            </GhostBtn>
+          </div>
+          <p className="mt-2 text-sm" style={{ color: C.subtle }}>
+            Resources curated by the manager to address competencies rated below target.
+          </p>
+          {resources.length === 0 ? (
+            <div
+              className="mt-4 text-sm p-4 rounded border border-dashed"
+              style={{ color: C.subtle, borderColor: C.border }}
+            >
+              No learning resources added yet. Click "Add Learning Resource" to curate
+              materials for the engineer.
+            </div>
+          ) : (
+            <ul className="mt-4 space-y-3">
+              {resources.map((r) => (
+                <li
+                  key={r.id}
+                  className="p-4 rounded border flex items-start justify-between gap-4 print:break-inside-avoid"
+                  style={{ borderColor: C.border, background: "#FFFFFF" }}
+                >
+                  <div className="flex-1 min-w-0">
+                    <span
+                      className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap h-fit"
+                      style={{ background: C.primarySoft, color: C.primary }}
+                    >
+                      {r.competency}
+                    </span>
+                    <div className="mt-2 text-[15px] font-bold text-slate-900">
+                      {r.title}
+                    </div>
+                    {r.notes && (
+                      <div className="mt-1 text-sm text-slate-500 leading-relaxed">
+                        {r.notes}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0 print-hide">
+                    <button
+                      type="button"
+                      onClick={() => window.open(r.url, "_blank")}
+                      className="inline-flex items-center gap-1.5 px-3 h-9 text-sm font-semibold rounded border transition-colors hover:bg-[#F4F5F7]"
+                      style={{ borderColor: C.primary, color: C.primary }}
+                    >
+                      <ExternalLink size={14} />
+                      Open Resource
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setResources((rs) => rs.filter((x) => x.id !== r.id))
+                      }
+                      aria-label="Remove resource"
+                      className="w-9 h-9 inline-flex items-center justify-center rounded text-slate-400 hover:text-red-600 hover:bg-[#F4F5F7] transition-colors"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {/* 7. Objectives */}
         <section className="mt-10 print:break-inside-avoid">
           <SectionHeading icon={<ListTodo size={18} />} title="Active Objectives" />
           <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -5780,7 +5863,130 @@ function ReportView({
           <span>Report ID · {review.id}</span>
         </footer>
       </article>
+      <AnimatePresence>
+        {resourceModalOpen && (
+          <LearningResourceModal
+            competencies={Object.keys(review.scores)}
+            onCancel={() => setResourceModalOpen(false)}
+            onSave={(r) => {
+              setResources((rs) => [
+                ...rs,
+                { ...r, id: `lr-${Date.now()}` },
+              ]);
+              setResourceModalOpen(false);
+              onFlash("Learning resource added");
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
+  );
+}
+
+function LearningResourceModal({
+  competencies,
+  onCancel,
+  onSave,
+}: {
+  competencies: string[];
+  onCancel: () => void;
+  onSave: (r: { competency: string; title: string; url: string; notes: string }) => void;
+}) {
+  const fallback = COMPETENCIES;
+  const options = competencies.length > 0 ? competencies : fallback;
+  const [competency, setCompetency] = useState(options[0] ?? "");
+  const [title, setTitle] = useState("");
+  const [url, setUrl] = useState("");
+  const [notes, setNotes] = useState("");
+  const canSave = title.trim() && url.trim() && competency;
+  return (
+    <Backdrop onClose={onCancel}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.96 }}
+        transition={{ duration: 0.15 }}
+        className="bg-white rounded-lg shadow-2xl w-full max-w-lg border"
+        style={{ borderColor: C.border }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-5 border-b" style={{ borderColor: C.border }}>
+          <div className="text-base font-bold" style={{ color: C.navy }}>
+            Add Learning Resource
+          </div>
+          <div className="text-sm mt-1" style={{ color: C.slate }}>
+            Curate a resource to help close the gap on a target competency.
+          </div>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+              Target Competency
+            </label>
+            <select
+              value={competency}
+              onChange={(e) => setCompetency(e.target.value)}
+              className="mt-1.5 w-full h-10 px-3 text-sm rounded border bg-white focus:outline-none"
+              style={{ borderColor: C.border, color: C.navy }}
+            >
+              {options.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+              Resource Title
+            </label>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Designing Data-Intensive Applications"
+              className="mt-1.5 w-full h-10 px-3 text-sm rounded border bg-white focus:outline-none"
+              style={{ borderColor: C.border, color: C.navy }}
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+              Resource URL
+            </label>
+            <input
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://..."
+              className="mt-1.5 w-full h-10 px-3 text-sm rounded border bg-white focus:outline-none"
+              style={{ borderColor: C.border, color: C.navy }}
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+              Manager Notes
+            </label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Why this resource, and what to focus on..."
+              className="mt-1.5 w-full min-h-[80px] px-3 py-2 text-sm rounded border bg-white focus:outline-none resize-y"
+              style={{ borderColor: C.border, color: C.navy }}
+            />
+          </div>
+        </div>
+        <div
+          className="px-5 py-3 border-t flex items-center justify-end gap-2"
+          style={{ borderColor: C.border, background: C.bg }}
+        >
+          <GhostBtn onClick={onCancel}>Cancel</GhostBtn>
+          <button
+            onClick={() => canSave && onSave({ competency, title: title.trim(), url: url.trim(), notes: notes.trim() })}
+            disabled={!canSave}
+            className="px-4 h-9 rounded text-sm font-semibold text-white transition-colors disabled:opacity-50"
+            style={{ background: C.primary }}
+          >
+            Save Resource
+          </button>
+        </div>
+      </motion.div>
+    </Backdrop>
   );
 }
 
@@ -5839,7 +6045,15 @@ function ObjectiveColumn({
               <div className="text-sm font-semibold leading-snug" style={{ color: C.navy }}>
                 {o.title}
               </div>
-              <Badge tone={tone}>{o.status}</Badge>
+              <span
+                className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap h-fit shrink-0"
+                style={{
+                  background: tone === "success" ? C.greenSoft : C.primarySoft,
+                  color: tone === "success" ? "#006644" : C.primary,
+                }}
+              >
+                {o.status}
+              </span>
             </div>
             <div className="mt-1.5 flex items-center gap-3 text-xs" style={{ color: C.subtle }}>
               <span className="inline-flex items-center gap-1">
