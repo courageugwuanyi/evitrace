@@ -1680,6 +1680,7 @@ function Sidebar({
     { id: "dashboard", label: "Dashboard", sub: "Daily Actions", icon: LayoutDashboard },
     { id: "evidence", label: "Evidence Log", sub: "Data Table", icon: TableProperties },
     { id: "objectives", label: "Objectives", sub: "Skill Gap Planning", icon: Target },
+    { id: "feedback", label: "360 Feedback", sub: "Peer & Manager Reviews", icon: MessageCircleHeart },
     { id: "radar", label: "Promotion Readiness", sub: "Assessment & Gaps", icon: TrendingUp },
     { id: "report", label: "Reviews & Reports", sub: "Archive & 1-on-1 Prep", icon: FileText },
   ];
