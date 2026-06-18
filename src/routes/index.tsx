@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import {
@@ -759,6 +759,75 @@ function Select({
     </div>
   );
 }
+
+function Dropdown({
+  value,
+  onChange,
+  options,
+  placeholder = "Select…",
+  disabled = false,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: string[];
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handle = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative w-full max-w-full">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((o) => !o)}
+        className="w-full max-w-full min-w-0 h-auto py-2 pl-3 pr-8 text-sm rounded border bg-[#F4F5F7] hover:bg-white outline-none focus:ring-2 text-left whitespace-normal break-words leading-snug transition-all disabled:opacity-50"
+        style={{ borderColor: C.border, color: C.navy }}
+      >
+        {value || placeholder}
+      </button>
+      <ChevronDown
+        size={14}
+        className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+        style={{ color: C.subtle }}
+      />
+      {open && (
+        <div
+          className="absolute z-20 mt-1 w-full max-w-full rounded border bg-white shadow-lg overflow-y-auto max-h-60"
+          style={{ borderColor: C.border }}
+        >
+          {options.map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => {
+                onChange(opt);
+                setOpen(false);
+              }}
+              className="w-full px-3 py-2 text-left text-sm whitespace-normal break-words leading-snug hover:bg-[#F4F5F7]"
+              style={{ color: C.navy }}
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 /* ---------- Mock data ---------- */
 const initialRadar = [
@@ -5050,52 +5119,43 @@ function EvidenceSlideover({
         </div>
 
         {/* Scrollable */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-8">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-6 py-5 space-y-8">
           <section>
             <div className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: C.subtle }}>
               Competency Mapping
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="flex flex-col gap-4">
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Category</div>
-                <Select
+                <Dropdown
                   value={PDF_CATEGORIES.includes(draft.category) ? draft.category : ""}
-                  onChange={(e) => {
-                    const nextCat = e.target.value;
+                  options={PDF_CATEGORIES}
+                  placeholder="Select a competency category…"
+                  onChange={(nextCat) => {
                     update("category", nextCat);
                     // Reset subcategory to the first question under the new category
                     const firstSub = PDF_FRAMEWORK[nextCat]?.[0] ?? "";
                     update("competency", firstSub);
                   }}
-                >
-                  {!PDF_CATEGORIES.includes(draft.category) && (
-                    <option value="">Select a competency category…</option>
-                  )}
-                  {PDF_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
-                </Select>
+                />
               </div>
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Subcategory / Question</div>
-                <Select
+                <Dropdown
                   value={
                     (PDF_FRAMEWORK[draft.category] ?? []).includes(draft.competency)
                       ? draft.competency
                       : ""
                   }
-                  onChange={(e) => update("competency", e.target.value)}
+                  options={PDF_FRAMEWORK[draft.category] ?? []}
+                  placeholder={
+                    PDF_CATEGORIES.includes(draft.category)
+                      ? "Select a subcategory / question…"
+                      : "Pick a category first"
+                  }
+                  onChange={(val) => update("competency", val)}
                   disabled={!PDF_CATEGORIES.includes(draft.category)}
-                >
-                  {!(PDF_FRAMEWORK[draft.category] ?? []).includes(draft.competency) && (
-                    <option value="">
-                      {PDF_CATEGORIES.includes(draft.category)
-                        ? "Select a subcategory / question…"
-                        : "Pick a category first"}
-                    </option>
-                  )}
-                  {(PDF_FRAMEWORK[draft.category] ?? []).map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </Select>
+                />
               </div>
             </div>
           </section>
