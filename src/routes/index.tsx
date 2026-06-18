@@ -5464,7 +5464,7 @@ function ReportView({
               <History size={14} />
               Open in modal
             </GhostBtn>
-            <PrimaryBtn onClick={onStartReview}>
+            <PrimaryBtn onClick={onStartReview} className="!px-6 !h-10 whitespace-nowrap">
               <ClipboardList size={14} />
               Start Performance Review
             </PrimaryBtn>
