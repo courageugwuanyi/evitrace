@@ -1386,6 +1386,7 @@ function EvitraceApp() {
                   onOpenHistory={() => setShowHistory(true)}
                 />
               )}
+              {tab === "feedback" && <FeedbackView />}
               {tab === "settings" && <SettingsView />}
             </motion.div>
           </AnimatePresence>
