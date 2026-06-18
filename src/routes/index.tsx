@@ -2883,7 +2883,18 @@ function EvidenceView({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-sm min-w-[960px]">
+        <table className="w-full text-sm table-fixed min-w-[960px]">
+          <colgroup>
+            <col className="w-20" />
+            <col className="w-24" />
+            <col className="w-[250px] md:w-80" />
+            <col className="w-auto" />
+            <col className="w-16" />
+            <col className="w-20" />
+            <col className="w-24" />
+            {showArchived && <col className="w-20" />}
+            {showArchived && <col className="w-20" />}
+          </colgroup>
           <thead style={{ background: "#F4F5F7", color: C.subtle }}>
             <tr className="text-left text-[11px] uppercase tracking-wider">
               <Th>Date</Th>
@@ -2897,6 +2908,7 @@ function EvidenceView({
               {showArchived && <Th>Actions</Th>}
             </tr>
           </thead>
+
           <tbody>
             {filtered.map((r) => (
               <tr
