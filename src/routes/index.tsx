@@ -5863,7 +5863,130 @@ function ReportView({
           <span>Report ID · {review.id}</span>
         </footer>
       </article>
+      <AnimatePresence>
+        {resourceModalOpen && (
+          <LearningResourceModal
+            competencies={Object.keys(review.scores)}
+            onCancel={() => setResourceModalOpen(false)}
+            onSave={(r) => {
+              setResources((rs) => [
+                ...rs,
+                { ...r, id: `lr-${Date.now()}` },
+              ]);
+              setResourceModalOpen(false);
+              onFlash("Learning resource added");
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
+  );
+}
+
+function LearningResourceModal({
+  competencies,
+  onCancel,
+  onSave,
+}: {
+  competencies: string[];
+  onCancel: () => void;
+  onSave: (r: { competency: string; title: string; url: string; notes: string }) => void;
+}) {
+  const fallback = COMPETENCIES;
+  const options = competencies.length > 0 ? competencies : fallback;
+  const [competency, setCompetency] = useState(options[0] ?? "");
+  const [title, setTitle] = useState("");
+  const [url, setUrl] = useState("");
+  const [notes, setNotes] = useState("");
+  const canSave = title.trim() && url.trim() && competency;
+  return (
+    <Backdrop onClose={onCancel}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.96 }}
+        transition={{ duration: 0.15 }}
+        className="bg-white rounded-lg shadow-2xl w-full max-w-lg border"
+        style={{ borderColor: C.border }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-5 border-b" style={{ borderColor: C.border }}>
+          <div className="text-base font-bold" style={{ color: C.navy }}>
+            Add Learning Resource
+          </div>
+          <div className="text-sm mt-1" style={{ color: C.slate }}>
+            Curate a resource to help close the gap on a target competency.
+          </div>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+              Target Competency
+            </label>
+            <select
+              value={competency}
+              onChange={(e) => setCompetency(e.target.value)}
+              className="mt-1.5 w-full h-10 px-3 text-sm rounded border bg-white focus:outline-none"
+              style={{ borderColor: C.border, color: C.navy }}
+            >
+              {options.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+              Resource Title
+            </label>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g. Designing Data-Intensive Applications"
+              className="mt-1.5 w-full h-10 px-3 text-sm rounded border bg-white focus:outline-none"
+              style={{ borderColor: C.border, color: C.navy }}
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+              Resource URL
+            </label>
+            <input
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://..."
+              className="mt-1.5 w-full h-10 px-3 text-sm rounded border bg-white focus:outline-none"
+              style={{ borderColor: C.border, color: C.navy }}
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+              Manager Notes
+            </label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Why this resource, and what to focus on..."
+              className="mt-1.5 w-full min-h-[80px] px-3 py-2 text-sm rounded border bg-white focus:outline-none resize-y"
+              style={{ borderColor: C.border, color: C.navy }}
+            />
+          </div>
+        </div>
+        <div
+          className="px-5 py-3 border-t flex items-center justify-end gap-2"
+          style={{ borderColor: C.border, background: C.bg }}
+        >
+          <GhostBtn onClick={onCancel}>Cancel</GhostBtn>
+          <button
+            onClick={() => canSave && onSave({ competency, title: title.trim(), url: url.trim(), notes: notes.trim() })}
+            disabled={!canSave}
+            className="px-4 h-9 rounded text-sm font-semibold text-white transition-colors disabled:opacity-50"
+            style={{ background: C.primary }}
+          >
+            Save Resource
+          </button>
+        </div>
+      </motion.div>
+    </Backdrop>
   );
 }
 
