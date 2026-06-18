@@ -2880,7 +2880,7 @@ function EvidenceView({
       </div>
 
       <div className="overflow-x-auto pb-1">
-        <table className={`w-full text-sm table-fixed ${showArchived ? "min-w-[1320px]" : "min-w-[1100px]"}>
+        <table className={`w-full text-sm table-fixed ${showArchived ? "min-w-[1320px]" : "min-w-[1100px]"} `}>
           <colgroup>
             <col className="w-[100px]" />
             <col className="w-[120px]" />
