@@ -5837,7 +5837,15 @@ function ObjectiveColumn({
               <div className="text-sm font-semibold leading-snug" style={{ color: C.navy }}>
                 {o.title}
               </div>
-              <Badge tone={tone}>{o.status}</Badge>
+              <span
+                className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap h-fit shrink-0"
+                style={{
+                  background: tone === "success" ? C.greenSoft : C.primarySoft,
+                  color: tone === "success" ? "#006644" : C.primary,
+                }}
+              >
+                {o.status}
+              </span>
             </div>
             <div className="mt-1.5 flex items-center gap-3 text-xs" style={{ color: C.subtle }}>
               <span className="inline-flex items-center gap-1">
