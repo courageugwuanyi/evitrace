@@ -82,6 +82,14 @@ import {
   Send,
 } from "lucide-react";
 import {
+  Mail,
+  Building2,
+  LogIn,
+  LogOut,
+  ShieldCheck,
+  ChevronLeft,
+} from "lucide-react";
+import {
   Radar,
   RadarChart,
   PolarGrid,
