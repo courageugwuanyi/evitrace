@@ -625,10 +625,12 @@ function Badge({
   tone = "neutral",
   children,
   icon,
+  className = "",
 }: {
   tone?: "neutral" | "success" | "warning" | "info" | "danger";
   children: React.ReactNode;
   icon?: React.ReactNode;
+  className?: string;
 }) {
   const map = {
     neutral: { bg: "#F4F5F7", fg: C.slate },
@@ -640,7 +642,7 @@ function Badge({
   const s = map[tone];
   return (
     <span
-      className="inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold uppercase tracking-wide rounded whitespace-nowrap overflow-hidden text-ellipsis max-w-full"
+      className={`inline-flex items-center gap-1 px-2 h-6 text-[11px] font-semibold uppercase tracking-wide rounded whitespace-nowrap overflow-hidden text-ellipsis ${className || "max-w-full"}`}
       style={{ background: s.bg, color: s.fg }}
     >
       {icon}
@@ -648,6 +650,7 @@ function Badge({
     </span>
   );
 }
+
 
 /* ============================================================ */
 /*           SOURCE ICON MAPPING                                */
