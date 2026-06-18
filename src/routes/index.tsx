@@ -122,7 +122,7 @@ export const Route = createFileRoute("/")({
       { property: "og:type", content: "website" },
     ],
   }),
-  component: EvitraceApp,
+  component: App,
 });
 
 /* ---------- Design tokens ---------- */
