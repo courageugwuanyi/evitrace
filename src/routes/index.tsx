@@ -5844,45 +5844,50 @@ function NotificationsSettings() {
 function ExtensionSettings() {
   const [auto, setAuto] = useState(true);
   const [jira, setJira] = useState(true);
-  const [gh, setGh] = useState(true);
-  const [slack, setSlack] = useState(false);
+  const [github, setGithub] = useState(true);
   const [bitbucket, setBitbucket] = useState(false);
-  const [slackIntg, setSlackIntg] = useState(false);
+  const [slack, setSlack] = useState(false);
   const [teams, setTeams] = useState(false);
   const [confluence, setConfluence] = useState(false);
   const [notion, setNotion] = useState(false);
-  return (
-    <Card className="p-6">
-      <SectionHeader title="Extension Preferences" sub="Capture sources and trigger windows" />
-      <div className="mt-3">
-        <SettingRow
-          title="Auto-capture events"
-          desc="Surface a capture prompt when work is completed."
-          right={<Toggle on={auto} onChange={setAuto} />}
-        />
-        <SettingRow
-          title="Jira"
-          desc="Trigger when a ticket moves to Done."
-          right={<Toggle on={jira} onChange={setJira} />}
-        />
-        <SettingRow
-          title="GitHub"
-          desc="Trigger when a PR is merged with you as author or reviewer."
-          right={<Toggle on={gh} onChange={setGh} />}
-        />
-        <SettingRow
-          title="Slack"
-          desc="Trigger on saved threads tagged with #wins."
-          right={<Toggle on={slack} onChange={setSlack} />}
-        />
-      </div>
 
-      <div className="mt-8">
+  return (
+    <div className="space-y-6">
+      <Card className="p-6">
+        <SectionHeader title="Extension Preferences" sub="Capture sources and trigger windows" />
+        <div className="mt-3">
+          <SettingRow
+            title="Auto-capture events"
+            desc="Surface a capture prompt when work is completed."
+            right={<Toggle on={auto} onChange={setAuto} />}
+          />
+        </div>
+      </Card>
+
+      <Card className="p-6">
         <SectionHeader
-          title="Extension & Integration Preferences"
-          sub="Enable auto-capture across the tools your team already uses."
+          title="Development & Issue Tracking"
+          sub="Capture merged PRs, code reviews, and ticket transitions."
         />
         <div className="mt-3">
+          <IntegrationRow
+            icon={<ListTodo size={16} />}
+            iconBg="#DEEBFF"
+            iconColor="#0052CC"
+            title="Jira"
+            desc="Trigger when a ticket moves to Done."
+            on={jira}
+            onChange={setJira}
+          />
+          <IntegrationRow
+            icon={<Github size={16} />}
+            iconBg="#F4F5F7"
+            iconColor="#172B4D"
+            title="GitHub"
+            desc="Trigger when a PR is merged with you as author or reviewer."
+            on={github}
+            onChange={setGithub}
+          />
           <IntegrationRow
             icon={<GitBranch size={16} />}
             iconBg="#DEEBFF"
@@ -5892,14 +5897,23 @@ function ExtensionSettings() {
             on={bitbucket}
             onChange={setBitbucket}
           />
+        </div>
+      </Card>
+
+      <Card className="p-6">
+        <SectionHeader
+          title="Communication"
+          sub="Capture saved conversations, recaps, and channel highlights."
+        />
+        <div className="mt-3">
           <IntegrationRow
             icon={<Slack size={16} />}
             iconBg="#F4ECFB"
             iconColor="#5243AA"
             title="Slack"
-            desc="Capture saved messages and channel highlights."
-            on={slackIntg}
-            onChange={setSlackIntg}
+            desc="Capture saved messages and channel threads tagged with #wins."
+            on={slack}
+            onChange={setSlack}
           />
           <IntegrationRow
             icon={<MessageSquare size={16} />}
@@ -5910,6 +5924,15 @@ function ExtensionSettings() {
             on={teams}
             onChange={setTeams}
           />
+        </div>
+      </Card>
+
+      <Card className="p-6">
+        <SectionHeader
+          title="Documentation"
+          sub="Capture docs, pages, and knowledge base contributions."
+        />
+        <div className="mt-3">
           <IntegrationRow
             icon={<BookOpen size={16} />}
             iconBg="#DEEBFF"
@@ -5929,8 +5952,8 @@ function ExtensionSettings() {
             onChange={setNotion}
           />
         </div>
-      </div>
-    </Card>
+      </Card>
+    </div>
   );
 }
 
