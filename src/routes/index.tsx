@@ -1992,7 +1992,7 @@ function DashboardView({
   return (
     <div className="space-y-6">
       {/* Widget A */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatCard
           icon={<TrendingUp size={18} />}
           label="Evidence This Quarter"
@@ -2007,13 +2007,7 @@ function DashboardView({
           delta="Best: 21 days"
           tone="success"
         />
-        <StatCard
-          icon={<Clock size={18} />}
-          label="Awaiting Manager Review"
-          value="3"
-          delta="Oldest: 2 days"
-          tone="warning"
-        />
+        <PendingReviewCard />
       </div>
 
       <div className="grid grid-cols-3 gap-6">
