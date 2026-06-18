@@ -5574,8 +5574,12 @@ function SettingRow({
 function ProfileSettings() {
   const fileRef = useRef<HTMLInputElement | null>(null);
   const [photo, setPhoto] = useState<string | null>(null);
-  const [title, setTitle] = useState("Senior Engineer L3 - Payments");
+  const { user, updateUser } = useAuth();
+  const [title, setTitle] = useState(
+    user ? `${user.fullName.split(" ")[0]} - ${user.team}` : "Senior Engineer",
+  );
   const [editing, setEditing] = useState(false);
+  if (!user) return null;
 
   function onPickPhoto(file: File | null | undefined) {
     if (!file) return;
@@ -5645,32 +5649,33 @@ function ProfileSettings() {
           </GhostBtn>
         </div>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-        <Field label="Full name">
-          <Input defaultValue="Jordan Mills" />
-        </Field>
-        <Field label="Email">
-          <Input defaultValue="jordan.mills@acme.com" />
-        </Field>
-        <Field label="Current level">
-          <Select defaultValue="L3">
-            <option>L2</option>
-            <option>L3</option>
-            <option>L4</option>
-            <option>L5</option>
-          </Select>
-        </Field>
-        <Field label="Target level">
-          <Select defaultValue="L4">
-            <option>L3</option>
-            <option>L4</option>
-            <option>L5</option>
-          </Select>
-        </Field>
+      <div className="mt-3 text-xs flex items-center gap-1.5" style={{ color: C.subtle }}>
+        <ShieldCheck size={12} />
+        Identity fields are protected. Use Edit and confirm your password to change them.
       </div>
-      <div className="mt-6 flex justify-end gap-2">
-        <GhostBtn>Cancel</GhostBtn>
-        <PrimaryBtn>Save changes</PrimaryBtn>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <SecureField
+          label="Full name"
+          value={user.fullName}
+          onSave={(v, pwd) => updateUser({ fullName: v }, pwd)}
+        />
+        <SecureField
+          label="Email"
+          value={user.email}
+          onSave={(v, pwd) => updateUser({ email: v }, pwd)}
+        />
+        <SecureField
+          label="Current level"
+          value={user.currentLevel}
+          options={LEVEL_OPTIONS}
+          onSave={(v, pwd) => updateUser({ currentLevel: v }, pwd)}
+        />
+        <SecureField
+          label="Target level"
+          value={user.targetLevel}
+          options={LEVEL_OPTIONS}
+          onSave={(v, pwd) => updateUser({ targetLevel: v }, pwd)}
+        />
       </div>
 
       <AnimatePresence>
@@ -5764,22 +5769,36 @@ function EditTitleModal({
 }
 
 function TeamSettings() {
+  const { user, updateUser } = useAuth();
+  if (!user) return null;
   return (
     <Card className="p-6">
       <SectionHeader title="Team & Manager" sub="Who reviews your evidence and approves objectives" />
-      <div className="mt-5 grid grid-cols-2 gap-4">
-        <Field label="Reporting manager">
-          <Input defaultValue="Alex Morgan" />
-        </Field>
-        <Field label="Manager email">
-          <Input defaultValue="alex.morgan@acme.com" />
-        </Field>
-        <Field label="Team">
-          <Input defaultValue="Payments Platform" />
-        </Field>
-        <Field label="Skip-level reviewer">
-          <Input defaultValue="Priya Shah" />
-        </Field>
+      <div className="mt-3 text-xs flex items-center gap-1.5" style={{ color: C.subtle }}>
+        <ShieldCheck size={12} />
+        Reporting fields are protected. Use Edit and confirm your password to change them.
+      </div>
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <SecureField
+          label="Reporting manager"
+          value={user.manager}
+          onSave={(v, pwd) => updateUser({ manager: v }, pwd)}
+        />
+        <SecureField
+          label="Manager email"
+          value={user.managerEmail}
+          onSave={(v, pwd) => updateUser({ managerEmail: v }, pwd)}
+        />
+        <SecureField
+          label="Business unit / Team"
+          value={user.team}
+          onSave={(v, pwd) => updateUser({ team: v }, pwd)}
+        />
+        <SecureField
+          label="Skip-level reviewer"
+          value={user.skipLevel}
+          onSave={(v, pwd) => updateUser({ skipLevel: v }, pwd)}
+        />
       </div>
       <div className="mt-6 flex justify-end gap-2">
         <PrimaryBtn>Request sync</PrimaryBtn>
