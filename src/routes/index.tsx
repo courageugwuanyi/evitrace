@@ -2924,7 +2924,9 @@ function EvidenceView({
                   <SourceChip source={r.source} />
                 </Td>
                 <Td>
-                  <Badge tone="info">{r.competency}</Badge>
+                  <Badge tone="info" className="truncate max-w-[250px] md:max-w-xs">
+                    {r.competency}
+                  </Badge>
                 </Td>
                 <Td className="font-semibold max-w-xs" style={{ color: C.navy }}>
                   {r.title}
