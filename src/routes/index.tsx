@@ -753,7 +753,7 @@ function Select({
   ...rest
 }: React.SelectHTMLAttributes<HTMLSelectElement> & { icon?: React.ReactNode }) {
   return (
-    <div className="relative flex items-center">
+    <div className="relative flex items-center w-full">
       {icon && (
         <span className="absolute left-2.5 pointer-events-none" style={{ color: C.subtle }}>
           {icon}
@@ -761,7 +761,7 @@ function Select({
       )}
       <select
         {...rest}
-        className={`h-9 ${icon ? "pl-8" : "pl-3"} pr-8 text-sm rounded border bg-[#F4F5F7] hover:bg-white outline-none appearance-none cursor-pointer transition-all`}
+        className={`h-9 w-full ${icon ? "pl-8" : "pl-3"} pr-8 text-sm rounded border bg-[#F4F5F7] hover:bg-white outline-none appearance-none cursor-pointer transition-all`}
         style={{ borderColor: C.border, color: C.navy }}
       >
         {children}
