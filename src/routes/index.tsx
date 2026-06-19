@@ -4136,13 +4136,38 @@ function Backdrop({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+  required,
+  optional,
+  hint,
+}: {
+  label: string;
+  children: React.ReactNode;
+  required?: boolean;
+  optional?: boolean;
+  hint?: string;
+}) {
   return (
     <label className="block">
-      <div className="text-xs font-semibold mb-1.5" style={{ color: C.slate }}>
-        {label}
+      <div className="flex items-baseline justify-between mb-1.5">
+        <div className="text-xs font-semibold" style={{ color: C.slate }}>
+          {label}
+          {required && <span className="ml-0.5" style={{ color: "#DE350B" }}>*</span>}
+        </div>
+        {optional && (
+          <span className="text-[10px] uppercase tracking-wide" style={{ color: C.subtle }}>
+            Optional
+          </span>
+        )}
       </div>
       {children}
+      {hint && (
+        <div className="text-[11px] mt-1" style={{ color: C.subtle }}>
+          {hint}
+        </div>
+      )}
     </label>
   );
 }
