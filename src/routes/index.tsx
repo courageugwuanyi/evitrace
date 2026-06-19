@@ -5623,6 +5623,15 @@ function ProfileSettings() {
     user ? `${user.fullName.split(" ")[0]} - ${user.team}` : "Senior Engineer",
   );
   const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<{ fullName: string; email: string; currentLevel: string; targetLevel: string; title: string }>({
+    fullName: user?.fullName ?? "",
+    email: user?.email ?? "",
+    currentLevel: user?.currentLevel ?? "",
+    targetLevel: user?.targetLevel ?? "",
+    title,
+  });
+  const [confirming, setConfirming] = useState(false);
+  const [pwd, setPwd] = useState("");
   if (!user) return null;
 
   function onPickPhoto(file: File | null | undefined) {
@@ -5634,9 +5643,61 @@ function ProfileSettings() {
     }, 400);
   }
 
+  function startEdit() {
+    setDraft({
+      fullName: user!.fullName,
+      email: user!.email,
+      currentLevel: user!.currentLevel,
+      targetLevel: user!.targetLevel,
+      title,
+    });
+    setEditing(true);
+  }
+
+  function cancelEdit() {
+    setEditing(false);
+    setConfirming(false);
+    setPwd("");
+  }
+
+  function saveAll() {
+    const ok = updateUser(
+      {
+        fullName: draft.fullName.trim(),
+        email: draft.email.trim(),
+        currentLevel: draft.currentLevel.trim(),
+        targetLevel: draft.targetLevel.trim(),
+      },
+      pwd,
+    );
+    if (!ok) {
+      toast.error("Incorrect password");
+      return;
+    }
+    setTitle(draft.title.trim());
+    toast.success("Profile updated");
+    cancelEdit();
+  }
+
   return (
     <Card className="p-6">
-      <SectionHeader title="Profile" sub="Your personal information and role" />
+      <SectionHeader
+        title="Profile"
+        sub="Your personal information and role"
+        right={
+          !editing ? (
+            <GhostBtn onClick={startEdit}>
+              <Pencil size={12} />
+              Edit profile
+            </GhostBtn>
+          ) : (
+            <div className="flex gap-2">
+              <GhostBtn onClick={cancelEdit}>Cancel</GhostBtn>
+              <PrimaryBtn onClick={() => setConfirming(true)}>Save changes</PrimaryBtn>
+            </div>
+          )
+        }
+      />
       <div className="mt-5 flex items-center gap-4">
         <button
           type="button"
@@ -5649,7 +5710,7 @@ function ProfileSettings() {
             <img src={photo} alt="Profile" className="w-full h-full object-cover" />
           ) : (
             <span className="absolute inset-0 flex items-center justify-center text-lg font-semibold text-white">
-              JM
+              {user.fullName.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase() || "JM"}
             </span>
           )}
           <span
@@ -5668,71 +5729,100 @@ function ProfileSettings() {
         />
         <div className="min-w-0">
           <div className="text-base font-semibold" style={{ color: C.navy }}>
-            Jordan Mills
+            {user.fullName}
           </div>
-          <div className="flex items-center gap-2">
-            <div className="text-sm" style={{ color: C.subtle }}>
-              {title}
-            </div>
-            <button
-              type="button"
-              onClick={() => setEditing(true)}
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium hover:bg-[#F4F5F7]"
-              style={{ color: C.primary }}
-              aria-label="Edit job title"
-            >
-              <Pencil size={12} />
-              Edit
-            </button>
+          <div className="text-sm" style={{ color: C.subtle }}>
+            {title}
           </div>
-        </div>
-        <div className="ml-auto">
-          <GhostBtn onClick={() => fileRef.current?.click()}>
-            <Camera size={14} />
-            Upload photo
-          </GhostBtn>
         </div>
       </div>
-      <div className="mt-3 text-xs flex items-center gap-1.5" style={{ color: C.subtle }}>
+      <div className="mt-4 text-xs flex items-center gap-1.5" style={{ color: C.subtle }}>
         <ShieldCheck size={12} />
-        Identity fields are protected. Use Edit and confirm your password to change them.
+        Identity fields are protected. You'll be asked to confirm your password before saving.
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-        <SecureField
-          label="Full name"
-          value={user.fullName}
-          onSave={(v, pwd) => updateUser({ fullName: v }, pwd)}
-        />
-        <SecureField
-          label="Email"
-          value={user.email}
-          onSave={(v, pwd) => updateUser({ email: v }, pwd)}
-        />
-        <SecureField
-          label="Current level"
-          value={user.currentLevel}
-          options={LEVEL_OPTIONS}
-          onSave={(v, pwd) => updateUser({ currentLevel: v }, pwd)}
-        />
-        <SecureField
-          label="Target level"
-          value={user.targetLevel}
-          options={LEVEL_OPTIONS}
-          onSave={(v, pwd) => updateUser({ targetLevel: v }, pwd)}
-        />
+        <Field label="Full name">
+          <Input
+            value={editing ? draft.fullName : user.fullName}
+            readOnly={!editing}
+            onChange={(e) => setDraft((d) => ({ ...d, fullName: e.target.value }))}
+          />
+        </Field>
+        <Field label="Email">
+          <Input
+            type="email"
+            value={editing ? draft.email : user.email}
+            readOnly={!editing}
+            onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))}
+          />
+        </Field>
+        <Field label="Job title">
+          <Input
+            value={editing ? draft.title : title}
+            readOnly={!editing}
+            onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
+          />
+        </Field>
+        <div className="hidden md:block" />
+        <Field label="Current level">
+          <Input
+            value={editing ? draft.currentLevel : user.currentLevel}
+            readOnly={!editing}
+            onChange={(e) => setDraft((d) => ({ ...d, currentLevel: e.target.value }))}
+          />
+        </Field>
+        <Field label="Target level">
+          <Input
+            value={editing ? draft.targetLevel : user.targetLevel}
+            readOnly={!editing}
+            onChange={(e) => setDraft((d) => ({ ...d, targetLevel: e.target.value }))}
+          />
+        </Field>
       </div>
 
       <AnimatePresence>
-        {editing && (
-          <EditTitleModal
-            current={title}
-            onClose={() => setEditing(false)}
-            onSave={(next) => {
-              setTitle(next);
-              setEditing(false);
-              toast.success("Job title updated");
-            }}
-          />
+        {confirming && (
+          <Backdrop onClose={() => setConfirming(false)}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.97, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.97, y: 8 }}
+              transition={{ duration: 0.2 }}
+              className="bg-white rounded-lg shadow-2xl w-full max-w-md border"
+              style={{ borderColor: C.border }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-5 border-b flex items-center justify-between" style={{ borderColor: C.border }}>
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded flex items-center justify-center" style={{ background: C.primarySoft, color: C.primary }}>
+                    <Lock size={16} />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold" style={{ color: C.navy }}>Confirm your password</div>
+                    <div className="text-xs" style={{ color: C.subtle }}>Required to save profile changes.</div>
+                  </div>
+                </div>
+                <button onClick={() => setConfirming(false)} className="p-1 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="p-5">
+                <Field label="Current password" required>
+                  <Input
+                    type="password"
+                    value={pwd}
+                    onChange={(e) => setPwd(e.target.value)}
+                    placeholder="Enter your password"
+                    icon={<KeyRound size={14} />}
+                  />
+                </Field>
+              </div>
+              <div className="p-4 border-t flex justify-end gap-2" style={{ borderColor: C.border }}>
+                <GhostBtn onClick={() => setConfirming(false)}>Cancel</GhostBtn>
+                <PrimaryBtn disabled={!pwd.trim()} onClick={saveAll}>Save changes</PrimaryBtn>
+              </div>
+            </motion.div>
+          </Backdrop>
         )}
       </AnimatePresence>
     </Card>
