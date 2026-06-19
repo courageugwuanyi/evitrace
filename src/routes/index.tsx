@@ -1394,8 +1394,8 @@ function SignupForm({ onSwitch }: { onSwitch: () => void }) {
     fullName: "",
     email: "",
     password: "",
-    currentLevel: "L3",
-    targetLevel: "L4",
+    currentLevel: "",
+    targetLevel: "",
     team: "",
     manager: "",
     managerEmail: "",
@@ -1409,10 +1409,11 @@ function SignupForm({ onSwitch }: { onSwitch: () => void }) {
       "fullName",
       "email",
       "password",
+      "currentLevel",
+      "targetLevel",
       "team",
       "manager",
       "managerEmail",
-      "skipLevel",
     ];
     for (const k of required) {
       if (!String(f[k]).trim()) {
@@ -1424,115 +1425,133 @@ function SignupForm({ onSwitch }: { onSwitch: () => void }) {
     toast.success("Account created");
   }
   return (
-    <Card className="p-6">
-      <div className="text-lg font-bold" style={{ color: C.navy }}>
+    <Card className="p-7 sm:p-8">
+      <div className="text-xl font-bold" style={{ color: C.navy }}>
         Create your account
       </div>
       <div className="text-xs mt-1" style={{ color: C.subtle }}>
-        We will pre-fill your profile and team settings from this.
+        Fields marked <span style={{ color: "#DE350B" }}>*</span> are required. You can complete optional fields later in Settings.
       </div>
-      <div className="mt-5 grid grid-cols-1 gap-2">
+      <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-2">
         <SsoButton provider="Google" />
         <SsoButton provider="Microsoft" />
       </div>
       <div className="flex items-center gap-3 my-5">
         <div className="flex-1 h-px" style={{ background: C.border }} />
         <span className="text-[11px] uppercase tracking-wider" style={{ color: C.subtle }}>
-          or
+          or sign up with email
         </span>
         <div className="flex-1 h-px" style={{ background: C.border }} />
       </div>
-      <form onSubmit={submit} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="sm:col-span-2">
-          <Field label="Full name">
-            <Input
-              value={f.fullName}
-              onChange={(e) => upd("fullName", e.target.value)}
-              placeholder="Jordan Mills"
-              icon={<User size={14} />}
-            />
-          </Field>
-        </div>
-        <div className="sm:col-span-2">
-          <Field label="Email">
-            <Input
-              type="email"
-              value={f.email}
-              onChange={(e) => upd("email", e.target.value)}
-              placeholder="you@company.com"
-              icon={<Mail size={14} />}
-            />
-          </Field>
-        </div>
-        <div className="sm:col-span-2">
-          <Field label="Password">
-            <Input
-              type="password"
-              value={f.password}
-              onChange={(e) => upd("password", e.target.value)}
-              placeholder="Create a password"
-              icon={<KeyRound size={14} />}
-            />
-          </Field>
-        </div>
-        <Field label="Current level">
-          <Select value={f.currentLevel} onChange={(e) => upd("currentLevel", e.target.value)}>
-            {LEVEL_OPTIONS.map((l) => (
-              <option key={l}>{l}</option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Target level">
-          <Select value={f.targetLevel} onChange={(e) => upd("targetLevel", e.target.value)}>
-            {LEVEL_OPTIONS.map((l) => (
-              <option key={l}>{l}</option>
-            ))}
-          </Select>
-        </Field>
-        <div className="sm:col-span-2">
-          <Field label="Business unit / Team">
-            <Input
-              value={f.team}
-              onChange={(e) => upd("team", e.target.value)}
-              placeholder="Payments Platform"
-              icon={<Building2 size={14} />}
-            />
-          </Field>
-        </div>
-        <Field label="Reporting manager">
-          <Input
-            value={f.manager}
-            onChange={(e) => upd("manager", e.target.value)}
-            placeholder="Alex Morgan"
-            icon={<User size={14} />}
-          />
-        </Field>
-        <Field label="Manager email">
-          <Input
-            type="email"
-            value={f.managerEmail}
-            onChange={(e) => upd("managerEmail", e.target.value)}
-            placeholder="alex.morgan@acme.com"
-            icon={<Mail size={14} />}
-          />
-        </Field>
-        <div className="sm:col-span-2">
-          <Field label="Skip-level reviewer">
-            <Input
-              value={f.skipLevel}
-              onChange={(e) => upd("skipLevel", e.target.value)}
-              placeholder="Priya Shah"
-              icon={<ShieldCheck size={14} />}
-            />
-          </Field>
-        </div>
-        <div className="sm:col-span-2 mt-2">
-          <PrimaryBtn type="submit" className="w-full justify-center">
-            Create account
-          </PrimaryBtn>
-        </div>
+      <form onSubmit={submit} className="space-y-6">
+        <section>
+          <div className="text-[11px] font-bold uppercase tracking-wider mb-3" style={{ color: C.subtle }}>
+            Account
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Full name" required>
+              <Input
+                value={f.fullName}
+                onChange={(e) => upd("fullName", e.target.value)}
+                placeholder="Jordan Mills"
+                icon={<User size={14} />}
+              />
+            </Field>
+            <Field label="Work email" required>
+              <Input
+                type="email"
+                value={f.email}
+                onChange={(e) => upd("email", e.target.value)}
+                placeholder="you@company.com"
+                icon={<Mail size={14} />}
+              />
+            </Field>
+            <div className="sm:col-span-2">
+              <Field label="Password" required hint="At least 8 characters.">
+                <Input
+                  type="password"
+                  value={f.password}
+                  onChange={(e) => upd("password", e.target.value)}
+                  placeholder="Create a password"
+                  icon={<KeyRound size={14} />}
+                />
+              </Field>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <div className="text-[11px] font-bold uppercase tracking-wider mb-3" style={{ color: C.subtle }}>
+            Role & Levels
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Current level" required hint="e.g. L3, SDE II, Senior Engineer.">
+              <Input
+                value={f.currentLevel}
+                onChange={(e) => upd("currentLevel", e.target.value)}
+                placeholder="Senior Engineer"
+              />
+            </Field>
+            <Field label="Target level" required hint="The next level you're aiming for.">
+              <Input
+                value={f.targetLevel}
+                onChange={(e) => upd("targetLevel", e.target.value)}
+                placeholder="Staff Engineer"
+              />
+            </Field>
+            <div className="sm:col-span-2">
+              <Field label="Business unit / Team" required>
+                <Input
+                  value={f.team}
+                  onChange={(e) => upd("team", e.target.value)}
+                  placeholder="Payments Platform"
+                  icon={<Building2 size={14} />}
+                />
+              </Field>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <div className="text-[11px] font-bold uppercase tracking-wider mb-3" style={{ color: C.subtle }}>
+            Reporting
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Reporting manager" required>
+              <Input
+                value={f.manager}
+                onChange={(e) => upd("manager", e.target.value)}
+                placeholder="Alex Morgan"
+                icon={<User size={14} />}
+              />
+            </Field>
+            <Field label="Manager email" required>
+              <Input
+                type="email"
+                value={f.managerEmail}
+                onChange={(e) => upd("managerEmail", e.target.value)}
+                placeholder="alex.morgan@acme.com"
+                icon={<Mail size={14} />}
+              />
+            </Field>
+            <div className="sm:col-span-2">
+              <Field label="Skip-level reviewer" optional hint="You can add this later in Settings.">
+                <Input
+                  value={f.skipLevel}
+                  onChange={(e) => upd("skipLevel", e.target.value)}
+                  placeholder="Priya Shah"
+                  icon={<ShieldCheck size={14} />}
+                />
+              </Field>
+            </div>
+          </div>
+        </section>
+
+        <PrimaryBtn type="submit" className="w-full justify-center">
+          Create account
+        </PrimaryBtn>
       </form>
-      <div className="text-xs text-center mt-4" style={{ color: C.subtle }}>
+      <div className="text-xs text-center mt-5" style={{ color: C.subtle }}>
         Already have an account?{" "}
         <button
           type="button"
