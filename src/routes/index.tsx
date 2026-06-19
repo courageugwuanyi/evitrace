@@ -1331,14 +1331,14 @@ function SigninForm({ onSwitch }: { onSwitch: () => void }) {
     if (!ok) toast.error("Invalid credentials");
   }
   return (
-    <Card className="p-6">
-      <div className="text-lg font-bold" style={{ color: C.navy }}>
+    <Card className="p-7">
+      <div className="text-xl font-bold" style={{ color: C.navy }}>
         Welcome back
       </div>
       <div className="text-xs mt-1" style={{ color: C.subtle }}>
         Sign in to track your evidence and competencies.
       </div>
-      <div className="mt-5 grid grid-cols-1 gap-2">
+      <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-2">
         <SsoButton provider="Google" />
         <SsoButton provider="Microsoft" />
       </div>
@@ -1349,8 +1349,8 @@ function SigninForm({ onSwitch }: { onSwitch: () => void }) {
         </span>
         <div className="flex-1 h-px" style={{ background: C.border }} />
       </div>
-      <form onSubmit={submit} className="space-y-3">
-        <Field label="Email">
+      <form onSubmit={submit} className="space-y-4">
+        <Field label="Email" required>
           <Input
             type="email"
             value={email}
@@ -1359,7 +1359,7 @@ function SigninForm({ onSwitch }: { onSwitch: () => void }) {
             icon={<Mail size={14} />}
           />
         </Field>
-        <Field label="Password">
+        <Field label="Password" required>
           <Input
             type="password"
             value={password}
