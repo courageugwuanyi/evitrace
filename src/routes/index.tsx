@@ -1269,7 +1269,7 @@ function AuthScreens() {
       className="min-h-screen flex items-center justify-center px-4 py-10"
       style={{ background: C.bg, color: C.navy, fontFamily: "Inter, system-ui, sans-serif" }}
     >
-      <div className="w-full max-w-md">
+      <div className={`w-full ${mode === "signup" ? "max-w-2xl" : "max-w-md"}`}>
         <div className="flex items-center justify-center gap-2 mb-6">
           <div
             className="w-9 h-9 rounded flex items-center justify-center"
