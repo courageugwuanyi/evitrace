@@ -5904,39 +5904,152 @@ function EditTitleModal({
 
 function TeamSettings() {
   const { user, updateUser } = useAuth();
+  const [editing, setEditing] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [pwd, setPwd] = useState("");
+  const [draft, setDraft] = useState({
+    manager: user?.manager ?? "",
+    managerEmail: user?.managerEmail ?? "",
+    team: user?.team ?? "",
+    skipLevel: user?.skipLevel ?? "",
+  });
   if (!user) return null;
+
+  function startEdit() {
+    setDraft({
+      manager: user!.manager,
+      managerEmail: user!.managerEmail,
+      team: user!.team,
+      skipLevel: user!.skipLevel,
+    });
+    setEditing(true);
+  }
+  function cancelEdit() {
+    setEditing(false);
+    setConfirming(false);
+    setPwd("");
+  }
+  function saveAll() {
+    const ok = updateUser(
+      {
+        manager: draft.manager.trim(),
+        managerEmail: draft.managerEmail.trim(),
+        team: draft.team.trim(),
+        skipLevel: draft.skipLevel.trim(),
+      },
+      pwd,
+    );
+    if (!ok) {
+      toast.error("Incorrect password");
+      return;
+    }
+    toast.success("Team & manager details updated");
+    cancelEdit();
+  }
+
   return (
     <Card className="p-6">
-      <SectionHeader title="Team & Manager" sub="Who reviews your evidence and approves objectives" />
+      <SectionHeader
+        title="Team & Manager"
+        sub="Who reviews your evidence and approves objectives"
+        right={
+          !editing ? (
+            <GhostBtn onClick={startEdit}>
+              <Pencil size={12} />
+              Edit details
+            </GhostBtn>
+          ) : (
+            <div className="flex gap-2">
+              <GhostBtn onClick={cancelEdit}>Cancel</GhostBtn>
+              <PrimaryBtn onClick={() => setConfirming(true)}>Save changes</PrimaryBtn>
+            </div>
+          )
+        }
+      />
       <div className="mt-3 text-xs flex items-center gap-1.5" style={{ color: C.subtle }}>
         <ShieldCheck size={12} />
-        Reporting fields are protected. Use Edit and confirm your password to change them.
+        Reporting fields are protected. You'll be asked to confirm your password before saving.
       </div>
       <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-        <SecureField
-          label="Reporting manager"
-          value={user.manager}
-          onSave={(v, pwd) => updateUser({ manager: v }, pwd)}
-        />
-        <SecureField
-          label="Manager email"
-          value={user.managerEmail}
-          onSave={(v, pwd) => updateUser({ managerEmail: v }, pwd)}
-        />
-        <SecureField
-          label="Business unit / Team"
-          value={user.team}
-          onSave={(v, pwd) => updateUser({ team: v }, pwd)}
-        />
-        <SecureField
-          label="Skip-level reviewer"
-          value={user.skipLevel}
-          onSave={(v, pwd) => updateUser({ skipLevel: v }, pwd)}
-        />
+        <Field label="Reporting manager">
+          <Input
+            value={editing ? draft.manager : user.manager}
+            readOnly={!editing}
+            onChange={(e) => setDraft((d) => ({ ...d, manager: e.target.value }))}
+          />
+        </Field>
+        <Field label="Manager email">
+          <Input
+            type="email"
+            value={editing ? draft.managerEmail : user.managerEmail}
+            readOnly={!editing}
+            onChange={(e) => setDraft((d) => ({ ...d, managerEmail: e.target.value }))}
+          />
+        </Field>
+        <Field label="Business unit / Team">
+          <Input
+            value={editing ? draft.team : user.team}
+            readOnly={!editing}
+            onChange={(e) => setDraft((d) => ({ ...d, team: e.target.value }))}
+          />
+        </Field>
+        <Field label="Skip-level reviewer" optional>
+          <Input
+            value={editing ? draft.skipLevel : user.skipLevel}
+            readOnly={!editing}
+            onChange={(e) => setDraft((d) => ({ ...d, skipLevel: e.target.value }))}
+          />
+        </Field>
       </div>
       <div className="mt-6 flex justify-end gap-2">
         <PrimaryBtn>Request sync</PrimaryBtn>
       </div>
+
+      <AnimatePresence>
+        {confirming && (
+          <Backdrop onClose={() => setConfirming(false)}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.97, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.97, y: 8 }}
+              transition={{ duration: 0.2 }}
+              className="bg-white rounded-lg shadow-2xl w-full max-w-md border"
+              style={{ borderColor: C.border }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-5 border-b flex items-center justify-between" style={{ borderColor: C.border }}>
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded flex items-center justify-center" style={{ background: C.primarySoft, color: C.primary }}>
+                    <Lock size={16} />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold" style={{ color: C.navy }}>Confirm your password</div>
+                    <div className="text-xs" style={{ color: C.subtle }}>Required to update reporting details.</div>
+                  </div>
+                </div>
+                <button onClick={() => setConfirming(false)} className="p-1 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="p-5">
+                <Field label="Current password" required>
+                  <Input
+                    type="password"
+                    value={pwd}
+                    onChange={(e) => setPwd(e.target.value)}
+                    placeholder="Enter your password"
+                    icon={<KeyRound size={14} />}
+                  />
+                </Field>
+              </div>
+              <div className="p-4 border-t flex justify-end gap-2" style={{ borderColor: C.border }}>
+                <GhostBtn onClick={() => setConfirming(false)}>Cancel</GhostBtn>
+                <PrimaryBtn disabled={!pwd.trim()} onClick={saveAll}>Save changes</PrimaryBtn>
+              </div>
+            </motion.div>
+          </Backdrop>
+        )}
+      </AnimatePresence>
     </Card>
   );
 }
