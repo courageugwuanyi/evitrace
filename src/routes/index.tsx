@@ -753,7 +753,7 @@ function Select({
   ...rest
 }: React.SelectHTMLAttributes<HTMLSelectElement> & { icon?: React.ReactNode }) {
   return (
-    <div className="relative flex items-center">
+    <div className="relative flex items-center w-full">
       {icon && (
         <span className="absolute left-2.5 pointer-events-none" style={{ color: C.subtle }}>
           {icon}
@@ -761,7 +761,7 @@ function Select({
       )}
       <select
         {...rest}
-        className={`h-9 ${icon ? "pl-8" : "pl-3"} pr-8 text-sm rounded border bg-[#F4F5F7] hover:bg-white outline-none appearance-none cursor-pointer transition-all`}
+        className={`h-9 w-full ${icon ? "pl-8" : "pl-3"} pr-8 text-sm rounded border bg-[#F4F5F7] hover:bg-white outline-none appearance-none cursor-pointer transition-all`}
         style={{ borderColor: C.border, color: C.navy }}
       >
         {children}
@@ -1269,7 +1269,7 @@ function AuthScreens() {
       className="min-h-screen flex items-center justify-center px-4 py-10"
       style={{ background: C.bg, color: C.navy, fontFamily: "Inter, system-ui, sans-serif" }}
     >
-      <div className="w-full max-w-md">
+      <div className={`w-full ${mode === "signup" ? "max-w-2xl" : "max-w-md"}`}>
         <div className="flex items-center justify-center gap-2 mb-6">
           <div
             className="w-9 h-9 rounded flex items-center justify-center"
@@ -1331,14 +1331,14 @@ function SigninForm({ onSwitch }: { onSwitch: () => void }) {
     if (!ok) toast.error("Invalid credentials");
   }
   return (
-    <Card className="p-6">
-      <div className="text-lg font-bold" style={{ color: C.navy }}>
+    <Card className="p-7">
+      <div className="text-xl font-bold" style={{ color: C.navy }}>
         Welcome back
       </div>
       <div className="text-xs mt-1" style={{ color: C.subtle }}>
         Sign in to track your evidence and competencies.
       </div>
-      <div className="mt-5 grid grid-cols-1 gap-2">
+      <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-2">
         <SsoButton provider="Google" />
         <SsoButton provider="Microsoft" />
       </div>
@@ -1349,8 +1349,8 @@ function SigninForm({ onSwitch }: { onSwitch: () => void }) {
         </span>
         <div className="flex-1 h-px" style={{ background: C.border }} />
       </div>
-      <form onSubmit={submit} className="space-y-3">
-        <Field label="Email">
+      <form onSubmit={submit} className="space-y-4">
+        <Field label="Email" required>
           <Input
             type="email"
             value={email}
@@ -1359,7 +1359,7 @@ function SigninForm({ onSwitch }: { onSwitch: () => void }) {
             icon={<Mail size={14} />}
           />
         </Field>
-        <Field label="Password">
+        <Field label="Password" required>
           <Input
             type="password"
             value={password}
@@ -1394,8 +1394,8 @@ function SignupForm({ onSwitch }: { onSwitch: () => void }) {
     fullName: "",
     email: "",
     password: "",
-    currentLevel: "L3",
-    targetLevel: "L4",
+    currentLevel: "",
+    targetLevel: "",
     team: "",
     manager: "",
     managerEmail: "",
@@ -1409,10 +1409,11 @@ function SignupForm({ onSwitch }: { onSwitch: () => void }) {
       "fullName",
       "email",
       "password",
+      "currentLevel",
+      "targetLevel",
       "team",
       "manager",
       "managerEmail",
-      "skipLevel",
     ];
     for (const k of required) {
       if (!String(f[k]).trim()) {
@@ -1424,115 +1425,133 @@ function SignupForm({ onSwitch }: { onSwitch: () => void }) {
     toast.success("Account created");
   }
   return (
-    <Card className="p-6">
-      <div className="text-lg font-bold" style={{ color: C.navy }}>
+    <Card className="p-7 sm:p-8">
+      <div className="text-xl font-bold" style={{ color: C.navy }}>
         Create your account
       </div>
       <div className="text-xs mt-1" style={{ color: C.subtle }}>
-        We will pre-fill your profile and team settings from this.
+        Fields marked <span style={{ color: "#DE350B" }}>*</span> are required. You can complete optional fields later in Settings.
       </div>
-      <div className="mt-5 grid grid-cols-1 gap-2">
+      <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-2">
         <SsoButton provider="Google" />
         <SsoButton provider="Microsoft" />
       </div>
       <div className="flex items-center gap-3 my-5">
         <div className="flex-1 h-px" style={{ background: C.border }} />
         <span className="text-[11px] uppercase tracking-wider" style={{ color: C.subtle }}>
-          or
+          or sign up with email
         </span>
         <div className="flex-1 h-px" style={{ background: C.border }} />
       </div>
-      <form onSubmit={submit} className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="sm:col-span-2">
-          <Field label="Full name">
-            <Input
-              value={f.fullName}
-              onChange={(e) => upd("fullName", e.target.value)}
-              placeholder="Jordan Mills"
-              icon={<User size={14} />}
-            />
-          </Field>
-        </div>
-        <div className="sm:col-span-2">
-          <Field label="Email">
-            <Input
-              type="email"
-              value={f.email}
-              onChange={(e) => upd("email", e.target.value)}
-              placeholder="you@company.com"
-              icon={<Mail size={14} />}
-            />
-          </Field>
-        </div>
-        <div className="sm:col-span-2">
-          <Field label="Password">
-            <Input
-              type="password"
-              value={f.password}
-              onChange={(e) => upd("password", e.target.value)}
-              placeholder="Create a password"
-              icon={<KeyRound size={14} />}
-            />
-          </Field>
-        </div>
-        <Field label="Current level">
-          <Select value={f.currentLevel} onChange={(e) => upd("currentLevel", e.target.value)}>
-            {LEVEL_OPTIONS.map((l) => (
-              <option key={l}>{l}</option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Target level">
-          <Select value={f.targetLevel} onChange={(e) => upd("targetLevel", e.target.value)}>
-            {LEVEL_OPTIONS.map((l) => (
-              <option key={l}>{l}</option>
-            ))}
-          </Select>
-        </Field>
-        <div className="sm:col-span-2">
-          <Field label="Business unit / Team">
-            <Input
-              value={f.team}
-              onChange={(e) => upd("team", e.target.value)}
-              placeholder="Payments Platform"
-              icon={<Building2 size={14} />}
-            />
-          </Field>
-        </div>
-        <Field label="Reporting manager">
-          <Input
-            value={f.manager}
-            onChange={(e) => upd("manager", e.target.value)}
-            placeholder="Alex Morgan"
-            icon={<User size={14} />}
-          />
-        </Field>
-        <Field label="Manager email">
-          <Input
-            type="email"
-            value={f.managerEmail}
-            onChange={(e) => upd("managerEmail", e.target.value)}
-            placeholder="alex.morgan@acme.com"
-            icon={<Mail size={14} />}
-          />
-        </Field>
-        <div className="sm:col-span-2">
-          <Field label="Skip-level reviewer">
-            <Input
-              value={f.skipLevel}
-              onChange={(e) => upd("skipLevel", e.target.value)}
-              placeholder="Priya Shah"
-              icon={<ShieldCheck size={14} />}
-            />
-          </Field>
-        </div>
-        <div className="sm:col-span-2 mt-2">
-          <PrimaryBtn type="submit" className="w-full justify-center">
-            Create account
-          </PrimaryBtn>
-        </div>
+      <form onSubmit={submit} className="space-y-6">
+        <section>
+          <div className="text-[11px] font-bold uppercase tracking-wider mb-3" style={{ color: C.subtle }}>
+            Account
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Full name" required>
+              <Input
+                value={f.fullName}
+                onChange={(e) => upd("fullName", e.target.value)}
+                placeholder="Jordan Mills"
+                icon={<User size={14} />}
+              />
+            </Field>
+            <Field label="Work email" required>
+              <Input
+                type="email"
+                value={f.email}
+                onChange={(e) => upd("email", e.target.value)}
+                placeholder="you@company.com"
+                icon={<Mail size={14} />}
+              />
+            </Field>
+            <div className="sm:col-span-2">
+              <Field label="Password" required hint="At least 8 characters.">
+                <Input
+                  type="password"
+                  value={f.password}
+                  onChange={(e) => upd("password", e.target.value)}
+                  placeholder="Create a password"
+                  icon={<KeyRound size={14} />}
+                />
+              </Field>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <div className="text-[11px] font-bold uppercase tracking-wider mb-3" style={{ color: C.subtle }}>
+            Role & Levels
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Current level" required hint="e.g. L3, SDE II, Senior Engineer.">
+              <Input
+                value={f.currentLevel}
+                onChange={(e) => upd("currentLevel", e.target.value)}
+                placeholder="Senior Engineer"
+              />
+            </Field>
+            <Field label="Target level" required hint="The next level you're aiming for.">
+              <Input
+                value={f.targetLevel}
+                onChange={(e) => upd("targetLevel", e.target.value)}
+                placeholder="Staff Engineer"
+              />
+            </Field>
+            <div className="sm:col-span-2">
+              <Field label="Business unit / Team" required>
+                <Input
+                  value={f.team}
+                  onChange={(e) => upd("team", e.target.value)}
+                  placeholder="Payments Platform"
+                  icon={<Building2 size={14} />}
+                />
+              </Field>
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <div className="text-[11px] font-bold uppercase tracking-wider mb-3" style={{ color: C.subtle }}>
+            Reporting
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Reporting manager" required>
+              <Input
+                value={f.manager}
+                onChange={(e) => upd("manager", e.target.value)}
+                placeholder="Alex Morgan"
+                icon={<User size={14} />}
+              />
+            </Field>
+            <Field label="Manager email" required>
+              <Input
+                type="email"
+                value={f.managerEmail}
+                onChange={(e) => upd("managerEmail", e.target.value)}
+                placeholder="alex.morgan@acme.com"
+                icon={<Mail size={14} />}
+              />
+            </Field>
+            <div className="sm:col-span-2">
+              <Field label="Skip-level reviewer" optional hint="You can add this later in Settings.">
+                <Input
+                  value={f.skipLevel}
+                  onChange={(e) => upd("skipLevel", e.target.value)}
+                  placeholder="Priya Shah"
+                  icon={<ShieldCheck size={14} />}
+                />
+              </Field>
+            </div>
+          </div>
+        </section>
+
+        <PrimaryBtn type="submit" className="w-full justify-center">
+          Create account
+        </PrimaryBtn>
       </form>
-      <div className="text-xs text-center mt-4" style={{ color: C.subtle }}>
+      <div className="text-xs text-center mt-5" style={{ color: C.subtle }}>
         Already have an account?{" "}
         <button
           type="button"
@@ -4136,13 +4155,38 @@ function Backdrop({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+  required,
+  optional,
+  hint,
+}: {
+  label: string;
+  children: React.ReactNode;
+  required?: boolean;
+  optional?: boolean;
+  hint?: string;
+}) {
   return (
     <label className="block">
-      <div className="text-xs font-semibold mb-1.5" style={{ color: C.slate }}>
-        {label}
+      <div className="flex items-baseline justify-between mb-1.5">
+        <div className="text-xs font-semibold" style={{ color: C.slate }}>
+          {label}
+          {required && <span className="ml-0.5" style={{ color: "#DE350B" }}>*</span>}
+        </div>
+        {optional && (
+          <span className="text-[10px] uppercase tracking-wide" style={{ color: C.subtle }}>
+            Optional
+          </span>
+        )}
       </div>
       {children}
+      {hint && (
+        <div className="text-[11px] mt-1" style={{ color: C.subtle }}>
+          {hint}
+        </div>
+      )}
     </label>
   );
 }
@@ -5579,6 +5623,15 @@ function ProfileSettings() {
     user ? `${user.fullName.split(" ")[0]} - ${user.team}` : "Senior Engineer",
   );
   const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<{ fullName: string; email: string; currentLevel: string; targetLevel: string; title: string }>({
+    fullName: user?.fullName ?? "",
+    email: user?.email ?? "",
+    currentLevel: user?.currentLevel ?? "",
+    targetLevel: user?.targetLevel ?? "",
+    title,
+  });
+  const [confirming, setConfirming] = useState(false);
+  const [pwd, setPwd] = useState("");
   if (!user) return null;
 
   function onPickPhoto(file: File | null | undefined) {
@@ -5590,9 +5643,61 @@ function ProfileSettings() {
     }, 400);
   }
 
+  function startEdit() {
+    setDraft({
+      fullName: user!.fullName,
+      email: user!.email,
+      currentLevel: user!.currentLevel,
+      targetLevel: user!.targetLevel,
+      title,
+    });
+    setEditing(true);
+  }
+
+  function cancelEdit() {
+    setEditing(false);
+    setConfirming(false);
+    setPwd("");
+  }
+
+  function saveAll() {
+    const ok = updateUser(
+      {
+        fullName: draft.fullName.trim(),
+        email: draft.email.trim(),
+        currentLevel: draft.currentLevel.trim(),
+        targetLevel: draft.targetLevel.trim(),
+      },
+      pwd,
+    );
+    if (!ok) {
+      toast.error("Incorrect password");
+      return;
+    }
+    setTitle(draft.title.trim());
+    toast.success("Profile updated");
+    cancelEdit();
+  }
+
   return (
     <Card className="p-6">
-      <SectionHeader title="Profile" sub="Your personal information and role" />
+      <SectionHeader
+        title="Profile"
+        sub="Your personal information and role"
+        right={
+          !editing ? (
+            <GhostBtn onClick={startEdit}>
+              <Pencil size={12} />
+              Edit profile
+            </GhostBtn>
+          ) : (
+            <div className="flex gap-2">
+              <GhostBtn onClick={cancelEdit}>Cancel</GhostBtn>
+              <PrimaryBtn onClick={() => setConfirming(true)}>Save changes</PrimaryBtn>
+            </div>
+          )
+        }
+      />
       <div className="mt-5 flex items-center gap-4">
         <button
           type="button"
@@ -5605,7 +5710,7 @@ function ProfileSettings() {
             <img src={photo} alt="Profile" className="w-full h-full object-cover" />
           ) : (
             <span className="absolute inset-0 flex items-center justify-center text-lg font-semibold text-white">
-              JM
+              {user.fullName.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase() || "JM"}
             </span>
           )}
           <span
@@ -5624,71 +5729,100 @@ function ProfileSettings() {
         />
         <div className="min-w-0">
           <div className="text-base font-semibold" style={{ color: C.navy }}>
-            Jordan Mills
+            {user.fullName}
           </div>
-          <div className="flex items-center gap-2">
-            <div className="text-sm" style={{ color: C.subtle }}>
-              {title}
-            </div>
-            <button
-              type="button"
-              onClick={() => setEditing(true)}
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium hover:bg-[#F4F5F7]"
-              style={{ color: C.primary }}
-              aria-label="Edit job title"
-            >
-              <Pencil size={12} />
-              Edit
-            </button>
+          <div className="text-sm" style={{ color: C.subtle }}>
+            {title}
           </div>
-        </div>
-        <div className="ml-auto">
-          <GhostBtn onClick={() => fileRef.current?.click()}>
-            <Camera size={14} />
-            Upload photo
-          </GhostBtn>
         </div>
       </div>
-      <div className="mt-3 text-xs flex items-center gap-1.5" style={{ color: C.subtle }}>
+      <div className="mt-4 text-xs flex items-center gap-1.5" style={{ color: C.subtle }}>
         <ShieldCheck size={12} />
-        Identity fields are protected. Use Edit and confirm your password to change them.
+        Identity fields are protected. You'll be asked to confirm your password before saving.
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-        <SecureField
-          label="Full name"
-          value={user.fullName}
-          onSave={(v, pwd) => updateUser({ fullName: v }, pwd)}
-        />
-        <SecureField
-          label="Email"
-          value={user.email}
-          onSave={(v, pwd) => updateUser({ email: v }, pwd)}
-        />
-        <SecureField
-          label="Current level"
-          value={user.currentLevel}
-          options={LEVEL_OPTIONS}
-          onSave={(v, pwd) => updateUser({ currentLevel: v }, pwd)}
-        />
-        <SecureField
-          label="Target level"
-          value={user.targetLevel}
-          options={LEVEL_OPTIONS}
-          onSave={(v, pwd) => updateUser({ targetLevel: v }, pwd)}
-        />
+        <Field label="Full name">
+          <Input
+            value={editing ? draft.fullName : user.fullName}
+            readOnly={!editing}
+            onChange={(e) => setDraft((d) => ({ ...d, fullName: e.target.value }))}
+          />
+        </Field>
+        <Field label="Email">
+          <Input
+            type="email"
+            value={editing ? draft.email : user.email}
+            readOnly={!editing}
+            onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))}
+          />
+        </Field>
+        <Field label="Job title">
+          <Input
+            value={editing ? draft.title : title}
+            readOnly={!editing}
+            onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
+          />
+        </Field>
+        <div className="hidden md:block" />
+        <Field label="Current level">
+          <Input
+            value={editing ? draft.currentLevel : user.currentLevel}
+            readOnly={!editing}
+            onChange={(e) => setDraft((d) => ({ ...d, currentLevel: e.target.value }))}
+          />
+        </Field>
+        <Field label="Target level">
+          <Input
+            value={editing ? draft.targetLevel : user.targetLevel}
+            readOnly={!editing}
+            onChange={(e) => setDraft((d) => ({ ...d, targetLevel: e.target.value }))}
+          />
+        </Field>
       </div>
 
       <AnimatePresence>
-        {editing && (
-          <EditTitleModal
-            current={title}
-            onClose={() => setEditing(false)}
-            onSave={(next) => {
-              setTitle(next);
-              setEditing(false);
-              toast.success("Job title updated");
-            }}
-          />
+        {confirming && (
+          <Backdrop onClose={() => setConfirming(false)}>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.97, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.97, y: 8 }}
+              transition={{ duration: 0.2 }}
+              className="bg-white rounded-lg shadow-2xl w-full max-w-md border"
+              style={{ borderColor: C.border }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-5 border-b flex items-center justify-between" style={{ borderColor: C.border }}>
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded flex items-center justify-center" style={{ background: C.primarySoft, color: C.primary }}>
+                    <Lock size={16} />
+                  </div>
+                  <div>
+                    <div className="text-sm font-bold" style={{ color: C.navy }}>Confirm your password</div>
+                    <div className="text-xs" style={{ color: C.subtle }}>Required to save profile changes.</div>
+                  </div>
+                </div>
+                <button onClick={() => setConfirming(false)} className="p-1 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="p-5">
+                <Field label="Current password" required>
+                  <Input
+                    type="password"
+                    value={pwd}
+                    onChange={(e) => setPwd(e.target.value)}
+                    placeholder="Enter your password"
+                    icon={<KeyRound size={14} />}
+                  />
+                </Field>
+              </div>
+              <div className="p-4 border-t flex justify-end gap-2" style={{ borderColor: C.border }}>
+                <GhostBtn onClick={() => setConfirming(false)}>Cancel</GhostBtn>
+                <PrimaryBtn disabled={!pwd.trim()} onClick={saveAll}>Save changes</PrimaryBtn>
+              </div>
+            </motion.div>
+          </Backdrop>
         )}
       </AnimatePresence>
     </Card>
