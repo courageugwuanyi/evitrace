@@ -4428,7 +4428,7 @@ function CreateObjectiveModal({
                   icon={<Calendar size={14} />}
                 />
                 <div className="text-[11px] mt-1" style={{ color: C.subtle }}>
-                  Specific timeframe or deadline.
+                  Specific timeframe or start date.
                 </div>
               </div>
             </div>
