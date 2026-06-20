@@ -1416,10 +1416,12 @@ function SignupForm({ onSwitch }: { onSwitch: () => void }) {
     managerEmail: "",
     skipLevel: "",
   });
+  const [err, setErr] = useState<string | null>(null);
   const upd = <K extends keyof AuthUser>(k: K, v: AuthUser[K]) =>
     setF((p) => ({ ...p, [k]: v }));
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    setErr(null);
     const required: (keyof AuthUser)[] = [
       "fullName",
       "email",
@@ -1432,7 +1434,7 @@ function SignupForm({ onSwitch }: { onSwitch: () => void }) {
     ];
     for (const k of required) {
       if (!String(f[k]).trim()) {
-        toast.error("Please complete all required fields");
+        setErr("Please complete all required fields marked with *.");
         return;
       }
     }
