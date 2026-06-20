@@ -57,6 +57,10 @@ const DEFAULT_NOTIFICATIONS = {
   managerApprovals: true,
   weeklyDigest: false,
   browserPush: true,
+  extensionPromptTimes: ['16:00'],
+  extensionSnoozeMinutes: 15,
+  extensionWeekdaysOnly: true,
+  extensionTimezone: 'GMT',
 }
 
 const DEFAULT_INTEGRATIONS = {
@@ -178,6 +182,64 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       toast.error(error.message)
       return false
     }
+
+    // Self-heal first-login-after-verification cases where signup had no session
+    // and profile/settings rows were not created yet.
+    const { data: existingProfile, error: profileLookupError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', data.user.id)
+      .maybeSingle()
+
+    if (profileLookupError) {
+      toast.error(profileLookupError.message)
+      return false
+    }
+
+    if (!existingProfile) {
+      const metadataName = (data.user.user_metadata?.full_name as string | undefined)?.trim()
+      const emailPrefix = (data.user.email ?? email).split('@')[0] || 'User'
+      const fullName = metadataName && metadataName.length > 0 ? metadataName : emailPrefix
+
+      const { error: insertProfileError } = await supabase.from('profiles').insert({
+        id: data.user.id,
+        full_name: fullName,
+        email: data.user.email ?? email,
+        current_level: '',
+        target_level: '',
+        team: '',
+        manager: '',
+        manager_email: '',
+      })
+      if (insertProfileError) {
+        toast.error(insertProfileError.message)
+        return false
+      }
+    }
+
+    const { data: existingSettings, error: settingsLookupError } = await supabase
+      .from('user_settings')
+      .select('id')
+      .eq('user_id', data.user.id)
+      .maybeSingle()
+
+    if (settingsLookupError) {
+      toast.error(settingsLookupError.message)
+      return false
+    }
+
+    if (!existingSettings) {
+      const { error: insertSettingsError } = await supabase.from('user_settings').insert({
+        user_id: data.user.id,
+        notifications: DEFAULT_NOTIFICATIONS,
+        integrations: DEFAULT_INTEGRATIONS,
+      })
+      if (insertSettingsError) {
+        toast.error(insertSettingsError.message)
+        return false
+      }
+    }
+
     const profile = await fetchProfile(data.user.id)
     setUser(profile)
     setUserId(data.user.id)

@@ -1,12 +1,35 @@
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AuthProvider, useAuth } from "@/lib/auth";
-import type { AuthUser, InboxItem } from "@/lib/api/mappers";
-import { useEvidenceQuery } from "@/lib/api/evidence";
+import type { AuthUser, InboxItem, NotificationPrefs, IntegrationPrefs } from "@/lib/api/mappers";
+import {
+  useEvidenceQuery,
+  useSaveEvidence,
+  useArchiveEvidence,
+  useRestoreEvidence,
+  useDeleteEvidence,
+  useInsertEvidence,
+} from "@/lib/api/evidence";
 import { useInboxQuery, useApproveInbox, useDismissInbox } from "@/lib/api/inbox";
-import { useObjectivesQuery } from "@/lib/api/objectives";
-import { useAssessmentsQuery } from "@/lib/api/assessments";
+import {
+  useObjectivesQuery,
+  useCreateObjective,
+  useMoveObjective,
+  useSaveObjective,
+  useArchiveObjective,
+  useRestoreObjective,
+  useDeleteObjective,
+} from "@/lib/api/objectives";
+import {
+  useAssessmentsQuery,
+  useFinalizeAssessment,
+  useUpdateOneOnOneTopics,
+} from "@/lib/api/assessments";
 import { useDashboardStats } from "@/lib/api/dashboard";
+import { useFeedbackQuery, useAddFeedback } from "@/lib/api/feedback";
+import { useUploadAvatar } from "@/lib/api/profile";
+import { useSettingsQuery, useSaveNotifications, useSaveIntegrations } from "@/lib/api/settings";
+import { useFrameworkQuery, useUploadFramework } from "@/lib/api/frameworks";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import {
@@ -81,21 +104,8 @@ import {
   Presentation,
   GitBranch,
 } from "lucide-react";
-import {
-  MessageCircleHeart,
-  Notebook,
-  Camera,
-  KeyRound,
-  Send,
-} from "lucide-react";
-import {
-  Mail,
-  Building2,
-  LogIn,
-  LogOut,
-  ShieldCheck,
-  ChevronLeft,
-} from "lucide-react";
+import { MessageCircleHeart, Notebook, Camera, KeyRound, Send } from "lucide-react";
+import { Mail, Building2, LogIn, LogOut, ShieldCheck, ChevronLeft } from "lucide-react";
 import {
   Radar,
   RadarChart,
@@ -113,6 +123,9 @@ import {
 } from "recharts";
 
 export const Route = createFileRoute("/")({
+  validateSearch: (search: Record<string, unknown>) => ({
+    tab: typeof search.tab === "string" ? search.tab : undefined,
+  }),
   head: () => ({
     meta: [
       { title: "Evitrace - Engineering Competency & Promotion Tracking" },
@@ -167,21 +180,21 @@ const COMPETENCY_DESC: Record<string, string> = {
     "Identifies critical connections and patterns in information/data to diagnose root causes.",
   "System Design":
     "Designs scalable, resilient services and articulates trade-offs across components.",
-  "Code Quality":
-    "Writes maintainable, well-tested code and raises the bar through reviews.",
+  "Code Quality": "Writes maintainable, well-tested code and raises the bar through reviews.",
   Communication:
     "Listens and communicates openly, honestly, and respectfully with different audiences.",
-  Leadership:
-    "Influences direction, mentors peers, and drives alignment across teams.",
+  Leadership: "Influences direction, mentors peers, and drives alignment across teams.",
   "Engineering for UX":
     "Partners with design to deliver thoughtful, accessible, and performant user experiences.",
-  Security:
-    "Anticipates threats and embeds secure-by-default practices into the SDLC.",
-  Delivery:
-    "Breaks down complex work and ships reliably with predictable cadence.",
+  Security: "Anticipates threats and embeds secure-by-default practices into the SDLC.",
+  Delivery: "Breaks down complex work and ships reliably with predictable cadence.",
 };
 
-const EFFECTIVENESS_SCALE: { value: number; label: string; tone: "danger" | "warning" | "info" | "success" }[] = [
+const EFFECTIVENESS_SCALE: {
+  value: number;
+  label: string;
+  tone: "danger" | "warning" | "info" | "success";
+}[] = [
   { value: 1, label: "Limited Effectiveness", tone: "danger" },
   { value: 2, label: "Somewhat Effective", tone: "warning" },
   { value: 3, label: "Fully Effective", tone: "info" },
@@ -336,6 +349,100 @@ function categoryToRadarLabel(cat: string): string {
   return cat;
 }
 
+const DISPLAY_DATE_FORMATTER = new Intl.DateTimeFormat("en-GB", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
+function formatDisplayDate(input: string | Date): string {
+  const date = input instanceof Date ? input : new Date(input);
+  if (Number.isNaN(date.getTime())) return String(input);
+  return DISPLAY_DATE_FORMATTER.format(date);
+}
+
+function formatEvidenceDateParts(input: string | Date): { dayMonth: string; year: string } {
+  const date = input instanceof Date ? input : new Date(input);
+  if (Number.isNaN(date.getTime())) return { dayMonth: String(input), year: "" };
+  const day = date.getDate();
+  const month = date.toLocaleString("en-GB", { month: "short" });
+  const year = String(date.getFullYear());
+  return { dayMonth: `${day} ${month}`, year };
+}
+
+function formatObjectiveCode(objective: Pick<Objective, "id" | "competency" | "title">): string {
+  if (/^[A-Z]{2,5}-\d{2,6}$/.test(objective.id)) return objective.id;
+  const seed = objective.competency || objective.title || "OBJ";
+  const prefix = seed
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("")
+    .replace(/[^A-Z]/g, "")
+    .slice(0, 3)
+    .padEnd(3, "X");
+
+  const base = objective.id.replace(/-/g, "");
+  let checksum = 0;
+  for (let i = 0; i < base.length; i += 1) {
+    checksum = (checksum + base.charCodeAt(i) * (i + 1)) % 10000;
+  }
+  return `${prefix}-${String(checksum).padStart(4, "0")}`;
+}
+
+function extractFirstLink(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const direct = trimmed.match(/https?:\/\/[^\s|,]+/i)?.[0];
+  if (direct) return direct;
+
+  const chunks = trimmed.split(/[|,\n]/).map((part) => part.trim());
+  for (const chunk of chunks) {
+    const labelStripped = chunk.replace(/^[^:]+:\s*/, "").trim();
+    if (!labelStripped) continue;
+    if (/^https?:\/\//i.test(labelStripped)) return labelStripped;
+    if (/^[\w.-]+\.[A-Za-z]{2,}/.test(labelStripped)) return `https://${labelStripped}`;
+  }
+  return null;
+}
+
+function polishText(text: string): string {
+  const cleaned = text.replace(/\s+/g, " ").trim();
+  if (!cleaned) return cleaned;
+  const normalized = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+  return /[.!?]$/.test(normalized) ? normalized : `${normalized}.`;
+}
+
+function getDisplayName(fullName?: string, email?: string): string {
+  const trimmedFullName = fullName?.trim();
+  if (trimmedFullName) return trimmedFullName;
+  const localPart = email?.split("@")[0]?.trim();
+  return localPart || "User";
+}
+
+function inferCompetencyFromText(title: string, description: string) {
+  const raw = `${title} ${description}`.toLowerCase();
+  if (/(design|architecture|scal|resilien|trade[- ]?off)/.test(raw)) {
+    return "System Design";
+  }
+  if (/(incident|rca|debug|root cause|metric|analysis)/.test(raw)) {
+    return "Analytical Thinking";
+  }
+  if (/(stakeholder|present|communicat|rfc|align)/.test(raw)) {
+    return "Communication";
+  }
+  if (/(mentor|coach|lead|align team)/.test(raw)) {
+    return "Leadership";
+  }
+  if (/(accessibility|ux|persona|usability|design system)/.test(raw)) {
+    return "Engineering for UX";
+  }
+  if (/(security|owasp|vulnerability|auth|encryption)/.test(raw)) {
+    return "Security";
+  }
+  return "Delivery";
+}
+
 /** Derives radar chart data from the most recent Assessment.
  *  Maps each category's `categoryCurrentAvg` (1–5 scale) to 0–4 radar scale.
  *  Falls back to the static initialRadar shape when no assessment is available. */
@@ -355,9 +462,7 @@ function deriveRadarData(
   return RADAR_COMPETENCIES.map((label) => {
     const cat = radarLabelToCategory(label);
     const found = assessment?.categories.find((c) => c.categoryName === cat);
-    const current = found
-      ? +Math.min(4, (found.categoryCurrentAvg / 5) * 4).toFixed(2)
-      : 0;
+    const current = found ? +Math.min(4, (found.categoryCurrentAvg / 5) * 4).toFixed(2) : 0;
     return { competency: label, current, target: 4 };
   });
 }
@@ -479,11 +584,7 @@ function assessmentToSession(a: Assessment): ReviewSession {
   });
   return {
     id: a.id,
-    date: new Date(a.dateCompleted).toLocaleDateString("en-US", {
-      month: "short",
-      day: "2-digit",
-      year: "numeric",
-    }),
+    date: formatDisplayDate(a.dateCompleted),
     period: a.reviewPeriod,
     engineer: a.engineerName,
     manager: a.managerName,
@@ -542,14 +643,46 @@ const initialAssessments: Assessment[] = [
     engineerName: "Courage Ugwuanyi",
     managerName: "Alex M.",
     scores: {
-      "Analytical Thinking": [[2, 3, "Improved root-cause analysis on incident IR-4421."], [2, 3], [2, 3]],
-      "System Design": [[2, 3, "Led RFC for sharded inventory service."], [2, 3], [1, 2]],
-      "Code Quality": [[3, 3], [3, 4, "Drove team-wide refactor of payment module."], [3, 3]],
-      Communication: [[3, 3], [3, 3], [3, 3]],
-      Leadership: [[2, 2], [2, 3, "Mentored two L2 engineers."], [2, 2]],
-      "Engineering for UX": [[2, 3, "Shipped accessibility pass on checkout."], [2, 3], [2, 2]],
-      Security: [[2, 3], [2, 3, "Completed OWASP Top 10 internal cert."], [2, 2]],
-      Delivery: [[3, 3], [3, 4, "Three consecutive on-time releases."], [3, 3]],
+      "Analytical Thinking": [
+        [2, 3, "Improved root-cause analysis on incident IR-4421."],
+        [2, 3],
+        [2, 3],
+      ],
+      "System Design": [
+        [2, 3, "Led RFC for sharded inventory service."],
+        [2, 3],
+        [1, 2],
+      ],
+      "Code Quality": [
+        [3, 3],
+        [3, 4, "Drove team-wide refactor of payment module."],
+        [3, 3],
+      ],
+      Communication: [
+        [3, 3],
+        [3, 3],
+        [3, 3],
+      ],
+      Leadership: [
+        [2, 2],
+        [2, 3, "Mentored two L2 engineers."],
+        [2, 2],
+      ],
+      "Engineering for UX": [
+        [2, 3, "Shipped accessibility pass on checkout."],
+        [2, 3],
+        [2, 2],
+      ],
+      Security: [
+        [2, 3],
+        [2, 3, "Completed OWASP Top 10 internal cert."],
+        [2, 2],
+      ],
+      Delivery: [
+        [3, 3],
+        [3, 4, "Three consecutive on-time releases."],
+        [3, 3],
+      ],
     },
     topics: ["Discuss certification budget for AWS", "Timeline for Senior promotion panel"],
   }),
@@ -560,14 +693,46 @@ const initialAssessments: Assessment[] = [
     engineerName: "Courage Ugwuanyi",
     managerName: "Alex M.",
     scores: {
-      "Analytical Thinking": [[2, 2], [1, 2], [2, 2]],
-      "System Design": [[1, 2], [2, 2], [1, 1]],
-      "Code Quality": [[3, 3], [3, 3], [2, 3]],
-      Communication: [[3, 3], [2, 3], [3, 3]],
-      Leadership: [[2, 2], [2, 2], [1, 2]],
-      "Engineering for UX": [[2, 2], [2, 2], [2, 2]],
-      Security: [[2, 2], [2, 2], [1, 2]],
-      Delivery: [[3, 3], [3, 3], [2, 3]],
+      "Analytical Thinking": [
+        [2, 2],
+        [1, 2],
+        [2, 2],
+      ],
+      "System Design": [
+        [1, 2],
+        [2, 2],
+        [1, 1],
+      ],
+      "Code Quality": [
+        [3, 3],
+        [3, 3],
+        [2, 3],
+      ],
+      Communication: [
+        [3, 3],
+        [2, 3],
+        [3, 3],
+      ],
+      Leadership: [
+        [2, 2],
+        [2, 2],
+        [1, 2],
+      ],
+      "Engineering for UX": [
+        [2, 2],
+        [2, 2],
+        [2, 2],
+      ],
+      Security: [
+        [2, 2],
+        [2, 2],
+        [1, 2],
+      ],
+      Delivery: [
+        [3, 3],
+        [3, 3],
+        [2, 3],
+      ],
     },
     topics: ["Identify a stretch project for System Design"],
   }),
@@ -578,25 +743,57 @@ const initialAssessments: Assessment[] = [
     engineerName: "Courage Ugwuanyi",
     managerName: "Alex M.",
     scores: {
-      "Analytical Thinking": [[1, 2, "Demonstrated excellent root-cause analysis during the multi-node latency incident."], [1, 1, "Starting to identify patterns in logs, but needs more autonomy."], [1, 2]],
-      "System Design": [[1, 1], [1, 2], [1, 1]],
-      "Code Quality": [[2, 3], [2, 3], [2, 2]],
-      Communication: [[2, 3], [2, 2], [2, 3]],
-      Leadership: [[1, 2], [1, 2], [1, 1]],
-      "Engineering for UX": [[2, 2], [2, 2], [1, 2]],
-      Security: [[1, 2], [1, 2], [1, 1]],
-      Delivery: [[2, 3], [2, 3], [2, 2]],
+      "Analytical Thinking": [
+        [
+          1,
+          2,
+          "Demonstrated excellent root-cause analysis during the multi-node latency incident.",
+        ],
+        [1, 1, "Starting to identify patterns in logs, but needs more autonomy."],
+        [1, 2],
+      ],
+      "System Design": [
+        [1, 1],
+        [1, 2],
+        [1, 1],
+      ],
+      "Code Quality": [
+        [2, 3],
+        [2, 3],
+        [2, 2],
+      ],
+      Communication: [
+        [2, 3],
+        [2, 2],
+        [2, 3],
+      ],
+      Leadership: [
+        [1, 2],
+        [1, 2],
+        [1, 1],
+      ],
+      "Engineering for UX": [
+        [2, 2],
+        [2, 2],
+        [1, 2],
+      ],
+      Security: [
+        [1, 2],
+        [1, 2],
+        [1, 1],
+      ],
+      Delivery: [
+        [2, 3],
+        [2, 3],
+        [2, 2],
+      ],
     },
     topics: ["Set focus areas for Q1 - System Design, Security"],
   }),
 ];
 
 /* ---------- Primitives ---------- */
-function Card({
-  children,
-  className = "",
-  ...rest
-}: React.HTMLAttributes<HTMLDivElement>) {
+function Card({ children, className = "", ...rest }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       {...rest}
@@ -703,13 +900,16 @@ function Badge({
 
 const BitbucketIcon = ({ size = 14 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-    <path d="M2.65 3a.65.65 0 0 0-.65.76l2.72 16.5a.88.88 0 0 0 .87.74h13.04a.65.65 0 0 0 .65-.55l2.72-16.69a.65.65 0 0 0-.65-.76zm11.46 11.85h-4.21l-1.14-5.95h6.36z"/>
+    <path d="M2.65 3a.65.65 0 0 0-.65.76l2.72 16.5a.88.88 0 0 0 .87.74h13.04a.65.65 0 0 0 .65-.55l2.72-16.69a.65.65 0 0 0-.65-.76zm11.46 11.85h-4.21l-1.14-5.95h6.36z" />
   </svg>
 );
 
 const JiraIcon = ({ size = 14 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-    <path d="M11.53 2a5.7 5.7 0 0 0 5.7 5.7h2.3v2.23a5.7 5.7 0 0 0 5.7 5.7V2.7a.7.7 0 0 0-.7-.7zM6.18 7.34a5.7 5.7 0 0 0 5.7 5.7h2.3v2.23a5.7 5.7 0 0 0 5.7 5.7V8.04a.7.7 0 0 0-.7-.7zM.84 12.66a5.7 5.7 0 0 0 5.7 5.7h2.3v2.23a5.7 5.7 0 0 0 5.7 5.7V13.36a.7.7 0 0 0-.7-.7z" transform="scale(0.85)"/>
+    <path
+      d="M11.53 2a5.7 5.7 0 0 0 5.7 5.7h2.3v2.23a5.7 5.7 0 0 0 5.7 5.7V2.7a.7.7 0 0 0-.7-.7zM6.18 7.34a5.7 5.7 0 0 0 5.7 5.7h2.3v2.23a5.7 5.7 0 0 0 5.7 5.7V8.04a.7.7 0 0 0-.7-.7zM.84 12.66a5.7 5.7 0 0 0 5.7 5.7h2.3v2.23a5.7 5.7 0 0 0 5.7 5.7V13.36a.7.7 0 0 0-.7-.7z"
+      transform="scale(0.85)"
+    />
   </svg>
 );
 
@@ -718,19 +918,40 @@ const ConfluenceIcon = BookOpen;
 function SourceIcon({ source, size = 14 }: { source: string; size?: number }) {
   const s = source.toLowerCase();
   const cls = "shrink-0";
-  if (s.includes("bitbucket")) return <span className={cls} style={{ color: "#2684FF" }}><BitbucketIcon size={size} /></span>;
-  if (s.includes("jira")) return <span className={cls} style={{ color: "#2684FF" }}><JiraIcon size={size} /></span>;
-  if (s.includes("github")) return <Github size={size} className={cls} style={{ color: "#24292F" }} />;
-  if (s.includes("gitlab")) return <Gitlab size={size} className={cls} style={{ color: "#FC6D26" }} />;
-  if (s.includes("slack")) return <Slack size={size} className={cls} style={{ color: "#4A154B" }} />;
-  if (s.includes("teams") || s.includes("microsoft")) return <MessageSquare size={size} className={cls} style={{ color: "#5059C9" }} />;
-  if (s.includes("excel") || s.includes("sheet")) return <FileSpreadsheet size={size} className={cls} style={{ color: "#21A366" }} />;
-  if (s.includes("powerpoint") || s.includes("slides")) return <Presentation size={size} className={cls} style={{ color: "#D24726" }} />;
-  if (s.includes("confluence")) return <ConfluenceIcon size={size} className={cls} style={{ color: "#2684FF" }} />;
-  if (s.includes("trello")) return <Trello size={size} className={cls} style={{ color: "#0079BF" }} />;
-  if (s.includes("figma")) return <Figma size={size} className={cls} style={{ color: "#A259FF" }} />;
-  if (s.includes("git")) return <GitBranch size={size} className={cls} style={{ color: C.slate }} />;
-  if (s.includes("word") || s.includes("doc")) return <FileText size={size} className={cls} style={{ color: "#2B579A" }} />;
+  if (s.includes("bitbucket"))
+    return (
+      <span className={cls} style={{ color: "#2684FF" }}>
+        <BitbucketIcon size={size} />
+      </span>
+    );
+  if (s.includes("jira"))
+    return (
+      <span className={cls} style={{ color: "#2684FF" }}>
+        <JiraIcon size={size} />
+      </span>
+    );
+  if (s.includes("github"))
+    return <Github size={size} className={cls} style={{ color: "#24292F" }} />;
+  if (s.includes("gitlab"))
+    return <Gitlab size={size} className={cls} style={{ color: "#FC6D26" }} />;
+  if (s.includes("slack"))
+    return <Slack size={size} className={cls} style={{ color: "#4A154B" }} />;
+  if (s.includes("teams") || s.includes("microsoft"))
+    return <MessageSquare size={size} className={cls} style={{ color: "#5059C9" }} />;
+  if (s.includes("excel") || s.includes("sheet"))
+    return <FileSpreadsheet size={size} className={cls} style={{ color: "#21A366" }} />;
+  if (s.includes("powerpoint") || s.includes("slides"))
+    return <Presentation size={size} className={cls} style={{ color: "#D24726" }} />;
+  if (s.includes("confluence"))
+    return <ConfluenceIcon size={size} className={cls} style={{ color: "#2684FF" }} />;
+  if (s.includes("trello"))
+    return <Trello size={size} className={cls} style={{ color: "#0079BF" }} />;
+  if (s.includes("figma"))
+    return <Figma size={size} className={cls} style={{ color: "#A259FF" }} />;
+  if (s.includes("git"))
+    return <GitBranch size={size} className={cls} style={{ color: C.slate }} />;
+  if (s.includes("word") || s.includes("doc"))
+    return <FileText size={size} className={cls} style={{ color: "#2B579A" }} />;
   return <FileText size={size} className={cls} style={{ color: C.slate }} />;
 }
 
@@ -876,7 +1097,6 @@ function Dropdown({
   );
 }
 
-
 /* ---------- Mock data ---------- */
 const initialRadar = [
   { competency: "Analytical", current: 3.2, target: 4 },
@@ -904,6 +1124,8 @@ type EvidenceRecord = {
   status: EvidenceStatus;
   matchState: EvidenceMatch;
   managerNotes: string;
+  linkageKey?: string;
+  isSample?: boolean;
   isArchived: boolean;
   archivedDate?: string;
 };
@@ -920,7 +1142,8 @@ const initialEvidence: EvidenceRecord[] = [
     link: "bitbucket.org/acme/billing/pull-requests/482",
     status: "Reviewed",
     matchState: "Yes",
-    managerNotes: "Strong example of cross-team coordination. Tag this for the L4 architecture criterion in your packet.",
+    managerNotes:
+      "Strong example of cross-team coordination. Tag this for the L4 architecture criterion in your packet.",
     isArchived: false,
   },
   {
@@ -934,7 +1157,8 @@ const initialEvidence: EvidenceRecord[] = [
     link: "acme.atlassian.net/AT-1422",
     status: "Reviewed",
     matchState: "Yes",
-    managerNotes: "Add a short note on the dependency-tracking spreadsheet you maintained week over week.",
+    managerNotes:
+      "Add a short note on the dependency-tracking spreadsheet you maintained week over week.",
     isArchived: false,
   },
   {
@@ -962,7 +1186,8 @@ const initialEvidence: EvidenceRecord[] = [
     link: "slack.com/archives/sec/p17324",
     status: "Reviewed",
     matchState: "Somewhat",
-    managerNotes: "Re-word the description to highlight the threat model and your remediation approach more explicitly.",
+    managerNotes:
+      "Re-word the description to highlight the threat model and your remediation approach more explicitly.",
     isArchived: false,
   },
   {
@@ -1019,6 +1244,8 @@ type Objective = {
   id: string;
   title: string;
   competency: string;
+  targetSubcategory?: string;
+  isSample?: boolean;
   due: string;
   status: "Pending Approval" | "In Progress" | "Completed";
   statement?: string;
@@ -1082,8 +1309,7 @@ const initialObjectives: Objective[] = [
       ],
       demonstrate: [
         {
-          criteria:
-            "Use design system components to maintain UI consistency across a full feature",
+          criteria: "Use design system components to maintain UI consistency across a full feature",
           evidence: "Link to merged PR",
         },
         {
@@ -1095,8 +1321,7 @@ const initialObjectives: Objective[] = [
           evidence: "Link to error-state implementation",
         },
         {
-          criteria:
-            "Design intuitive API endpoints around what users are trying to accomplish",
+          criteria: "Design intuitive API endpoints around what users are trying to accomplish",
           evidence: "Link to API design doc",
         },
       ],
@@ -1133,7 +1358,10 @@ const initialObjectives: Objective[] = [
     relevant: "Quality is a core L4 capability and an active gap on my Radar.",
     timebound: "Complete by Jan 31, 2027",
     links: [
-      { label: "Testing strategies overview", url: "https://martinfowler.com/articles/practical-test-pyramid.html" },
+      {
+        label: "Testing strategies overview",
+        url: "https://martinfowler.com/articles/practical-test-pyramid.html",
+      },
     ],
     successCriteria: {
       learn: [
@@ -1220,11 +1448,23 @@ const initialObjectives: Objective[] = [
 /* ============================================================ */
 
 type Tab = "dashboard" | "radar" | "evidence" | "objectives" | "feedback" | "report" | "settings";
+type SampleContentVisibility = {
+  dashboard: boolean;
+  objectives: boolean;
+  evidence: boolean;
+};
+
+type InboxViewItem = InboxItem & { isSample?: boolean };
+type InboxConfirmPayload = {
+  title: string;
+  description: string;
+  category: string;
+  subcategory: string;
+};
 
 /* ============================================================ */
 /*        AUTH: context, gate, signup / signin screens          */
 /* ============================================================ */
-
 
 const LEVEL_OPTIONS = ["L1", "L2", "L3", "L4", "L5", "L6", "L7"];
 
@@ -1237,12 +1477,14 @@ function App() {
 }
 
 function AppGate() {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+  if (loading) return null;
   return user ? <EvitraceApp /> : <AuthScreens />;
 }
 
 function AuthScreens() {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [signinNotice, setSigninNotice] = useState<string | null>(null);
   return (
     <div
       className="min-h-screen flex items-center justify-center px-4 py-10"
@@ -1266,9 +1508,20 @@ function AuthScreens() {
           </div>
         </div>
         {mode === "signin" ? (
-          <SigninForm onSwitch={() => setMode("signup")} />
+          <SigninForm
+            notice={signinNotice}
+            onSwitch={() => {
+              setSigninNotice(null);
+              setMode("signup");
+            }}
+          />
         ) : (
-          <SignupForm onSwitch={() => setMode("signin")} />
+          <SignupForm
+            onSwitch={(notice) => {
+              setSigninNotice(notice ?? null);
+              setMode("signin");
+            }}
+          />
         )}
       </div>
     </div>
@@ -1282,7 +1535,7 @@ function SsoButton({ provider }: { provider: "Google" | "Microsoft" }) {
   return (
     <button
       type="button"
-      onClick={() => provider === "Google" ? signInWithGoogle() : signInWithMicrosoft()}
+      onClick={() => (provider === "Google" ? signInWithGoogle() : signInWithMicrosoft())}
       className="w-full h-10 px-3 rounded border flex items-center justify-center gap-2 text-sm font-semibold hover:bg-[#F4F5F7] transition-colors"
       style={{ borderColor: C.border, color: C.navy, background: "#fff" }}
     >
@@ -1297,19 +1550,19 @@ function SsoButton({ provider }: { provider: "Google" | "Microsoft" }) {
   );
 }
 
-function SigninForm({ onSwitch }: { onSwitch: () => void }) {
+function SigninForm({ onSwitch, notice }: { onSwitch: () => void; notice?: string | null }) {
   const { signin } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState<string | null>(null);
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
     if (!email || !password) {
       setErr("Enter your email and password to continue.");
       return;
     }
-    const ok = signin(email, password);
+    const ok = await signin(email, password);
     if (!ok) {
       setErr("Invalid email or password. Please try again.");
     }
@@ -1334,6 +1587,17 @@ function SigninForm({ onSwitch }: { onSwitch: () => void }) {
         <div className="flex-1 h-px" style={{ background: C.border }} />
       </div>
       <form onSubmit={submit} className="space-y-4">
+        {notice && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="flex items-start gap-2 rounded-md border px-3 py-2 text-xs"
+            style={{ borderColor: "#ABF5D1", background: "#E3FCEF", color: "#006644" }}
+          >
+            <CheckCircle size={14} className="mt-0.5 shrink-0" />
+            <span>{notice}</span>
+          </div>
+        )}
         {err && (
           <div
             role="alert"
@@ -1383,7 +1647,7 @@ function SigninForm({ onSwitch }: { onSwitch: () => void }) {
   );
 }
 
-function SignupForm({ onSwitch }: { onSwitch: () => void }) {
+function SignupForm({ onSwitch }: { onSwitch: (notice?: string) => void }) {
   const { signup } = useAuth();
   const [f, setF] = useState<AuthUser & { password: string }>({
     fullName: "",
@@ -1397,12 +1661,11 @@ function SignupForm({ onSwitch }: { onSwitch: () => void }) {
     skipLevel: "",
   });
   const [err, setErr] = useState<string | null>(null);
-  const upd = <K extends keyof AuthUser>(k: K, v: AuthUser[K]) =>
-    setF((p) => ({ ...p, [k]: v }));
+  const upd = <K extends keyof AuthUser>(k: K, v: AuthUser[K]) => setF((p) => ({ ...p, [k]: v }));
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
-    const required: (keyof AuthUser)[] = [
+    const required: (keyof (AuthUser & { password: string }))[] = [
       "fullName",
       "email",
       "password",
@@ -1418,7 +1681,14 @@ function SignupForm({ onSwitch }: { onSwitch: () => void }) {
         return;
       }
     }
-    await signup(f);
+    try {
+      const ok = await signup(f);
+      if (ok) {
+        onSwitch("Account created. Please verify your email, then sign in.");
+      }
+    } catch {
+      setErr("Something went wrong while creating your account. Please try again.");
+    }
   }
   return (
     <Card className="p-7 sm:p-8">
@@ -1426,7 +1696,8 @@ function SignupForm({ onSwitch }: { onSwitch: () => void }) {
         Create your account
       </div>
       <div className="text-xs mt-1" style={{ color: C.subtle }}>
-        Fields marked <span style={{ color: "#DE350B" }}>*</span> are required. You can complete optional fields later in Settings.
+        Fields marked <span style={{ color: "#DE350B" }}>*</span> are required. You can complete
+        optional fields later in Settings.
       </div>
       <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-2">
         <SsoButton provider="Google" />
@@ -1452,7 +1723,10 @@ function SignupForm({ onSwitch }: { onSwitch: () => void }) {
           </div>
         )}
         <section>
-          <div className="text-[11px] font-bold uppercase tracking-wider mb-3" style={{ color: C.subtle }}>
+          <div
+            className="text-[11px] font-bold uppercase tracking-wider mb-3"
+            style={{ color: C.subtle }}
+          >
             Account
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1488,7 +1762,10 @@ function SignupForm({ onSwitch }: { onSwitch: () => void }) {
         </section>
 
         <section>
-          <div className="text-[11px] font-bold uppercase tracking-wider mb-3" style={{ color: C.subtle }}>
+          <div
+            className="text-[11px] font-bold uppercase tracking-wider mb-3"
+            style={{ color: C.subtle }}
+          >
             Role & Levels
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1520,7 +1797,10 @@ function SignupForm({ onSwitch }: { onSwitch: () => void }) {
         </section>
 
         <section>
-          <div className="text-[11px] font-bold uppercase tracking-wider mb-3" style={{ color: C.subtle }}>
+          <div
+            className="text-[11px] font-bold uppercase tracking-wider mb-3"
+            style={{ color: C.subtle }}
+          >
             Reporting
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1542,7 +1822,11 @@ function SignupForm({ onSwitch }: { onSwitch: () => void }) {
               />
             </Field>
             <div className="sm:col-span-2">
-              <Field label="Skip-level reviewer" optional hint="You can add this later in Settings.">
+              <Field
+                label="Skip-level reviewer"
+                optional
+                hint="You can add this later in Settings."
+              >
                 <Input
                   value={f.skipLevel}
                   onChange={(e) => upd("skipLevel", e.target.value)}
@@ -1562,7 +1846,7 @@ function SignupForm({ onSwitch }: { onSwitch: () => void }) {
         Already have an account?{" "}
         <button
           type="button"
-          onClick={onSwitch}
+          onClick={() => onSwitch()}
           className="font-semibold"
           style={{ color: C.primary }}
         >
@@ -1584,7 +1868,7 @@ function SecureEditDialog({
   current: string;
   options?: string[];
   onClose: () => void;
-  onSave: (next: string, password: string) => boolean;
+  onSave: (next: string, password: string) => Promise<boolean>;
 }) {
   const [next, setNext] = useState(current);
   const [pwd, setPwd] = useState("");
@@ -1600,17 +1884,31 @@ function SecureEditDialog({
         style={{ borderColor: C.border }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="p-5 border-b flex items-center justify-between" style={{ borderColor: C.border }}>
+        <div
+          className="p-5 border-b flex items-center justify-between"
+          style={{ borderColor: C.border }}
+        >
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded flex items-center justify-center" style={{ background: C.primarySoft, color: C.primary }}>
+            <div
+              className="w-8 h-8 rounded flex items-center justify-center"
+              style={{ background: C.primarySoft, color: C.primary }}
+            >
               <Lock size={16} />
             </div>
             <div>
-              <div className="text-sm font-bold" style={{ color: C.navy }}>Edit {label}</div>
-              <div className="text-xs" style={{ color: C.subtle }}>Confirm your password to save changes.</div>
+              <div className="text-sm font-bold" style={{ color: C.navy }}>
+                Edit {label}
+              </div>
+              <div className="text-xs" style={{ color: C.subtle }}>
+                Confirm your password to save changes.
+              </div>
             </div>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
+          <button
+            onClick={onClose}
+            className="p-1 rounded hover:bg-[#F4F5F7]"
+            style={{ color: C.slate }}
+          >
             <X size={16} />
           </button>
         </div>
@@ -1618,7 +1916,9 @@ function SecureEditDialog({
           <Field label={`New ${label}`}>
             {options ? (
               <Select value={next} onChange={(e) => setNext(e.target.value)}>
-                {options.map((o) => <option key={o}>{o}</option>)}
+                {options.map((o) => (
+                  <option key={o}>{o}</option>
+                ))}
               </Select>
             ) : (
               <Input value={next} onChange={(e) => setNext(e.target.value)} />
@@ -1638,9 +1938,9 @@ function SecureEditDialog({
           <GhostBtn onClick={onClose}>Cancel</GhostBtn>
           <PrimaryBtn
             disabled={!canSave}
-            onClick={() => {
+            onClick={async () => {
               if (!canSave) return;
-              const ok = onSave(next.trim(), pwd);
+              const ok = await onSave(next.trim(), pwd);
               if (!ok) toast.error("Incorrect password");
               else {
                 toast.success(`${label} updated`);
@@ -1665,7 +1965,7 @@ function SecureField({
   label: string;
   value: string;
   options?: string[];
-  onSave: (next: string, password: string) => boolean;
+  onSave: (next: string, password: string) => Promise<boolean>;
 }) {
   const [editing, setEditing] = useState(false);
   return (
@@ -1694,31 +1994,97 @@ function SecureField({
 
 function EvitraceApp() {
   const { user, userId: authUserId } = useAuth();
+  const { tab: searchTab } = Route.useSearch();
   const userId = authUserId!;
 
   const [tab, setTab] = useState<Tab>("dashboard");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const { data: evidence = [] } = useEvidenceQuery(userId);
+  const [sampleContent, setSampleContent] = useState<SampleContentVisibility>({
+    dashboard: true,
+    objectives: true,
+    evidence: true,
+  });
+
+  const { data: evidence = [] } = useEvidenceQuery(userId, { includeSamples: sampleContent.evidence });
   const { data: archivedEvidence = [] } = useEvidenceQuery(userId, { archived: true });
+  const saveEvidenceMutation = useSaveEvidence(userId);
+  const archiveEvidenceMutation = useArchiveEvidence(userId);
+  const restoreEvidenceMutation = useRestoreEvidence(userId);
+  const deleteEvidenceMutation = useDeleteEvidence(userId);
+  const insertEvidenceMutation = useInsertEvidence(userId);
   const { data: inbox = [] } = useInboxQuery(userId);
   const approveInboxMutation = useApproveInbox(userId);
   const dismissInboxMutation = useDismissInbox(userId);
-  const { data: objectives = [] } = useObjectivesQuery(userId);
+  const { data: objectives = [] } = useObjectivesQuery(userId, {
+    includeSamples: sampleContent.objectives,
+  });
+  const { data: archivedObjectives = [] } = useObjectivesQuery(userId, { archived: true });
+  const createObjectiveMutation = useCreateObjective(userId);
+  const moveObjectiveMutation = useMoveObjective(userId);
+  const saveObjectiveMutation = useSaveObjective(userId);
+  const archiveObjectiveMutation = useArchiveObjective(userId);
+  const restoreObjectiveMutation = useRestoreObjective(userId);
+  const deleteObjectiveMutation = useDeleteObjective(userId);
   const { data: assessments = [] } = useAssessmentsQuery(userId);
+  const finalizeAssessmentMutation = useFinalizeAssessment(userId);
+  const updateTopicsMutation = useUpdateOneOnOneTopics(userId);
+  const addFeedbackMutation = useAddFeedback(userId);
 
   const radarData = useMemo(() => deriveRadarData(assessments[0]), [assessments]);
 
-  const [showExtension, setShowExtension] = useState(true);
   const [showCapture, setShowCapture] = useState(false);
   const [showCreateObjective, setShowCreateObjective] = useState(false);
   const [openObjective, setOpenObjective] = useState<Objective | null>(null);
   const [openEvidence, setOpenEvidence] = useState<EvidenceRecord | null>(null);
-  const [openInbox, setOpenInbox] = useState<InboxItem | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [openInbox, setOpenInbox] = useState<InboxViewItem | null>(null);
   const [showWizard, setShowWizard] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [review, setReview] = useState<ReviewSession | null>(null);
+  const [dismissedSampleInboxIds, setDismissedSampleInboxIds] = useState<string[]>([]);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem("evitrace.sampleContentVisibility");
+    if (!stored) return;
+    try {
+      const parsed = JSON.parse(stored) as Partial<SampleContentVisibility>;
+      setSampleContent((prev) => ({
+        dashboard: parsed.dashboard ?? prev.dashboard,
+        objectives: parsed.objectives ?? prev.objectives,
+        evidence: parsed.evidence ?? prev.evidence,
+      }));
+    } catch {
+      // ignore malformed persisted values
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("evitrace.sampleContentVisibility", JSON.stringify(sampleContent));
+  }, [sampleContent]);
+
+  const visibleEvidence = useMemo(
+    () => (sampleContent.evidence ? evidence : evidence.filter((item) => !item.isSample)),
+    [evidence, sampleContent.evidence],
+  );
+  const visibleArchivedEvidence = useMemo(
+    () =>
+      sampleContent.evidence
+        ? archivedEvidence
+        : archivedEvidence.filter((item) => !item.isSample),
+    [archivedEvidence, sampleContent.evidence],
+  );
+  const visibleObjectives = useMemo(
+    () => (sampleContent.objectives ? objectives : objectives.filter((item) => !item.isSample)),
+    [objectives, sampleContent.objectives],
+  );
+  const visibleArchivedObjectives = useMemo(
+    () =>
+      sampleContent.objectives
+        ? archivedObjectives
+        : archivedObjectives.filter((item) => !item.isSample),
+    [archivedObjectives, sampleContent.objectives],
+  );
 
   const pageTitle: Record<Tab, string> = {
     dashboard: "Dashboard",
@@ -1731,22 +2097,59 @@ function EvitraceApp() {
   };
 
   function flash(msg: string) {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2400);
+    toast.success(msg);
   }
 
-  function approveInbox(id: string, comps: string[]) {
-    const item = inbox.find((i) => i.id === id);
-    if (!item) return;
-    const competency = comps[0] ?? item.suggestion[0] ?? "";
+  useEffect(() => {
+    if (
+      searchTab &&
+      ["dashboard", "radar", "evidence", "objectives", "feedback", "report", "settings"].includes(
+        searchTab,
+      )
+    ) {
+      setTab(searchTab as Tab);
+    }
+  }, [searchTab]);
+
+  function approveInbox(item: InboxViewItem, payload: InboxConfirmPayload) {
+    const title = payload.title.trim() || item.title;
+    const description = payload.description.trim();
+    const category = payload.category;
+    const competency = payload.subcategory;
+
+    if (item.isSample) {
+      setDismissedSampleInboxIds((ids) => (ids.includes(item.id) ? ids : [...ids, item.id]));
+      insertEvidenceMutation.mutate(
+        {
+          id: "",
+          date: new Date().toISOString().slice(0, 10),
+          source: item.source,
+          category,
+          competency,
+          title,
+          description,
+          link: "",
+          status: "Pending Review",
+          matchState: "Unset",
+          managerNotes: "",
+          isArchived: false,
+          createdAt: new Date().toISOString(),
+        },
+        { onSuccess: () => flash("Sample event mapped and added to evidence log") },
+      );
+      return;
+    }
+
+    const liveItem = inbox.find((i) => i.id === item.id);
+    if (!liveItem) return;
     const newEvidenceRow = {
       user_id: userId,
       date: new Date().toISOString().slice(0, 10),
-      source: item.source,
-      category: "Integration",
+      source: liveItem.source,
+      category,
       competency,
-      title: item.title,
-      description: "",
+      title,
+      description,
       link: "",
       status: "Pending Review" as const,
       match_state: "Unset" as const,
@@ -1754,13 +2157,22 @@ function EvitraceApp() {
       is_archived: false,
     };
     approveInboxMutation.mutate(
-      { inboxItem: item, newEvidenceRow },
-      { onSuccess: () => flash("Evidence mapped and added to log") }
+      { inboxItem: liveItem, newEvidenceRow },
+      { onSuccess: () => flash("Evidence mapped and added to log") },
     );
   }
 
+  function archiveObjectiveById(id: string) {
+    archiveObjectiveMutation.mutate(id, {
+      onSuccess: () => flash("Objective archived"),
+    });
+  }
+
   return (
-    <div className="min-h-screen" style={{ background: C.bg, color: C.navy, fontFamily: "Inter, system-ui, sans-serif" }}>
+    <div
+      className="min-h-screen"
+      style={{ background: C.bg, color: C.navy, fontFamily: "Inter, system-ui, sans-serif" }}
+    >
       <Sidebar
         tab={tab}
         setTab={(t) => {
@@ -1794,6 +2206,8 @@ function EvitraceApp() {
               {tab === "dashboard" && (
                 <DashboardView
                   inbox={inbox}
+                  showSampleData={sampleContent.dashboard}
+                  dismissedSampleInboxIds={dismissedSampleInboxIds}
                   onOpenInbox={setOpenInbox}
                   onOpenObjective={setOpenObjective}
                   onOpenEvidence={setOpenEvidence}
@@ -1810,86 +2224,134 @@ function EvitraceApp() {
               )}
               {tab === "evidence" && (
                 <EvidenceView
-                  rows={evidence}
+                  rows={[...visibleEvidence, ...visibleArchivedEvidence]}
                   onOpenRow={setOpenEvidence}
-                  onPermanentDelete={(_id) => {
-                    // Mutation wired in subsequent task
-                    flash("Evidence permanently deleted");
+                  onPermanentDelete={(id) => {
+                    deleteEvidenceMutation.mutate(id, {
+                      onSuccess: () => flash("Evidence permanently deleted"),
+                    });
                   }}
-                  onRestore={(_id) => {
-                    // Mutation wired in subsequent task
-                    flash("Evidence restored to log");
+                  onRestore={(id) => {
+                    restoreEvidenceMutation.mutate(id, {
+                      onSuccess: () => flash("Evidence restored to log"),
+                    });
                   }}
                 />
               )}
               {tab === "objectives" && (
                 <ObjectivesView
-                  items={objectives}
+                  items={[...visibleObjectives, ...visibleArchivedObjectives]}
                   onOpen={setOpenObjective}
                   onCreate={() => setShowCreateObjective(true)}
-                  onRestore={(_o) => {
-                    // Mutation wired in subsequent task
-                    flash("Objective restored to Kanban board");
+                  onRestore={(o) => {
+                    restoreObjectiveMutation.mutate(o.id, {
+                      onSuccess: () => flash("Objective restored to Kanban board"),
+                    });
                   }}
-                  onDelete={(_o) => {
-                    // Mutation wired in subsequent task
-                    flash("Objective permanently deleted");
+                  onDelete={(o) => {
+                    deleteObjectiveMutation.mutate(o, {
+                      onSuccess: () => flash("Objective permanently deleted"),
+                    });
                   }}
                   onMove={(id, status) => {
-                    const target = objectives.find((o) => o.id === id);
-                    if (!target || target.status === status || target.status === "Completed") return;
-                    // Mutation wired in subsequent task
-                    if (status === "Completed") {
-                      flash("Objective completed and added to evidence");
-                    } else {
-                      flash(`Moved to ${status}`);
-                    }
+                    const target = [...visibleObjectives, ...visibleArchivedObjectives].find(
+                      (o) => o.id === id,
+                    );
+                    if (!target || target.status === status || target.status === "Completed")
+                      return;
+                    moveObjectiveMutation.mutate(
+                      { id, status, objective: target },
+                      {
+                        onSuccess: () => {
+                          if (status === "Completed")
+                            flash("Objective completed and added to evidence");
+                          else if (target.status === "Completed" && status === "In Progress")
+                            flash("Objective reverted and removed from evidence log");
+                          else flash(`Moved to ${status}`);
+                        },
+                      },
+                    );
                   }}
                 />
               )}
               {tab === "report" && (
                 <ReportView
-                  evidence={evidence}
-                  objectives={objectives}
+                  evidence={visibleEvidence}
+                  objectives={visibleObjectives}
                   radarData={radarData}
                   onFlash={flash}
                   review={review}
                   assessments={assessments}
                   onOpenAssessment={(a) => setReview(assessmentToSession(a))}
+                  onSaveTopics={(assessmentId, topics) => {
+                    updateTopicsMutation.mutate(
+                      { assessmentId, topics },
+                      { onSuccess: () => flash("1-on-1 topics saved") },
+                    );
+                  }}
                   onClearReview={() => setReview(null)}
                   onStartReview={() => setShowWizard(true)}
                   onOpenHistory={() => setShowHistory(true)}
                 />
               )}
               {tab === "feedback" && <FeedbackView />}
-              {tab === "settings" && <SettingsView />}
+              {tab === "settings" && (
+                <SettingsView
+                  sampleContent={sampleContent}
+                  onSampleContentChange={setSampleContent}
+                />
+              )}
             </motion.div>
           </AnimatePresence>
         </main>
       </div>
-
-      {/* Floating extension preview */}
-      <AnimatePresence>
-        {showExtension && (
-          <ExtensionPopup
-            onDismiss={() => setShowExtension(false)}
-            onSave={() => {
-              setShowExtension(false);
-              flash("Evidence saved from extension");
-            }}
-          />
-        )}
-      </AnimatePresence>
 
       {/* Capture modal */}
       <AnimatePresence>
         {showCapture && (
           <CaptureModal
             onClose={() => setShowCapture(false)}
-            onSave={(_title, _comps, _link, _reflection) => {
-              // Mutation wired in subsequent task
-              setShowCapture(false);
-              flash("Evidence captured");
+            onSaveEvidence={({ title, description, sourceLink, category, subcategory }) => {
+              insertEvidenceMutation.mutate(
+                {
+                  id: "",
+                  date: new Date().toISOString().slice(0, 10),
+                  source: "Manual",
+                  category,
+                  competency: category,
+                  title: title.trim(),
+                  description: `${description.trim()}\n\nSubcategory: ${subcategory}`,
+                  link: sourceLink.trim(),
+                  status: "Pending Review",
+                  matchState: "Unset",
+                  managerNotes: "",
+                  isArchived: false,
+                  createdAt: new Date().toISOString(),
+                },
+                {
+                  onSuccess: () => {
+                    setShowCapture(false);
+                    flash("Evidence captured");
+                  },
+                },
+              );
+            }}
+            onSaveKnowledge={({ challenge, lesson, reset }) => {
+              addFeedbackMutation.mutate(
+                {
+                  date: new Date().toISOString().slice(0, 10),
+                  provider: "Self reflection",
+                  type: "Ad-hoc",
+                  notes: `Challenge: ${challenge.trim()}\n\nSolution/Lesson Learned: ${lesson.trim()}`,
+                  anonymous: false,
+                },
+                {
+                  onSuccess: () => {
+                    reset();
+                    toast.success("Knowledge entry saved.");
+                  },
+                },
+              );
             }}
           />
         )}
@@ -1900,10 +2362,16 @@ function EvitraceApp() {
         {showCreateObjective && (
           <CreateObjectiveModal
             onClose={() => setShowCreateObjective(false)}
-            onSubmit={(_o) => {
-              // Mutation wired in subsequent task
-              setShowCreateObjective(false);
-              flash("Objective submitted for approval");
+            onSubmit={(o) => {
+              createObjectiveMutation.mutate(
+                { ...o, id: "", status: "Pending Approval" },
+                {
+                  onSuccess: () => {
+                    setShowCreateObjective(false);
+                    flash("Objective submitted for approval");
+                  },
+                },
+              );
             }}
           />
         )}
@@ -1916,24 +2384,32 @@ function EvitraceApp() {
             objective={openObjective}
             onClose={() => setOpenObjective(null)}
             onSave={(o) => {
-              // Mutation wired in subsequent task
-              setOpenObjective(o);
-              flash("Objective updated");
+              saveObjectiveMutation.mutate(o, {
+                onSuccess: () => {
+                  setOpenObjective(o);
+                  flash("Objective updated");
+                },
+              });
             }}
             onChangeStatus={(o, next) => {
-              const updated = { ...o, status: next };
-              setOpenObjective(updated);
-              if (next === "Completed") {
-                // Mutation wired in subsequent task
-                flash("Objective completed and added to evidence");
-              } else if (next === "In Progress") {
-                flash("Objective approved and moved to In Progress");
-              }
+              const updated = { ...o, status: next as Objective["status"] };
+              moveObjectiveMutation.mutate(
+                { id: o.id, status: next, objective: o },
+                {
+                  onSuccess: () => {
+                    setOpenObjective(updated);
+                    if (next === "Completed") flash("Objective completed and added to evidence");
+                    else if (o.status === "Completed" && next === "In Progress")
+                      flash("Objective reverted and removed from evidence log");
+                    else if (next === "In Progress")
+                      flash("Objective approved and moved to In Progress");
+                  },
+                },
+              );
             }}
-            onArchive={(_o) => {
-              // Mutation wired in subsequent task
+            onArchive={(o) => {
+              archiveObjectiveById(o.id);
               setOpenObjective(null);
-              flash("Objective archived");
             }}
           />
         )}
@@ -1946,14 +2422,20 @@ function EvitraceApp() {
             item={openEvidence}
             onClose={() => setOpenEvidence(null)}
             onSave={(updated) => {
-              // Mutation wired in subsequent task
-              setOpenEvidence(updated);
-              flash("Evidence updated");
+              saveEvidenceMutation.mutate(updated, {
+                onSuccess: () => {
+                  setOpenEvidence(updated);
+                  flash("Evidence updated");
+                },
+              });
             }}
-            onArchive={(_id) => {
-              // Mutation wired in subsequent task
-              setOpenEvidence(null);
-              flash("Evidence archived");
+            onArchive={(id) => {
+              archiveEvidenceMutation.mutate(id, {
+                onSuccess: () => {
+                  setOpenEvidence(null);
+                  flash("Evidence archived");
+                },
+              });
             }}
           />
         )}
@@ -1966,13 +2448,20 @@ function EvitraceApp() {
             item={openInbox}
             onClose={() => setOpenInbox(null)}
             onConfirm={(comps) => {
-              approveInbox(openInbox.id, comps);
+              approveInbox(openInbox, comps);
               setOpenInbox(null);
             }}
             onDismiss={() => {
-              dismissInboxMutation.mutate(openInbox.id, {
-                onSuccess: () => flash("Event dismissed"),
-              });
+              if (openInbox.isSample) {
+                setDismissedSampleInboxIds((ids) =>
+                  ids.includes(openInbox.id) ? ids : [...ids, openInbox.id],
+                );
+                flash("Sample event closed");
+              } else {
+                dismissInboxMutation.mutate(openInbox.id, {
+                  onSuccess: () => flash("Event dismissed"),
+                });
+              }
               setOpenInbox(null);
             }}
           />
@@ -1983,18 +2472,22 @@ function EvitraceApp() {
       <AnimatePresence>
         {showWizard && (
           <ReviewWizard
-            evidence={evidence}
+            evidence={visibleEvidence}
             onOpenEvidence={setOpenEvidence}
             onClose={() => setShowWizard(false)}
             onFinalize={(session: ReviewSession) => {
-              setReview(session);
-              // Persist the finalized session into the historical assessments log
               const newAssessment = sessionToAssessment(session);
-              void newAssessment; // setAssessments stubbed — wired in task 12.4 via useFinalizeAssessment
-              // setRadarData stubbed — radarData is now derived via useMemo from assessments query
-              setShowWizard(false);
-              setTab("report");
-              flash("Assessment finalized · Report generated");
+              finalizeAssessmentMutation.mutate(
+                { assessment: newAssessment },
+                {
+                  onSuccess: () => {
+                    setReview(session);
+                    setShowWizard(false);
+                    setTab("report");
+                    flash("Assessment finalized · Report generated");
+                  },
+                },
+              );
             }}
           />
         )}
@@ -2016,35 +2509,6 @@ function EvitraceApp() {
         )}
       </AnimatePresence>
 
-
-
-      {/* Toast */}
-      <AnimatePresence>
-        {toast && (
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 12 }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 rounded shadow-lg text-white text-sm font-medium"
-            style={{ background: C.navy }}
-          >
-            <CheckCircle size={16} style={{ color: C.green }} />
-            {toast}
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Floating "show extension" toggle when hidden */}
-      {!showExtension && (
-        <button
-          onClick={() => setShowExtension(true)}
-          className="fixed bottom-6 right-6 z-40 flex items-center gap-2 px-3 h-10 rounded-full shadow-lg border bg-white text-sm font-medium"
-          style={{ borderColor: C.border, color: C.slate }}
-        >
-          <RadarIcon size={16} style={{ color: C.primary }} />
-          Show extension preview
-        </button>
-      )}
     </div>
   );
 }
@@ -2069,28 +2533,54 @@ function Sidebar({
   onCloseMobile: () => void;
 }) {
   const { user, signout } = useAuth();
-  const initials = user
-    ? user.fullName.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase()
-    : "JM";
-  const displayName = user?.fullName ?? "Jordan Mills";
-  const displayRole = user ? `${user.currentLevel || "Engineer"}${user.team ? ` · ${user.team}` : ""}` : "Senior Engineer L3";
+  const hasFullName = Boolean(user?.fullName?.trim());
+  const displayName = getDisplayName(user?.fullName, user?.email);
+  const displayEmail = user?.email ?? "";
+  const initials =
+    displayName
+      .split(" ")
+      .map((s) => s[0])
+      .slice(0, 2)
+      .join("")
+      .toUpperCase() || "US";
+  const displayRole = user
+    ? `${user.jobTitle || user.currentLevel || "Engineer"}${user.team ? ` · ${user.team}` : ""}`
+    : "Senior Engineer L3";
   function handleSignout() {
     void signout();
     onCloseMobile();
     toast.success("Signed out");
   }
-  const mainNav: { id: Tab; label: string; sub: string; icon: React.ComponentType<{ size?: number }> }[] = [
+  const mainNav: {
+    id: Tab;
+    label: string;
+    sub: string;
+    icon: React.ComponentType<{ size?: number }>;
+  }[] = [
     { id: "dashboard", label: "Dashboard", sub: "Daily Actions", icon: LayoutDashboard },
     { id: "evidence", label: "Evidence Log", sub: "Data Table", icon: TableProperties },
     { id: "objectives", label: "Objectives", sub: "Skill Gap Planning", icon: Target },
-    { id: "feedback", label: "360 Feedback", sub: "Peer & Manager Reviews", icon: MessageCircleHeart },
+    {
+      id: "feedback",
+      label: "360 Feedback",
+      sub: "Peer & Manager Reviews",
+      icon: MessageCircleHeart,
+    },
     { id: "radar", label: "Promotion Readiness", sub: "Assessment & Gaps", icon: TrendingUp },
     { id: "report", label: "Reviews & Reports", sub: "Archive & 1-on-1 Prep", icon: FileText },
   ];
-  const settingsItem = { id: "settings" as Tab, label: "Settings", sub: "App & Profile", icon: SettingsIcon };
+  const settingsItem = {
+    id: "settings" as Tab,
+    label: "Settings",
+    sub: "App & Profile",
+    icon: SettingsIcon,
+  };
 
-  const NavButton = ({ n }: { n: typeof mainNav[number] }) => {
+  const NavButton = ({ n }: { n: (typeof mainNav)[number] }) => {
     const active = tab === n.id;
+    const isSettings = n.id === "settings";
+    const activeBackground = isSettings ? "#F4F5F7" : C.primarySoft;
+    const activeColor = isSettings ? C.navy : C.primary;
     const Icon = n.icon;
     return (
       <button
@@ -2099,8 +2589,8 @@ function Sidebar({
         title={collapsed ? n.label : undefined}
         className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} py-2.5 rounded text-left transition-colors`}
         style={{
-          background: active ? C.primarySoft : "transparent",
-          color: active ? C.primary : C.slate,
+          background: active ? activeBackground : "transparent",
+          color: active ? activeColor : C.slate,
         }}
         onMouseEnter={(e) => {
           if (!active) e.currentTarget.style.background = "#F4F5F7";
@@ -2113,7 +2603,7 @@ function Sidebar({
         {!collapsed && (
           <div className="flex-1 min-w-0">
             <div className="text-sm font-semibold">{n.label}</div>
-            <div className="text-[11px]" style={{ color: active ? C.primary : C.subtle }}>
+            <div className="text-[11px]" style={{ color: active ? activeColor : C.subtle }}>
               {n.sub}
             </div>
           </div>
@@ -2128,57 +2618,88 @@ function Sidebar({
       style={{ background: C.card, borderColor: C.border }}
     >
       <div
-        className={`h-16 ${collapsed ? "px-2 justify-center" : "px-5"} flex items-center gap-2 border-b`}
+        className={`h-16 ${collapsed ? "px-1.5" : "px-5"} flex items-center gap-2 border-b`}
         style={{ borderColor: C.border }}
       >
-        <div
-          className="w-8 h-8 rounded flex items-center justify-center"
-          style={{ background: C.primary }}
-        >
-          <RadarIcon size={18} color="#fff" />
-        </div>
-        {!collapsed && (
-          <div className="leading-tight">
-            <div className="text-[15px] font-bold tracking-tight" style={{ color: C.navy }}>
-              Evitrace
-            </div>
-            <div className="text-[10px] uppercase tracking-wider" style={{ color: C.subtle }}>
-              Performance Intelligence
-            </div>
+        <div className={`flex items-center min-w-0 ${collapsed ? "justify-center flex-1" : "gap-2"}`}>
+          <div
+            className="w-8 h-8 rounded flex items-center justify-center shrink-0"
+            style={{ background: C.primary }}
+          >
+            <RadarIcon size={18} color="#fff" />
           </div>
-        )}
+          {!collapsed && (
+            <div className="leading-tight">
+              <div className="text-[15px] font-bold tracking-tight" style={{ color: C.navy }}>
+                Evitrace
+              </div>
+              <div className="text-[10px] uppercase tracking-wider" style={{ color: C.subtle }}>
+                Performance Intelligence
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-        {mainNav.map((n) => <NavButton key={n.id} n={n} />)}
+        {mainNav.map((n) => (
+          <NavButton key={n.id} n={n} />
+        ))}
       </nav>
+
+      <div className="px-3 pb-2">
+        <button
+          onClick={onToggleCollapse}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-2.5 px-3"} py-2 rounded border hover:bg-[#F4F5F7] transition-colors`}
+          style={{ color: C.slate, borderColor: C.border }}
+        >
+          {collapsed ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
+          {!collapsed && (
+            <span className="text-xs font-semibold">Collapse sidebar</span>
+          )}
+        </button>
+      </div>
 
       <div className="p-3 border-t space-y-2" style={{ borderColor: C.border }}>
         <NavButton n={settingsItem} />
         {!collapsed && (
-          <div className="flex items-center gap-2 px-1 pt-1">
+          <div className="px-1 pt-1 rounded-md border" style={{ borderColor: C.border }}>
+            <div className="flex items-center gap-2 min-w-0">
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white shrink-0"
+                style={{ background: "#5243AA" }}
+              >
+                {initials}
+              </div>
+              <div className="leading-tight flex-1 min-w-0">
+                <div className="text-xs font-semibold truncate" style={{ color: C.navy }}>
+                  {displayName}
+                </div>
+                <div className="text-[11px] truncate" style={{ color: C.subtle }}>
+                  {displayRole}
+                </div>
+                {hasFullName && (
+                  <div className="text-[11px] truncate" style={{ color: C.subtle }}>
+                    {displayEmail}
+                  </div>
+                )}
+              </div>
+            </div>
             <div
-              className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white"
-              style={{ background: "#5243AA" }}
+              className="mt-2 pt-2 border-t flex items-center justify-end"
+              style={{ borderColor: C.border }}
             >
-              {initials}
+              <button
+                onClick={handleSignout}
+                title="Sign out"
+                className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded text-xs font-semibold hover:bg-[#F4F5F7]"
+                style={{ color: C.slate }}
+              >
+                <LogOut size={14} />
+                Log out
+              </button>
             </div>
-            <div className="leading-tight flex-1 min-w-0">
-              <div className="text-xs font-semibold" style={{ color: C.navy }}>
-                {displayName}
-              </div>
-              <div className="text-[11px] truncate" style={{ color: C.subtle }}>
-                {displayRole}
-              </div>
-            </div>
-            <button
-              onClick={handleSignout}
-              title="Sign out"
-              className="p-1.5 rounded hover:bg-[#F4F5F7]"
-              style={{ color: C.slate }}
-            >
-              <LogOut size={14} />
-            </button>
           </div>
         )}
         {collapsed && (
@@ -2191,14 +2712,6 @@ function Sidebar({
             <LogOut size={16} />
           </button>
         )}
-        <button
-          onClick={onToggleCollapse}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          className={`w-full flex items-center ${collapsed ? "justify-center" : "justify-end"} gap-2 px-2 py-2 rounded text-xs font-medium hover:bg-[#F4F5F7]`}
-          style={{ color: C.slate }}
-        >
-          {collapsed ? <PanelLeft size={16} /> : <><span>Collapse</span><PanelLeftClose size={16} /></>}
-        </button>
       </div>
     </aside>
   );
@@ -2227,21 +2740,33 @@ function Sidebar({
               className="absolute top-0 left-0 h-full w-72 max-w-[85vw] flex flex-col border-r"
               style={{ background: C.card, borderColor: C.border }}
             >
-              <div className="h-16 px-5 flex items-center justify-between border-b" style={{ borderColor: C.border }}>
+              <div
+                className="h-16 px-5 flex items-center justify-between border-b"
+                style={{ borderColor: C.border }}
+              >
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded flex items-center justify-center" style={{ background: C.primary }}>
+                  <div
+                    className="w-8 h-8 rounded flex items-center justify-center"
+                    style={{ background: C.primary }}
+                  >
                     <RadarIcon size={18} color="#fff" />
                   </div>
                   <div className="text-[15px] font-bold tracking-tight" style={{ color: C.navy }}>
                     Evitrace
                   </div>
                 </div>
-                <button onClick={onCloseMobile} className="p-1.5 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
+                <button
+                  onClick={onCloseMobile}
+                  className="p-1.5 rounded hover:bg-[#F4F5F7]"
+                  style={{ color: C.slate }}
+                >
                   <X size={18} />
                 </button>
               </div>
               <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-                {mainNav.map((n) => <NavButton key={n.id} n={n} />)}
+                {mainNav.map((n) => (
+                  <NavButton key={n.id} n={n} />
+                ))}
               </nav>
               <div className="p-3 border-t space-y-2" style={{ borderColor: C.border }}>
                 <NavButton n={settingsItem} />
@@ -2271,11 +2796,48 @@ function TopHeader({
   onCapture: () => void;
   onMenuClick: () => void;
 }) {
-  const [notifs, setNotifs] = useState<{ id: string; icon: React.ComponentType<{ size?: number }>; title: string; body: string; when: string; read: boolean }[]>([
-    { id: "N-1", icon: MessageSquare, title: "Manager added feedback to EV-198", body: "Alex Morgan suggested rewording your JWT remediation evidence.", when: "12m ago", read: false },
-    { id: "N-2", icon: Sparkles, title: "Auto-captured event ready for review", body: "A new Bitbucket PR was detected and waiting in your inbox.", when: "1h ago", read: false },
-    { id: "N-3", icon: UserCheck, title: "Objective approved", body: "UX-01 was moved to In Progress after manager approval.", when: "Yesterday", read: false },
-    { id: "N-4", icon: FileCheck2, title: "Q3 assessment archived", body: "Your Q3 readiness report was saved to Reviews & Reports.", when: "3d ago", read: true },
+  const [notifs, setNotifs] = useState<
+    {
+      id: string;
+      icon: React.ComponentType<{ size?: number }>;
+      title: string;
+      body: string;
+      when: string;
+      read: boolean;
+    }[]
+  >([
+    {
+      id: "N-1",
+      icon: MessageSquare,
+      title: "Manager added feedback to EV-198",
+      body: "Alex Morgan suggested rewording your JWT remediation evidence.",
+      when: "12m ago",
+      read: false,
+    },
+    {
+      id: "N-2",
+      icon: Sparkles,
+      title: "Auto-captured event ready for review",
+      body: "A new Bitbucket PR was detected and waiting in your inbox.",
+      when: "1h ago",
+      read: false,
+    },
+    {
+      id: "N-3",
+      icon: UserCheck,
+      title: "Objective approved",
+      body: "UX-01 was moved to In Progress after manager approval.",
+      when: "Yesterday",
+      read: false,
+    },
+    {
+      id: "N-4",
+      icon: FileCheck2,
+      title: "Q3 assessment archived",
+      body: "Your Q3 readiness report was saved to Reviews & Reports.",
+      when: "3d ago",
+      read: true,
+    },
   ]);
   const [open, setOpen] = useState(false);
   const unread = notifs.filter((n) => !n.read).length;
@@ -2299,7 +2861,10 @@ function TopHeader({
         >
           <Menu size={20} />
         </button>
-        <h1 className="text-base md:text-xl font-bold tracking-tight truncate" style={{ color: C.navy }}>
+        <h1
+          className="text-base md:text-xl font-bold tracking-tight truncate"
+          style={{ color: C.navy }}
+        >
           {title}
         </h1>
       </div>
@@ -2316,9 +2881,7 @@ function TopHeader({
           >
             <Bell size={18} />
             {unread > 0 && (
-              <span
-                className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold text-white flex items-center justify-center bg-red-500"
-              >
+              <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold text-white flex items-center justify-center bg-red-500">
                 {unread}
               </span>
             )}
@@ -2335,8 +2898,13 @@ function TopHeader({
                   className="absolute right-0 top-11 z-40 w-[340px] max-w-[90vw] bg-white rounded-lg shadow-2xl border"
                   style={{ borderColor: C.border }}
                 >
-                  <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: C.border }}>
-                    <div className="text-sm font-bold" style={{ color: C.navy }}>Notifications</div>
+                  <div
+                    className="px-4 py-3 border-b flex items-center justify-between"
+                    style={{ borderColor: C.border }}
+                  >
+                    <div className="text-sm font-bold" style={{ color: C.navy }}>
+                      Notifications
+                    </div>
                     <button
                       onClick={() => setNotifs((ns) => ns.map((n) => ({ ...n, read: true })))}
                       className="text-[11px] font-semibold hover:underline"
@@ -2347,7 +2915,9 @@ function TopHeader({
                   </div>
                   <div className="max-h-[400px] overflow-y-auto">
                     {notifs.length === 0 && (
-                      <div className="px-4 py-8 text-center text-xs" style={{ color: C.subtle }}>No notifications.</div>
+                      <div className="px-4 py-8 text-center text-xs" style={{ color: C.subtle }}>
+                        No notifications.
+                      </div>
                     )}
                     {notifs.map((n) => {
                       const Icon = n.icon;
@@ -2364,9 +2934,21 @@ function TopHeader({
                             <Icon size={14} />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="text-xs font-semibold truncate" style={{ color: C.navy }}>{n.title}</div>
-                            <div className="text-[11px] mt-0.5 leading-snug" style={{ color: C.slate }}>{n.body}</div>
-                            <div className="text-[10px] mt-1" style={{ color: C.subtle }}>{n.when}</div>
+                            <div
+                              className="text-xs font-semibold truncate"
+                              style={{ color: C.navy }}
+                            >
+                              {n.title}
+                            </div>
+                            <div
+                              className="text-[11px] mt-0.5 leading-snug"
+                              style={{ color: C.slate }}
+                            >
+                              {n.body}
+                            </div>
+                            <div className="text-[10px] mt-1" style={{ color: C.subtle }}>
+                              {n.when}
+                            </div>
                           </div>
                         </div>
                       );
@@ -2393,17 +2975,61 @@ function TopHeader({
 
 function DashboardView({
   inbox,
+  showSampleData,
+  dismissedSampleInboxIds,
   onOpenInbox,
   onOpenObjective,
   onOpenEvidence,
 }: {
   inbox: InboxItem[];
-  onOpenInbox: (item: InboxItem) => void;
+  showSampleData: boolean;
+  dismissedSampleInboxIds: string[];
+  onOpenInbox: (item: InboxViewItem) => void;
   onOpenObjective: (o: Objective) => void;
   onOpenEvidence: (e: EvidenceRecord) => void;
 }) {
   const { userId } = useAuth();
-  const stats = useDashboardStats(userId!);
+  const stats = useDashboardStats(userId!, { showSamples: showSampleData });
+  const dashboardInbox = useMemo(() => {
+    const live: InboxViewItem[] = inbox.map((item) => ({ ...item, isSample: false }));
+    if (!showSampleData) return live;
+    const samples = [
+      {
+        id: "SAMPLE-INBOX-RFC-01",
+        source: "Confluence",
+        icon: null,
+        title: "Draft RFC needs competency mapping: checkout resiliency failover strategy",
+        suggestion: ["System Design", "Communication"],
+        when: "Sample",
+        isSample: true,
+      },
+      {
+        id: "SAMPLE-INBOX-QUERY-02",
+        source: "GitHub",
+        icon: null,
+        title: "Merged optimization PR: removed N+1 query bottleneck on order timeline endpoint",
+        suggestion: ["Code Quality", "Analytical Thinking"],
+        when: "Sample",
+        isSample: true,
+      },
+      {
+        id: "SAMPLE-INBOX-INCIDENT-03",
+        source: "PagerDuty",
+        icon: null,
+        title: "Incident note captured: led SEV-2 cache stampede response and postmortem actions",
+        suggestion: ["Delivery", "Leadership"],
+        when: "Sample",
+        isSample: true,
+      },
+    ] satisfies InboxViewItem[];
+    if (live.length >= 3) return live;
+    const used = new Set(live.map((item) => item.id));
+    const dismissed = new Set(dismissedSampleInboxIds);
+    const filler = samples
+      .filter((item) => !used.has(item.id) && !dismissed.has(item.id))
+      .slice(0, 3 - live.length);
+    return [...live, ...filler];
+  }, [inbox, showSampleData, dismissedSampleInboxIds]);
   const active = stats.focusAreas;
   const recentEvidence = stats.recentEvidence;
   function relativeDate(dateStr: string) {
@@ -2414,7 +3040,7 @@ function DashboardView({
     if (diffDays === 1) return "Yesterday";
     if (diffDays < 7) return `${diffDays} days ago`;
     if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
-    return dateStr;
+    return formatDisplayDate(dateStr);
   }
   return (
     <div className="space-y-6">
@@ -2424,17 +3050,22 @@ function DashboardView({
           icon={<TrendingUp size={18} />}
           label="Evidence This Quarter"
           value={String(stats.evidenceThisQuarter)}
-          delta="+8 vs last quarter"
+          helperText="Total evidence items captured within the current performance evaluation cycle."
           tone="info"
         />
         <StatCard
           icon={<Calendar size={18} />}
           label="Current Streak"
-          value={stats.streak === 1 ? "1 day" : `${stats.streak} days`}
-          delta="Best: 21 days"
+          value={stats.streak === 1 ? "1 week" : `${stats.streak} weeks`}
+          helperText="Consecutive weeks with at least one active piece of evidence or knowledge log recorded."
           tone="success"
         />
-        <PendingReviewCard total={stats.pendingReviewCount} />
+        <PendingReviewCard
+          total={stats.pendingReviewCount}
+          evidenceCount={stats.pendingEvidenceCount}
+          objectiveCount={stats.pendingObjectivesCount}
+          peerReviewCount={stats.pendingPeerFeedbackCount}
+        />
       </div>
 
       <div className="grid grid-cols-3 gap-6">
@@ -2444,10 +3075,14 @@ function DashboardView({
             <SectionHeader
               title="Action Inbox"
               sub="Auto-captured events that need your mapping"
-              right={<Badge tone="warning" icon={<AlertCircle size={12} />}>{inbox.length} pending</Badge>}
+              right={
+                <Badge tone="warning" icon={<AlertCircle size={12} />}>
+                  {dashboardInbox.length} pending
+                </Badge>
+              }
             />
             <div className="mt-4 divide-y" style={{ borderColor: C.border }}>
-              {inbox.length === 0 ? (
+              {dashboardInbox.length === 0 ? (
                 <div
                   className="py-10 text-center text-sm flex flex-col items-center gap-2"
                   style={{ color: C.subtle }}
@@ -2456,18 +3091,20 @@ function DashboardView({
                   Inbox zero. Nice work.
                 </div>
               ) : (
-                inbox.map((it) => (
-                  <InboxRow key={it.id} item={it} onOpen={() => onOpenInbox(it)} />
+                dashboardInbox.map((it) => (
+                  <InboxRow
+                    key={it.id}
+                    item={it}
+                    isSample={Boolean(it.isSample)}
+                    onOpen={() => onOpenInbox(it)}
+                  />
                 ))
               )}
             </div>
           </Card>
 
           <Card className="p-5">
-            <SectionHeader
-              title="Recent Evidence"
-              sub="Latest logged and verified contributions"
-            />
+            <SectionHeader title="Recent Evidence" sub="Latest logged and verified contributions" />
             <div className="mt-4 relative">
               <div
                 className="absolute left-[11px] top-1 bottom-1 w-px"
@@ -2491,7 +3128,15 @@ function DashboardView({
                         <div className="text-sm font-semibold truncate" style={{ color: C.navy }}>
                           {ev.title}
                         </div>
-                        <div className="mt-1 flex items-center gap-2 text-[11px]" style={{ color: C.subtle }}>
+                        {ev.isSample && (
+                          <div className="text-[11px] mt-1" style={{ color: C.subtle }}>
+                            Sample evidence - replace this with your own records as you log activity.
+                          </div>
+                        )}
+                        <div
+                          className="mt-1 flex items-center gap-2 text-[11px]"
+                          style={{ color: C.subtle }}
+                        >
                           <span>{relativeDate(ev.date)}</span>
                           <span aria-hidden>·</span>
                           <Badge tone="info">{ev.category}</Badge>
@@ -2526,7 +3171,15 @@ function DashboardView({
                   <div className="text-sm font-semibold truncate" style={{ color: C.navy }}>
                     {o.title}
                   </div>
-                  <div className="text-[11px] mt-1 flex items-center gap-2" style={{ color: C.subtle }}>
+                  {o.isSample && (
+                    <div className="text-[11px] mt-1" style={{ color: C.subtle }}>
+                      Sample objective - hide samples in Settings once your own goals are active.
+                    </div>
+                  )}
+                  <div
+                    className="text-[11px] mt-1 flex items-center gap-2"
+                    style={{ color: C.subtle }}
+                  >
                     <Calendar size={11} />
                     Due {o.due}
                   </div>
@@ -2544,13 +3197,13 @@ function StatCard({
   icon,
   label,
   value,
-  delta,
+  helperText,
   tone,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
-  delta: string;
+  helperText?: string;
   tone: "info" | "success" | "warning";
 }) {
   const toneMap = {
@@ -2575,19 +3228,37 @@ function StatCard({
       <div className="mt-3 text-3xl font-bold tracking-tight" style={{ color: C.navy }}>
         {value}
       </div>
-      <div className="text-xs mt-1" style={{ color: C.subtle }}>
-        {delta}
-      </div>
+      {helperText && (
+        <div className="text-xs mt-1 leading-snug" style={{ color: C.subtle }}>
+          {helperText}
+        </div>
+      )}
     </Card>
   );
 }
 
-function PendingReviewCard({ total }: { total: number }) {
+function PendingReviewCard({
+  total,
+  evidenceCount,
+  objectiveCount,
+  peerReviewCount,
+}: {
+  total: number;
+  evidenceCount: number;
+  objectiveCount: number;
+  peerReviewCount: number;
+}) {
   const items = [
-    { label: "Evidence Logs", count: 3, tone: "warning" as const, icon: <FileText size={12} /> },
-    { label: "SMART Objective", count: 1, tone: "info" as const, icon: <Target size={12} /> },
-    { label: "Peer Feedbacks", count: 0, tone: "neutral" as const, icon: <MessageCircleHeart size={12} /> },
+    { label: "Evidence Logs", count: evidenceCount, tone: "warning" as const, icon: <FileText size={12} /> },
+    { label: "SMART Objectives", count: objectiveCount, tone: "info" as const, icon: <Target size={12} /> },
+    {
+      label: "Peer Feedback",
+      count: peerReviewCount,
+      tone: "neutral" as const,
+      icon: <MessageCircleHeart size={12} />,
+    },
   ];
+  const visibleItems = items.filter((it) => it.count > 0);
   return (
     <Card className="p-5">
       <div className="flex items-center justify-between">
@@ -2605,17 +3276,23 @@ function PendingReviewCard({ total }: { total: number }) {
         <div className="text-3xl font-bold tracking-tight" style={{ color: C.navy }}>
           {total}
         </div>
-        <div className="text-xs" style={{ color: C.subtle }}>
-          awaiting Alex Morgan
-        </div>
       </div>
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        {items.map((it) => (
+      <div className="text-xs mt-1 leading-snug" style={{ color: C.subtle }}>
+        Tracked action items currently submitted and awaiting manager sign-off.
+      </div>
+      {visibleItems.length === 0 ? (
+        <div className="mt-3 text-xs" style={{ color: C.subtle }}>
+          All caught up! No items currently awaiting manager review.
+        </div>
+      ) : (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {visibleItems.map((it) => (
           <Badge key={it.label} tone={it.tone} icon={it.icon}>
             {it.count} {it.label}
           </Badge>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </Card>
   );
 }
@@ -2649,14 +3326,17 @@ function SectionHeader({
 function InboxRow({
   item,
   onOpen,
+  isSample,
 }: {
   item: InboxItem;
-  onOpen: () => void;
+  onOpen?: () => void;
+  isSample?: boolean;
 }) {
   return (
     <button
       onClick={onOpen}
-      className="w-full text-left py-4 flex items-start gap-3 hover:bg-[#FAFBFC] transition-colors rounded px-2 -mx-2"
+      disabled={!onOpen}
+      className="w-full text-left py-4 flex items-start gap-3 hover:bg-[#FAFBFC] disabled:hover:bg-transparent transition-colors rounded px-2 -mx-2 disabled:cursor-default"
     >
       <div
         className="w-9 h-9 rounded flex items-center justify-center shrink-0"
@@ -2673,6 +3353,11 @@ function InboxRow({
         <div className="text-sm font-semibold mt-0.5 truncate" style={{ color: C.navy }}>
           {item.title}
         </div>
+        {isSample && (
+          <div className="text-[11px] mt-1" style={{ color: C.subtle }}>
+            Sample item - this will disappear once real inbox events are available.
+          </div>
+        )}
         <div className="flex items-center gap-1.5 mt-2 flex-wrap">
           <Sparkles size={12} style={{ color: C.primary }} />
           <span className="text-[11px] mr-1" style={{ color: C.subtle }}>
@@ -2689,9 +3374,12 @@ function InboxRow({
           ))}
         </div>
       </div>
-      <div className="shrink-0 self-center flex items-center gap-1 text-xs font-medium" style={{ color: C.primary }}>
-        Review
-        <ChevronRight size={14} />
+      <div
+        className="shrink-0 self-center flex items-center gap-1 text-xs font-medium"
+        style={{ color: isSample ? C.subtle : C.primary }}
+      >
+        {isSample ? "Sample" : "Review"}
+        {!isSample && <ChevronRight size={14} />}
       </div>
     </button>
   );
@@ -2708,7 +3396,7 @@ function RadarView({
   onStartReview,
   onOpenHistory,
 }: {
-  data: typeof initialRadar;
+  data: ReturnType<typeof deriveRadarData>;
   assessments: Assessment[];
   onCreateObjective: () => void;
   onStartReview: () => void;
@@ -2759,14 +3447,23 @@ function RadarView({
       {/* Executive Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card className="p-5">
-          <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+          <div
+            className="text-xs font-semibold uppercase tracking-wide"
+            style={{ color: C.subtle }}
+          >
             Overall Readiness
           </div>
           <div className="text-3xl font-bold mt-2 tracking-tight" style={{ color: C.navy }}>
             {readiness}%
           </div>
-          <div className="mt-3 h-1.5 rounded-full overflow-hidden" style={{ background: "#EBECF0" }}>
-            <div className="h-full rounded-full" style={{ width: `${readiness}%`, background: C.green }} />
+          <div
+            className="mt-3 h-1.5 rounded-full overflow-hidden"
+            style={{ background: "#EBECF0" }}
+          >
+            <div
+              className="h-full rounded-full"
+              style={{ width: `${readiness}%`, background: C.green }}
+            />
           </div>
           <div className="text-xs mt-2" style={{ color: C.subtle }}>
             Toward Level 4 threshold
@@ -2774,7 +3471,10 @@ function RadarView({
         </Card>
         <Card className="p-5">
           <div className="flex items-center justify-between">
-            <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+            <div
+              className="text-xs font-semibold uppercase tracking-wide"
+              style={{ color: C.subtle }}
+            >
               Top Strength
             </div>
             <Award size={18} style={{ color: C.green }} />
@@ -2788,7 +3488,10 @@ function RadarView({
         </Card>
         <Card className="p-5">
           <div className="flex items-center justify-between">
-            <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+            <div
+              className="text-xs font-semibold uppercase tracking-wide"
+              style={{ color: C.subtle }}
+            >
               Primary Gap
             </div>
             <AlertTriangle size={18} style={{ color: C.red }} />
@@ -2802,7 +3505,10 @@ function RadarView({
         </Card>
         <Card className="p-5">
           <div className="flex items-center justify-between">
-            <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+            <div
+              className="text-xs font-semibold uppercase tracking-wide"
+              style={{ color: C.subtle }}
+            >
               Manager Status
             </div>
             <UserCheck size={18} style={{ color: C.primary }} />
@@ -2828,7 +3534,10 @@ function RadarView({
                 : "Side-by-side comparison: previous, current, and target per category"
             }
             right={
-              <div className="inline-flex items-center rounded border overflow-hidden" style={{ borderColor: C.border }}>
+              <div
+                className="inline-flex items-center rounded border overflow-hidden"
+                style={{ borderColor: C.border }}
+              >
                 <button
                   type="button"
                   onClick={() => setChartMode("radar")}
@@ -2871,10 +3580,7 @@ function RadarView({
               Current
             </span>
             <span className="flex items-center gap-1.5">
-              <span
-                className="w-2.5 h-2.5 rounded-sm"
-                style={{ background: "#00B8D9" }}
-              />
+              <span className="w-2.5 h-2.5 rounded-sm" style={{ background: "#00B8D9" }} />
               Target L4
             </span>
           </div>
@@ -2887,7 +3593,11 @@ function RadarView({
                     dataKey="competency"
                     tick={{ fill: C.navy, fontSize: 11, fontWeight: 600 }}
                   />
-                  <PolarRadiusAxis angle={90} domain={[0, 4]} tick={{ fill: C.subtle, fontSize: 10 }} />
+                  <PolarRadiusAxis
+                    angle={90}
+                    domain={[0, 4]}
+                    tick={{ fill: C.subtle, fontSize: 10 }}
+                  />
                   <Radar
                     name="Target L4"
                     dataKey="target"
@@ -2950,12 +3660,7 @@ function RadarView({
                   <Legend wrapperStyle={{ display: "none" }} />
                   <Bar dataKey="previous" name="Previous" fill={C.slate} radius={[0, 2, 2, 0]} />
                   <Bar dataKey="current" name="Current" fill="#0052CC" radius={[0, 2, 2, 0]} />
-                  <Bar
-                    dataKey="target"
-                    name="Target L4"
-                    fill="#00B8D9"
-                    radius={[0, 2, 2, 0]}
-                  />
+                  <Bar dataKey="target" name="Target L4" fill="#00B8D9" radius={[0, 2, 2, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -2970,11 +3675,7 @@ function RadarView({
               sub="Expand a category to see specific competency questions and their 1-5 effectiveness rating"
             />
           </div>
-          <HierarchicalMatrix
-            data={data}
-            latest={latest}
-            onCreateObjective={onCreateObjective}
-          />
+          <HierarchicalMatrix data={data} latest={latest} onCreateObjective={onCreateObjective} />
         </Card>
       </div>
     </div>
@@ -2986,7 +3687,7 @@ function HierarchicalMatrix({
   latest,
   onCreateObjective,
 }: {
-  data: typeof initialRadar;
+  data: ReturnType<typeof deriveRadarData>;
   latest: Assessment | undefined;
   onCreateObjective: () => void;
 }) {
@@ -3057,11 +3758,17 @@ function HierarchicalMatrix({
                 >
                   <Td className="font-semibold" style={{ color: C.navy }}>
                     <span className="inline-flex items-center gap-2">
-                      <motion.span animate={{ rotate: isOpen ? 0 : -90 }} transition={{ duration: 0.15 }}>
+                      <motion.span
+                        animate={{ rotate: isOpen ? 0 : -90 }}
+                        transition={{ duration: 0.15 }}
+                      >
                         <ChevronDown size={14} style={{ color: C.subtle }} />
                       </motion.span>
                       {canonical}
-                      <span className="text-[10px] font-normal px-1.5 py-0.5 rounded" style={{ background: "#F4F5F7", color: C.subtle }}>
+                      <span
+                        className="text-[10px] font-normal px-1.5 py-0.5 rounded"
+                        style={{ background: "#F4F5F7", color: C.subtle }}
+                      >
                         {subs.length} questions
                       </span>
                     </span>
@@ -3069,13 +3776,17 @@ function HierarchicalMatrix({
                   <Td style={{ color: C.slate }}>{prevAvg.toFixed(2)}</Td>
                   <Td style={{ color: C.navy, fontWeight: 600 }}>{curAvg.toFixed(2)}</Td>
                   <Td>
-                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${changeLozenge(changePct)}`}>
+                    <span
+                      className={`px-2 py-0.5 rounded text-xs font-semibold ${changeLozenge(changePct)}`}
+                    >
                       {changePct > 0 ? `+${changePct}%` : `${changePct}%`}
                     </span>
                   </Td>
                   <Td style={{ color: C.slate }}>{targetAvg.toFixed(2)}</Td>
                   <Td>
-                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${gapLozenge(gapAvg)}`}>
+                    <span
+                      className={`px-2 py-0.5 rounded text-xs font-semibold ${gapLozenge(gapAvg)}`}
+                    >
                       {gapAvg > 0 ? `+${gapAvg}` : gapAvg}
                     </span>
                   </Td>
@@ -3084,7 +3795,10 @@ function HierarchicalMatrix({
                   </Td>
                   <Td>
                     <button
-                      onClick={(e) => { e.stopPropagation(); onCreateObjective(); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onCreateObjective();
+                      }}
                       className="text-xs font-semibold inline-flex items-center gap-1 px-2.5 py-1 rounded border hover:border-[#0052CC] transition-colors"
                       style={{ borderColor: C.border, color: C.primary }}
                     >
@@ -3093,68 +3807,77 @@ function HierarchicalMatrix({
                     </button>
                   </Td>
                 </tr>
-                {isOpen && subs.map((sub) => {
-                  // Prefer assessment-backed question data; fall back to mock rating.
-                  const q = latestCat?.questions.find((qq) => qq.questionText === sub);
-                  const prev = q ? q.previousScore : subRating(canonical, sub);
-                  const cur = q ? q.currentScore : subRating(canonical, sub);
-                  const tgt = q ? q.targetScore : 4;
-                  const note = q?.justification ?? "";
-                  const scale = EFFECTIVENESS_SCALE[Math.max(0, Math.min(4, cur - 1))];
-                  const subGap = +(cur - tgt).toFixed(2);
-                  const subChange = fmtChange(prev, cur);
-                  return (
-                    <tr
-                      key={canonical + sub}
-                      className="border-t bg-[#FAFBFC] hover:bg-[#F4F5F7] transition-colors"
-                      style={{ borderColor: C.border }}
-                    >
-                      <Td className="pl-12" style={{ color: C.slate }}>
-                        <div className="text-[13px] leading-snug" style={{ color: C.navy }}>{sub}</div>
-                        <div className="text-[11px] mt-0.5" style={{ color: C.subtle }}>
-                          Score: {cur} - {scale.label}
-                        </div>
-                      </Td>
-                      <Td style={{ color: C.slate }}>{prev}</Td>
-                      <Td style={{ color: C.navy, fontWeight: 600 }}>{cur}</Td>
-                      <Td>
-                        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${changeLozenge(subChange)}`}>
-                          {subChange > 0 ? `+${subChange}%` : `${subChange}%`}
-                        </span>
-                      </Td>
-                      <Td style={{ color: C.slate }}>{tgt}</Td>
-                      <Td>
-                        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${gapLozenge(subGap)}`}>
-                          {subGap > 0 ? `+${subGap}` : subGap}
-                        </span>
-                      </Td>
-                      <Td>
-                        {note ? (
+                {isOpen &&
+                  subs.map((sub) => {
+                    // Prefer assessment-backed question data; fall back to mock rating.
+                    const q = latestCat?.questions.find((qq) => qq.questionText === sub);
+                    const prev = q ? q.previousScore : subRating(canonical, sub);
+                    const cur = q ? q.currentScore : subRating(canonical, sub);
+                    const tgt = q ? q.targetScore : 4;
+                    const note = q?.justification ?? "";
+                    const scale = EFFECTIVENESS_SCALE[Math.max(0, Math.min(4, cur - 1))];
+                    const subGap = +(cur - tgt).toFixed(2);
+                    const subChange = fmtChange(prev, cur);
+                    return (
+                      <tr
+                        key={canonical + sub}
+                        className="border-t bg-[#FAFBFC] hover:bg-[#F4F5F7] transition-colors"
+                        style={{ borderColor: C.border }}
+                      >
+                        <Td className="pl-12" style={{ color: C.slate }}>
+                          <div className="text-[13px] leading-snug" style={{ color: C.navy }}>
+                            {sub}
+                          </div>
+                          <div className="text-[11px] mt-0.5" style={{ color: C.subtle }}>
+                            Score: {cur} - {scale.label}
+                          </div>
+                        </Td>
+                        <Td style={{ color: C.slate }}>{prev}</Td>
+                        <Td style={{ color: C.navy, fontWeight: 600 }}>{cur}</Td>
+                        <Td>
                           <span
-                            title={note}
-                            className="inline-flex items-center gap-1 text-[11px] cursor-help"
-                            style={{ color: C.primary }}
+                            className={`px-2 py-0.5 rounded text-xs font-semibold ${changeLozenge(subChange)}`}
                           >
-                            <MessageSquare size={12} />
-                            Note
+                            {subChange > 0 ? `+${subChange}%` : `${subChange}%`}
                           </span>
-                        ) : (
-                          <span className="text-[11px]" style={{ color: C.subtle }}>-</span>
-                        )}
-                      </Td>
-                      <Td>
-                        <button
-                          onClick={onCreateObjective}
-                          className="text-[11px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded border hover:border-[#0052CC] transition-colors"
-                          style={{ borderColor: C.border, color: C.primary }}
-                        >
-                          <Plus size={11} />
-                          Create Objective
-                        </button>
-                      </Td>
-                    </tr>
-                  );
-                })}
+                        </Td>
+                        <Td style={{ color: C.slate }}>{tgt}</Td>
+                        <Td>
+                          <span
+                            className={`px-2 py-0.5 rounded text-xs font-semibold ${gapLozenge(subGap)}`}
+                          >
+                            {subGap > 0 ? `+${subGap}` : subGap}
+                          </span>
+                        </Td>
+                        <Td>
+                          {note ? (
+                            <span
+                              title={note}
+                              className="inline-flex items-center gap-1 text-[11px] cursor-help"
+                              style={{ color: C.primary }}
+                            >
+                              <MessageSquare size={12} />
+                              Note
+                            </span>
+                          ) : (
+                            <span className="text-[11px]" style={{ color: C.subtle }}>
+                              -
+                            </span>
+                          )}
+                        </Td>
+                        <Td>
+                          <button
+                            onClick={onCreateObjective}
+                            className="text-[11px] font-semibold inline-flex items-center gap-1 px-2 py-1 rounded border hover:border-[#0052CC] transition-colors"
+                            style={{ borderColor: C.border, color: C.primary }}
+                          >
+                            <Plus size={11} />
+                            Create Objective
+                          </button>
+                        </Td>
+                      </tr>
+                    );
+                  })}
               </React.Fragment>
             );
           })}
@@ -3178,7 +3901,10 @@ function MetricCard({
   tone?: "success";
 }) {
   return (
-    <Card className="p-5" style={highlight ? { borderColor: C.primary, borderWidth: 1 } : undefined}>
+    <Card
+      className="p-5"
+      style={highlight ? { borderColor: C.primary, borderWidth: 1 } : undefined}
+    >
       <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
         {label}
       </div>
@@ -3199,7 +3925,7 @@ function MetricCard({
 /*                  TAB 3: EVIDENCE LOG                         */
 /* ============================================================ */
 
-type EvidenceItem = (typeof initialEvidence)[number];
+type EvidenceItem = EvidenceRecord;
 
 function EvidenceView({
   rows,
@@ -3207,7 +3933,7 @@ function EvidenceView({
   onPermanentDelete,
   onRestore,
 }: {
-  rows: typeof initialEvidence;
+  rows: EvidenceRecord[];
   onOpenRow: (r: EvidenceItem) => void;
   onPermanentDelete: (id: string) => void;
   onRestore: (id: string) => void;
@@ -3230,285 +3956,352 @@ function EvidenceView({
 
   return (
     <>
-    <div className="flex items-center justify-end mb-3">
-      <div className="inline-flex rounded border overflow-hidden" style={{ borderColor: C.border }}>
-        <button
-          onClick={() => setShowArchived(false)}
-          className="px-3 py-1.5 text-xs font-semibold inline-flex items-center gap-1.5"
-          style={{ background: !showArchived ? C.primarySoft : "#fff", color: !showArchived ? C.primary : C.slate }}
+      <div className="flex items-center justify-end mb-3">
+        <div
+          className="inline-flex rounded border overflow-hidden"
+          style={{ borderColor: C.border }}
         >
-          <TableProperties size={12} /> Active Log
-        </button>
-        <button
-          onClick={() => setShowArchived(true)}
-          className="px-3 py-1.5 text-xs font-semibold inline-flex items-center gap-1.5 border-l"
-          style={{ background: showArchived ? C.primarySoft : "#fff", color: showArchived ? C.primary : C.slate, borderColor: C.border }}
-        >
-          <Archive size={12} /> View Archived ({rows.filter((r) => r.isArchived).length})
-        </button>
-      </div>
-    </div>
-    <Card className="overflow-hidden">
-      <div className="p-4 border-b flex items-center gap-2 flex-wrap" style={{ borderColor: C.border }}>
-        <div className="w-72">
-          <Input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Filter by title or keyword…"
-            icon={<Search size={14} />}
-          />
-        </div>
-        <div className="w-40">
-          <Select icon={<Calendar size={14} />} defaultValue="all">
-            <option value="all">All dates</option>
-            <option>Last 7 days</option>
-            <option>Last 30 days</option>
-            <option>This quarter</option>
-          </Select>
-        </div>
-        <div className="w-48">
-          <Select icon={<Filter size={14} />} value={comp} onChange={(e) => setComp(e.target.value)}>
-            <option>All</option>
-            {COMPETENCIES.map((c) => (
-              <option key={c}>{c}</option>
-            ))}
-          </Select>
-        </div>
-        <div className="w-44">
-          <Select icon={<Filter size={14} />} value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option>All</option>
-            <option>Pending Review</option>
-            <option>Reviewed</option>
-          </Select>
-        </div>
-        <div className="w-40">
-          <Select icon={<Filter size={14} />} value={source} onChange={(e) => setSource(e.target.value)}>
-            <option>All</option>
-            <option>Bitbucket</option>
-            <option>Jira</option>
-            <option>GitHub</option>
-            <option>GitLab</option>
-            <option>Slack</option>
-            <option>Teams</option>
-            <option>Confluence</option>
-          </Select>
-        </div>
-        <div className="ml-auto flex items-center gap-3">
-          <div className="text-xs" style={{ color: C.subtle }}>
-            {filtered.length} of {visible.length} items
-          </div>
-          <GhostBtn
-            onClick={() => {
-              const header = [
-                "ID",
-                "Date",
-                "Source",
-                "Category",
-                "Competency",
-                "Title",
-                "Description",
-                "Link",
-                "Status",
-                "Match",
-                "Manager Notes",
-                "Archived",
-              ];
-              const escape = (v: unknown) => {
-                const s = v == null ? "" : String(v);
-                return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-              };
-              const csv = [
-                header.join(","),
-                ...filtered.map((r) =>
-                  [
-                    r.id,
-                    r.date,
-                    r.source,
-                    r.category,
-                    r.competency,
-                    r.title,
-                    r.description,
-                    r.link,
-                    r.status,
-                    r.matchState,
-                    r.managerNotes,
-                    r.isArchived ? "Yes" : "No",
-                  ]
-                    .map(escape)
-                    .join(","),
-                ),
-              ].join("\n");
-              const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = `evidence-log-${new Date().toISOString().slice(0, 10)}.csv`;
-              document.body.appendChild(a);
-              a.click();
-              document.body.removeChild(a);
-              URL.revokeObjectURL(url);
+          <button
+            onClick={() => setShowArchived(false)}
+            className="px-3 py-1.5 text-xs font-semibold inline-flex items-center gap-1.5"
+            style={{
+              background: !showArchived ? C.primarySoft : "#fff",
+              color: !showArchived ? C.primary : C.slate,
             }}
           >
-            <Download size={14} />
-            Export Data
-          </GhostBtn>
+            <TableProperties size={12} /> Active Log
+          </button>
+          <button
+            onClick={() => setShowArchived(true)}
+            className="px-3 py-1.5 text-xs font-semibold inline-flex items-center gap-1.5 border-l"
+            style={{
+              background: showArchived ? C.primarySoft : "#fff",
+              color: showArchived ? C.primary : C.slate,
+              borderColor: C.border,
+            }}
+          >
+            <Archive size={12} /> View Archived ({rows.filter((r) => r.isArchived).length})
+          </button>
         </div>
       </div>
+      <Card className="overflow-hidden">
+        <div
+          className="p-4 border-b flex items-center gap-2 flex-wrap"
+          style={{ borderColor: C.border }}
+        >
+          <div className="w-72">
+            <Input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Filter by title or keyword…"
+              icon={<Search size={14} />}
+            />
+          </div>
+          <div className="w-40">
+            <Select icon={<Calendar size={14} />} defaultValue="all">
+              <option value="all">All dates</option>
+              <option>Last 7 days</option>
+              <option>Last 30 days</option>
+              <option>This quarter</option>
+            </Select>
+          </div>
+          <div className="w-48">
+            <Select
+              icon={<Filter size={14} />}
+              value={comp}
+              onChange={(e) => setComp(e.target.value)}
+            >
+              <option>All</option>
+              {COMPETENCIES.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </Select>
+          </div>
+          <div className="w-44">
+            <Select
+              icon={<Filter size={14} />}
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+            >
+              <option>All</option>
+              <option>Pending Review</option>
+              <option>Reviewed</option>
+            </Select>
+          </div>
+          <div className="w-40">
+            <Select
+              icon={<Filter size={14} />}
+              value={source}
+              onChange={(e) => setSource(e.target.value)}
+            >
+              <option>All</option>
+              <option>Bitbucket</option>
+              <option>Jira</option>
+              <option>GitHub</option>
+              <option>GitLab</option>
+              <option>Slack</option>
+              <option>Teams</option>
+              <option>Confluence</option>
+            </Select>
+          </div>
+          <div className="ml-auto flex items-center gap-3">
+            <div className="text-xs" style={{ color: C.subtle }}>
+              {filtered.length} of {visible.length} items
+            </div>
+            <GhostBtn
+              onClick={() => {
+                const header = [
+                  "ID",
+                  "Date",
+                  "Source",
+                  "Category",
+                  "Competency",
+                  "Title",
+                  "Description",
+                  "Link",
+                  "Status",
+                  "Match",
+                  "Manager Notes",
+                  "Archived",
+                ];
+                const escape = (v: unknown) => {
+                  const s = v == null ? "" : String(v);
+                  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+                };
+                const csv = [
+                  header.join(","),
+                  ...filtered.map((r) =>
+                    [
+                      r.id,
+                      r.date,
+                      r.source,
+                      r.category,
+                      r.competency,
+                      r.title,
+                      r.description,
+                      r.link,
+                      r.status,
+                      r.matchState,
+                      r.managerNotes,
+                      r.isArchived ? "Yes" : "No",
+                    ]
+                      .map(escape)
+                      .join(","),
+                  ),
+                ].join("\n");
+                const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `evidence-log-${new Date().toISOString().slice(0, 10)}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+              }}
+            >
+              <Download size={14} />
+              Export Data
+            </GhostBtn>
+          </div>
+        </div>
 
-      <div className="overflow-x-auto pb-1">
-        <table className={`w-full text-sm table-auto ${showArchived ? "min-w-[1650px]" : "min-w-[1430px]"}`}>
-          <colgroup>
-            <col className="w-[100px]" />
-            <col className="w-[110px]" />
-            <col className="w-[130px]" />
-            <col className="w-[220px]" />
-            <col className="w-[220px]" />
-            <col className="w-[280px]" />
-            <col className="w-[90px]" />
-            <col className="w-[130px]" />
-            <col className="w-[150px]" />
-            {showArchived && <col className="w-[100px]" />}
-            {showArchived && <col className="w-[120px]" />}
-          </colgroup>
-          <thead style={{ background: "#F4F5F7", color: C.subtle }}>
-            <tr className="text-left text-[11px] uppercase tracking-wider">
-              <Th>Date</Th>
-              <Th>Source</Th>
-              <Th>Category</Th>
-              <Th>Competency</Th>
-              <Th>Title</Th>
-              <Th>Description</Th>
-              <Th>Link</Th>
-              <Th>Match</Th>
-              <Th>Status</Th>
-              {showArchived && <Th>Archived</Th>}
-              {showArchived && <Th>Actions</Th>}
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((r) => (
-              <tr
-                key={r.id}
-                onClick={() => !showArchived && onOpenRow(r)}
-                className={`border-t hover:bg-[#FAFBFC] transition-colors ${showArchived ? "" : "cursor-pointer"}`}
-                style={{ borderColor: C.border }}
-              >
-                <Td style={{ color: C.slate }}>
-                  {r.date}
-                </Td>
-                <Td>
-                  <SourceChip source={r.source} />
-                </Td>
-                <Td>
-                  <Badge tone="neutral">{r.category}</Badge>
-                </Td>
-                <Td>
-                  <span
-                    className="inline-flex items-start gap-1.5 px-2 py-1.5 rounded text-[11px] font-semibold leading-snug break-words line-clamp-2 max-w-full"
-                    style={{ background: C.primarySoft, color: C.primary }}
-                  >
-                    {r.competency}
-                  </span>
-                </Td>
-                <Td className="font-semibold" style={{ color: C.navy }}>
-                  <span className="line-clamp-2 break-words">{r.title}</span>
-                </Td>
-                <Td style={{ color: C.slate }}>
-                  <span className="line-clamp-2 break-words">{r.description}</span>
-                </Td>
-                <Td>
-                  {r.link ? (
-                    <a
-                      onClick={(e) => e.stopPropagation()}
-                      className="inline-flex items-center gap-1 hover:underline"
-                      style={{ color: C.primary }}
-                      href={`https://${r.link}`}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      <ExternalLink size={12} />
-                      Open
-                    </a>
-                  ) : (
-                    <span style={{ color: C.subtle }}>-</span>
-                  )}
-                </Td>
-                <Td>
-                  <MatchBadge match={r.matchState} />
-                </Td>
-                <Td>
-                  {r.status === "Reviewed" ? (
-                    <Badge tone="success" icon={<CheckCircle size={11} />}>
-                      Reviewed
-                    </Badge>
-                  ) : (
-                    <Badge tone="warning" icon={<Clock size={11} />}>
-                      Pending Review
-                    </Badge>
-                  )}
-                </Td>
-                {showArchived && (
-                  <Td style={{ color: C.slate }}>{r.archivedDate ?? "-"}</Td>
-                )}
-                {showArchived && (
+        <div className="overflow-x-auto pb-1">
+          <table
+            className={`w-full text-sm table-auto ${showArchived ? "min-w-[1600px]" : "min-w-[1380px]"}`}
+          >
+            <colgroup>
+              <col className="w-[120px]" />
+              <col className="w-[110px]" />
+              <col className="w-[130px]" />
+              <col className="w-[220px]" />
+              <col className="w-[220px]" />
+              <col className="w-[220px]" />
+              <col className="w-[90px]" />
+              <col className="w-[130px]" />
+              <col className="w-[150px]" />
+              {showArchived && <col className="w-[100px]" />}
+              {showArchived && <col className="w-[120px]" />}
+            </colgroup>
+            <thead style={{ background: "#F4F5F7", color: C.subtle }}>
+              <tr className="text-left text-[11px] uppercase tracking-wider">
+                <Th>Date</Th>
+                <Th>Source</Th>
+                <Th>Category</Th>
+                <Th>Competency</Th>
+                <Th>Title</Th>
+                <Th>Description</Th>
+                <Th>Link</Th>
+                <Th>Match</Th>
+                <Th>Status</Th>
+                {showArchived && <Th>Archived</Th>}
+                {showArchived && <Th>Actions</Th>}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((r) => (
+                <tr
+                  key={r.id}
+                  onClick={() => !showArchived && onOpenRow(r)}
+                  className={`border-t hover:bg-[#FAFBFC] transition-colors ${showArchived ? "" : "cursor-pointer"}`}
+                  style={{ borderColor: C.border }}
+                >
                   <Td>
-                    <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => onRestore(r.id)}
-                        className="px-2 py-1 rounded text-xs font-semibold inline-flex items-center gap-1 hover:bg-[#F4F5F7]"
-                        style={{ color: C.primary }}
-                        title="Restore"
-                      >
-                        <ArchiveRestore size={12} /> Restore
-                      </button>
-                      <button
-                        onClick={() => setConfirmDelete(r)}
-                        className="px-2 py-1 rounded text-xs font-semibold inline-flex items-center gap-1 hover:bg-[#FFEBE6]"
-                        style={{ color: C.red }}
-                        title="Permanently Delete"
-                      >
-                        <Trash2 size={12} /> Delete
-                      </button>
-                    </div>
+                    <EvidenceDateCell date={r.date} />
                   </Td>
-                )}
-              </tr>
-            ))}
-            {filtered.length === 0 && (
-              <tr>
-                <td colSpan={showArchived ? 11 : 9} className="text-center py-12 text-sm" style={{ color: C.subtle }}>
-                  {showArchived ? "No archived evidence." : "No evidence matches your filters."}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </Card>
-    <AnimatePresence>
-      {confirmDelete && (
-        <ConfirmDialog
-          destructive
-          title="Permanently delete evidence?"
-          description={`"${confirmDelete.title}" will be permanently removed. This action cannot be undone.`}
-          confirmLabel="Delete permanently"
-          onCancel={() => setConfirmDelete(null)}
-          onConfirm={() => {
-            onPermanentDelete(confirmDelete.id);
-            setConfirmDelete(null);
-          }}
-        />
-      )}
-    </AnimatePresence>
+                  <Td>
+                    <SourceChip source={r.source} />
+                  </Td>
+                  <Td>
+                    <Badge tone="neutral">{r.category}</Badge>
+                  </Td>
+                  <Td>
+                    <span className="inline-block max-w-[220px] truncate text-sm" style={{ color: C.slate }}>
+                      {r.competency}
+                    </span>
+                  </Td>
+                  <Td className="font-semibold" style={{ color: C.navy }}>
+                    <span className="inline-block max-w-[220px] truncate">{r.title}</span>
+                  </Td>
+                  <Td style={{ color: C.slate }}>
+                    <span className="inline-block max-w-[220px] truncate">{r.description}</span>
+                  </Td>
+                  <Td>
+                    {r.link ? (
+                      extractFirstLink(r.link) ? (
+                        <a
+                          onClick={(e) => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 hover:underline"
+                          style={{ color: C.primary }}
+                          href={extractFirstLink(r.link) ?? ""}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <ExternalLink size={12} />
+                          Open
+                        </a>
+                      ) : (
+                        <span className="inline-block max-w-[220px] truncate" style={{ color: C.slate }}>
+                          {r.link}
+                        </span>
+                      )
+                    ) : (
+                      <span style={{ color: C.subtle }}>-</span>
+                    )}
+                  </Td>
+                  <Td>
+                    <MatchBadge match={r.matchState} />
+                  </Td>
+                  <Td>
+                    {r.status === "Reviewed" ? (
+                      <Badge tone="success" icon={<CheckCircle size={11} />}>
+                        Reviewed
+                      </Badge>
+                    ) : (
+                      <Badge tone="warning" icon={<Clock size={11} />}>
+                        Pending Review
+                      </Badge>
+                    )}
+                  </Td>
+                  {showArchived && (
+                    <Td style={{ color: C.slate }}>
+                      {r.archivedDate ? formatDisplayDate(r.archivedDate) : "-"}
+                    </Td>
+                  )}
+                  {showArchived && (
+                    <Td>
+                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => onRestore(r.id)}
+                          className="px-2 py-1 rounded text-xs font-semibold inline-flex items-center gap-1 hover:bg-[#F4F5F7]"
+                          style={{ color: C.primary }}
+                          title="Restore"
+                        >
+                          <ArchiveRestore size={12} /> Restore
+                        </button>
+                        <button
+                          onClick={() => setConfirmDelete(r)}
+                          className="px-2 py-1 rounded text-xs font-semibold inline-flex items-center gap-1 hover:bg-[#FFEBE6]"
+                          style={{ color: C.red }}
+                          title="Permanently Delete"
+                        >
+                          <Trash2 size={12} /> Delete
+                        </button>
+                      </div>
+                    </Td>
+                  )}
+                </tr>
+              ))}
+              {filtered.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={showArchived ? 11 : 9}
+                    className="text-center py-12 text-sm"
+                    style={{ color: C.subtle }}
+                  >
+                    {showArchived ? "No archived evidence." : "No evidence matches your filters."}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+      <AnimatePresence>
+        {confirmDelete && (
+          <ConfirmDialog
+            destructive
+            title="Permanently delete evidence?"
+            description={`"${confirmDelete.title}" will be permanently removed. This action cannot be undone.`}
+            confirmLabel="Delete permanently"
+            onCancel={() => setConfirmDelete(null)}
+            onConfirm={() => {
+              onPermanentDelete(confirmDelete.id);
+              setConfirmDelete(null);
+            }}
+          />
+        )}
+      </AnimatePresence>
     </>
   );
 }
 
 function MatchBadge({ match }: { match: EvidenceMatch }) {
-  if (match === "Yes") return <Badge tone="success" icon={<CheckCircle2 size={11} />}>Match: Yes</Badge>;
-  if (match === "No") return <Badge tone="danger" icon={<X size={11} />}>Match: No</Badge>;
-  if (match === "Somewhat") return <Badge tone="warning" icon={<AlertCircle size={11} />}>Somewhat</Badge>;
+  if (match === "Yes")
+    return (
+      <Badge tone="success" icon={<CheckCircle2 size={11} />}>
+        Match: Yes
+      </Badge>
+    );
+  if (match === "No")
+    return (
+      <Badge tone="danger" icon={<X size={11} />}>
+        Match: No
+      </Badge>
+    );
+  if (match === "Somewhat")
+    return (
+      <Badge tone="warning" icon={<AlertCircle size={11} />}>
+        Somewhat
+      </Badge>
+    );
   return <Badge tone="neutral">Not Set</Badge>;
+}
+
+function EvidenceDateCell({ date }: { date: string }) {
+  const parts = formatEvidenceDateParts(date);
+  return (
+    <span className="inline-flex items-baseline gap-1 whitespace-nowrap">
+      <span className="text-[12px] font-semibold" style={{ color: C.navy }}>
+        {parts.dayMonth}
+      </span>
+      {parts.year && (
+        <span className="text-[11px]" style={{ color: C.subtle }}>
+          {parts.year}
+        </span>
+      )}
+    </span>
+  );
 }
 
 function Th({ children, className = "" }: { children: React.ReactNode; className?: string }) {
@@ -3550,7 +4343,7 @@ function ObjectivesView({
   onDelete: (o: Objective) => void;
 }) {
   const cols: { id: Objective["status"]; label: string; tone: "warning" | "info" | "success" }[] = [
-    { id: "Pending Approval", label: "Pending Approval", tone: "warning" },
+    { id: "Pending Approval", label: "To Do / Not Started", tone: "warning" },
     { id: "In Progress", label: "In Progress", tone: "info" },
     { id: "Completed", label: "Completed", tone: "success" },
   ];
@@ -3566,9 +4359,10 @@ function ObjectivesView({
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <PrimaryBtn onClick={onCreate}>
+          <PrimaryBtn onClick={onCreate} className="whitespace-nowrap">
             <Plus size={16} />
-            Create SMART Objective
+            <span className="hidden sm:inline">Create Objective</span>
+            <span className="sm:hidden">Create</span>
           </PrimaryBtn>
           <div className="text-sm hidden md:block" style={{ color: C.subtle }}>
             {showArchived
@@ -3589,64 +4383,64 @@ function ObjectivesView({
           onDelete={(o) => setConfirmDelete(o)}
         />
       ) : (
-      <div className="grid grid-cols-3 gap-5">
-        {cols.map((col) => {
-          const list = active.filter((i) => i.status === col.id);
-          const isOver = overCol === col.id;
-          return (
-            <div
-              key={col.id}
-              className="space-y-3 rounded-lg p-2 -m-2 transition-colors"
-              style={{ background: isOver ? C.primarySoft : "transparent" }}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setOverCol(col.id);
-              }}
-              onDragLeave={() => setOverCol((c) => (c === col.id ? null : c))}
-              onDrop={(e) => {
-                e.preventDefault();
-                setOverCol(null);
-                if (dragId) {
-                  onMove(dragId, col.id);
-                  setDragId(null);
-                }
-              }}
-            >
-              <div className="flex items-center justify-between px-1">
-                <div className="flex items-center gap-2">
-                  <Badge tone={col.tone}>{col.label}</Badge>
-                  <span className="text-xs font-semibold" style={{ color: C.subtle }}>
-                    {list.length}
-                  </span>
+        <div className="grid grid-cols-3 gap-5">
+          {cols.map((col) => {
+            const list = active.filter((i) => i.status === col.id);
+            const isOver = overCol === col.id;
+            return (
+              <div
+                key={col.id}
+                className="space-y-3 rounded-lg p-2 -m-2 transition-colors"
+                style={{ background: isOver ? C.primarySoft : "transparent" }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setOverCol(col.id);
+                }}
+                onDragLeave={() => setOverCol((c) => (c === col.id ? null : c))}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setOverCol(null);
+                  if (dragId) {
+                    onMove(dragId, col.id);
+                    setDragId(null);
+                  }
+                }}
+              >
+                <div className="flex items-center justify-between px-1">
+                  <div className="flex items-center gap-2">
+                    <Badge tone={col.tone}>{col.label}</Badge>
+                    <span className="text-xs font-semibold" style={{ color: C.subtle }}>
+                      {list.length}
+                    </span>
+                  </div>
+                </div>
+                <div className="space-y-3 min-h-[200px]">
+                  {list.map((o) => (
+                    <ObjectiveCard
+                      key={o.id}
+                      o={o}
+                      onOpen={() => onOpen(o)}
+                      onDragStart={() => setDragId(o.id)}
+                      onDragEnd={() => {
+                        setDragId(null);
+                        setOverCol(null);
+                      }}
+                      dragging={dragId === o.id}
+                    />
+                  ))}
+                  {list.length === 0 && (
+                    <div
+                      className="border border-dashed rounded p-6 text-center text-xs"
+                      style={{ borderColor: C.border, color: C.subtle }}
+                    >
+                      {isOver ? "Drop to move here" : "Nothing here yet."}
+                    </div>
+                  )}
                 </div>
               </div>
-              <div className="space-y-3 min-h-[200px]">
-                {list.map((o) => (
-                  <ObjectiveCard
-                    key={o.id}
-                    o={o}
-                    onOpen={() => onOpen(o)}
-                    onDragStart={() => setDragId(o.id)}
-                    onDragEnd={() => {
-                      setDragId(null);
-                      setOverCol(null);
-                    }}
-                    dragging={dragId === o.id}
-                  />
-                ))}
-                {list.length === 0 && (
-                  <div
-                    className="border border-dashed rounded p-6 text-center text-xs"
-                    style={{ borderColor: C.border, color: C.subtle }}
-                  >
-                    {isOver ? "Drop to move here" : "Nothing here yet."}
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
       )}
 
       <AnimatePresence>
@@ -3705,15 +4499,14 @@ function ObjectiveCard({
         onClick={onOpen}
       >
         <div className="flex items-center justify-between">
-          <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.subtle }}>
-            {o.id}
+          <div
+            className="text-[10px] font-semibold uppercase tracking-wider"
+            style={{ color: C.subtle }}
+          >
+            {formatObjectiveCode(o)}
           </div>
-          {o.status !== "Completed" && (
-            <GripVertical size={14} style={{ color: C.subtle }} />
-          )}
-          {o.status === "Completed" && (
-            <Lock size={12} style={{ color: C.subtle }} />
-          )}
+          {o.status !== "Completed" && <GripVertical size={14} style={{ color: C.subtle }} />}
+          {o.status === "Completed" && <Lock size={12} style={{ color: C.subtle }} />}
         </div>
         <div className="text-sm font-semibold mt-1 leading-snug" style={{ color: C.navy }}>
           {o.title}
@@ -3837,7 +4630,10 @@ function ConfirmDialog({
             </div>
           </div>
         </div>
-        <div className="px-5 py-3 border-t flex items-center justify-end gap-2" style={{ borderColor: C.border, background: C.bg }}>
+        <div
+          className="px-5 py-3 border-t flex items-center justify-end gap-2"
+          style={{ borderColor: C.border, background: C.bg }}
+        >
           <GhostBtn onClick={onCancel}>{cancelLabel}</GhostBtn>
           <button
             onClick={onConfirm}
@@ -3888,60 +4684,70 @@ function ArchivedObjectivesTable({
   return (
     <Card className="overflow-hidden">
       <div className="overflow-x-auto">
-      <table className="w-full text-sm min-w-[640px]">
-        <thead>
-          <tr className="text-left text-[11px] font-semibold uppercase tracking-wider border-b" style={{ background: C.bg, borderColor: C.border, color: C.subtle }}>
-            <Th>Objective</Th>
-            <Th>Category</Th>
-            <Th>Authored</Th>
-            <Th>Archived</Th>
-            <Th className="text-right">Actions</Th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((o) => (
-            <tr key={o.id} className="border-b last:border-0 hover:bg-[#FAFBFC]" style={{ borderColor: C.border }}>
-              <Td>
-                <div className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: C.subtle }}>
-                  {o.id}
-                </div>
-                <div className="line-clamp-2 font-medium" style={{ color: C.navy }}>
-                  {o.title}
-                </div>
-              </Td>
-              <Td>
-                <Badge tone="info">{o.competency}</Badge>
-              </Td>
-              <Td className="whitespace-nowrap" style={{ color: C.slate }}>
-                {o.dateAuthored ?? "-"}
-              </Td>
-              <Td className="whitespace-nowrap" style={{ color: C.slate }}>
-                {o.archivedDate ?? "-"}
-              </Td>
-              <Td className="text-right">
-                <div className="inline-flex items-center gap-1">
-                  <button
-                    onClick={() => onRestore(o)}
-                    title="Restore to active board"
-                    className="p-1.5 rounded hover:bg-[#DEEBFF]"
-                    style={{ color: C.primary }}
-                  >
-                    <ArchiveRestore size={15} />
-                  </button>
-                  <button
-                    onClick={() => onDelete(o)}
-                    title="Permanently delete"
-                    className="p-1.5 rounded hover:bg-[#FFEBE6]"
-                    style={{ color: C.red }}
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                </div>
-              </Td>
+        <table className="w-full text-sm min-w-[640px]">
+          <thead>
+            <tr
+              className="text-left text-[11px] font-semibold uppercase tracking-wider border-b"
+              style={{ background: C.bg, borderColor: C.border, color: C.subtle }}
+            >
+              <Th>Objective</Th>
+              <Th>Category</Th>
+              <Th>Authored</Th>
+              <Th>Archived</Th>
+              <Th className="text-right">Actions</Th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {items.map((o) => (
+              <tr
+                key={o.id}
+                className="border-b last:border-0 hover:bg-[#FAFBFC]"
+                style={{ borderColor: C.border }}
+              >
+                <Td>
+                  <div
+                    className="text-[10px] font-semibold uppercase tracking-wider"
+                    style={{ color: C.subtle }}
+                  >
+                    {formatObjectiveCode(o)}
+                  </div>
+                  <div className="line-clamp-2 font-medium" style={{ color: C.navy }}>
+                    {o.title}
+                  </div>
+                </Td>
+                <Td>
+                  <Badge tone="info">{o.competency}</Badge>
+                </Td>
+                <Td className="whitespace-nowrap" style={{ color: C.slate }}>
+                  {o.dateAuthored ?? "-"}
+                </Td>
+                <Td className="whitespace-nowrap" style={{ color: C.slate }}>
+                  {o.archivedDate ? formatDisplayDate(o.archivedDate) : "-"}
+                </Td>
+                <Td className="text-right">
+                  <div className="inline-flex items-center gap-1">
+                    <button
+                      onClick={() => onRestore(o)}
+                      title="Restore to active board"
+                      className="p-1.5 rounded hover:bg-[#DEEBFF]"
+                      style={{ color: C.primary }}
+                    >
+                      <ArchiveRestore size={15} />
+                    </button>
+                    <button
+                      onClick={() => onDelete(o)}
+                      title="Permanently delete"
+                      className="p-1.5 rounded hover:bg-[#FFEBE6]"
+                      style={{ color: C.red }}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </Td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </Card>
   );
@@ -3953,22 +4759,59 @@ function ArchivedObjectivesTable({
 
 function CaptureModal({
   onClose,
-  onSave,
+  onSaveEvidence,
+  onSaveKnowledge,
 }: {
   onClose: () => void;
-  onSave: (title: string, comps: string[], link: string, reflection: string) => void;
+  onSaveEvidence: (payload: {
+    title: string;
+    description: string;
+    sourceLink: string;
+    category: string;
+    subcategory: string;
+  }) => void;
+  onSaveKnowledge: (payload: {
+    challenge: string;
+    lesson: string;
+    reset: () => void;
+  }) => void;
 }) {
+  const [tab, setTab] = useState<"evidence" | "knowledge">("evidence");
   const categories = Object.keys(SUBCATEGORIES);
   const [title, setTitle] = useState("");
-  const [reflection, setReflection] = useState("");
-  const [link, setLink] = useState("");
+  const [description, setDescription] = useState("");
+  const [sourceLink, setSourceLink] = useState("");
   const [category, setCategory] = useState(categories[2]); // Code Quality
   const [subcategory, setSubcategory] = useState(SUBCATEGORIES[categories[2]][0]);
-  const linkValid = !link || /^https?:\/\/\S+\.\S+/i.test(link);
+  const [challenge, setChallenge] = useState("");
+  const [lesson, setLesson] = useState("");
+  const linkValid = !sourceLink || /^https?:\/\/\S+\.\S+/i.test(sourceLink);
 
   function onCategoryChange(v: string) {
     setCategory(v);
     setSubcategory(SUBCATEGORIES[v][0]);
+  }
+
+  function handleAutoMapCompetency() {
+    const inferred = inferCompetencyFromText(title, description);
+    setCategory(inferred);
+    setSubcategory(SUBCATEGORIES[inferred][0]);
+    toast.success("Competency auto-mapped.");
+  }
+
+  function handlePolishContent() {
+    if (!title.trim() && !description.trim()) {
+      toast.info("Add title or description first.");
+      return;
+    }
+    if (title.trim()) setTitle((prev) => polishText(prev));
+    if (description.trim()) setDescription((prev) => polishText(prev));
+    toast.success("Content polished.");
+  }
+
+  function resetKnowledgeFields() {
+    setChallenge("");
+    setLesson("");
   }
 
   return (
@@ -3982,92 +4825,210 @@ function CaptureModal({
         style={{ borderColor: C.border }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="p-5 border-b flex items-center justify-between" style={{ borderColor: C.border }}>
+        <div
+          className="p-5 border-b flex items-center justify-between"
+          style={{ borderColor: C.border }}
+        >
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+            <div
+              className="text-xs font-semibold uppercase tracking-wide"
+              style={{ color: C.subtle }}
+            >
               Manual Capture
             </div>
             <div className="text-lg font-bold mt-0.5" style={{ color: C.navy }}>
-              Log new evidence
+              Capture activity
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded hover:bg-[#F4F5F7]"
+            style={{ color: C.slate }}
+          >
             <X size={18} />
           </button>
         </div>
         <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
-          <Field label="Evidence Title">
-            <Input
-              autoFocus
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Led RFC review for payments cutover"
-            />
-          </Field>
-          <Field label="Source link(s)">
-            <div className="relative">
-              <LinkIcon
-                size={14}
-                className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
-                style={{ color: C.subtle }}
-              />
-              <Input
-                value={link}
-                onChange={(e) => setLink(e.target.value)}
-                placeholder="https://github.com/org/repo/pull/142"
-                className="pl-8"
-              />
-            </div>
-            <div className="text-[11px] mt-1" style={{ color: linkValid ? C.subtle : C.red }}>
-              {linkValid
-                ? "Add URL to a Jira ticket, PR, or Confluence page."
-                : "Enter a valid URL starting with http:// or https://"}
-            </div>
-          </Field>
-          <Field label="Reflection & Context">
-            <Textarea
-              value={reflection}
-              onChange={(e) => setReflection(e.target.value)}
-              placeholder="What did you learn? What impact did it have?"
-              rows={4}
-            />
-          </Field>
-          <Field label="Competency Category">
-            <Select value={category} onChange={(e) => onCategoryChange(e.target.value)}>
-              {categories.map((c) => (
-                <option key={c}>{c}</option>
-              ))}
-            </Select>
-            <div className="text-[11px] mt-1.5 leading-relaxed" style={{ color: C.subtle }}>
-              {COMPETENCY_DESC[category]}
-            </div>
-          </Field>
-          <Field label="Subcategory / Question">
-            <Select value={subcategory} onChange={(e) => setSubcategory(e.target.value)}>
-              {SUBCATEGORIES[category].map((s) => (
-                <option key={s}>{s}</option>
-              ))}
-            </Select>
-          </Field>
+          <div
+            className="inline-flex rounded-md border p-0.5"
+            style={{ borderColor: C.border }}
+            role="tablist"
+            aria-label="Capture mode"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "evidence"}
+              onClick={() => setTab("evidence")}
+              className={`px-3 py-1.5 text-xs font-semibold rounded ${
+                tab === "evidence" ? "text-white" : ""
+              }`}
+              style={{
+                background: tab === "evidence" ? C.primary : "transparent",
+                color: tab === "evidence" ? "#fff" : C.slate,
+              }}
+            >
+              Capture Evidence
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "knowledge"}
+              onClick={() => setTab("knowledge")}
+              className="px-3 py-1.5 text-xs font-semibold rounded"
+              style={{
+                background: tab === "knowledge" ? C.primary : "transparent",
+                color: tab === "knowledge" ? "#fff" : C.slate,
+              }}
+            >
+              Log Knowledge
+            </button>
+          </div>
+
+          {tab === "evidence" ? (
+            <>
+              <Field label="Evidence Title">
+                <Input
+                  autoFocus
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder="e.g. Led RFC review for payments cutover"
+                />
+              </Field>
+              <Field label="Description / Context">
+                <Textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="What challenge did you solve and what was the impact?"
+                  rows={4}
+                />
+              </Field>
+              <div
+                className="rounded-md border p-2.5 space-y-2"
+                style={{ borderColor: C.border, background: "#FAFBFC" }}
+              >
+                <div className="text-[11px] font-semibold" style={{ color: C.slate }}>
+                  AI Assistant Actions
+                </div>
+                <div className="flex items-center gap-2">
+                  <GhostBtn type="button" className="border h-8 px-2.5" onClick={handlePolishContent}>
+                    <Sparkles size={13} />
+                    Polish Content
+                  </GhostBtn>
+                  <GhostBtn
+                    type="button"
+                    className="border h-8 px-2.5"
+                    onClick={handleAutoMapCompetency}
+                  >
+                    <Sparkles size={13} />
+                    Auto-Map Competency
+                  </GhostBtn>
+                </div>
+                <div className="text-[11px]" style={{ color: C.subtle }}>
+                  AI will clean up your engineering shorthand for corporate clarity and auto-select
+                  matching competency options.
+                </div>
+              </div>
+              <Field label="Source Link">
+                <div className="relative">
+                  <LinkIcon
+                    size={14}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                    style={{ color: C.subtle }}
+                  />
+                  <Input
+                    value={sourceLink}
+                    onChange={(e) => setSourceLink(e.target.value)}
+                    placeholder="https://github.com/org/repo/pull/142"
+                    className="pl-8"
+                  />
+                </div>
+                <div className="text-[11px] mt-1" style={{ color: linkValid ? C.subtle : C.red }}>
+                  {linkValid
+                    ? "Add URL to a Jira ticket, PR, or Confluence page."
+                    : "Enter a valid URL starting with http:// or https://"}
+                </div>
+              </Field>
+              <Field label="Competency Category">
+                <Select value={category} onChange={(e) => onCategoryChange(e.target.value)}>
+                  {categories.map((c) => (
+                    <option key={c}>{c}</option>
+                  ))}
+                </Select>
+                <div className="text-[11px] mt-1.5 leading-relaxed" style={{ color: C.subtle }}>
+                  {COMPETENCY_DESC[category]}
+                </div>
+              </Field>
+              <Field label="Subcategory / Question">
+                <Select value={subcategory} onChange={(e) => setSubcategory(e.target.value)}>
+                  {SUBCATEGORIES[category].map((s) => (
+                    <option key={s}>{s}</option>
+                  ))}
+                </Select>
+              </Field>
+            </>
+          ) : (
+            <>
+              <Field label="Challenge Encountered">
+                <Textarea
+                  value={challenge}
+                  onChange={(e) => setChallenge(e.target.value)}
+                  placeholder="What challenge did you run into?"
+                  rows={4}
+                />
+              </Field>
+              <Field label="Solution / Lesson Learned">
+                <Textarea
+                  value={lesson}
+                  onChange={(e) => setLesson(e.target.value)}
+                  placeholder="What did you learn that you'll reuse?"
+                  rows={5}
+                />
+              </Field>
+            </>
+          )}
         </div>
-        <div className="p-4 border-t flex items-center justify-end gap-2" style={{ borderColor: C.border }}>
+        <div
+          className="p-4 border-t flex items-center justify-end gap-2"
+          style={{ borderColor: C.border }}
+        >
           <GhostBtn onClick={onClose}>Cancel</GhostBtn>
-          <PrimaryBtn disabled={!title || !linkValid} onClick={() => onSave(title, [category], link, reflection)}>
-            Save to Log
-          </PrimaryBtn>
+          {tab === "evidence" ? (
+            <PrimaryBtn
+              disabled={!title.trim() || !description.trim() || !linkValid}
+              onClick={() =>
+                onSaveEvidence({
+                  title,
+                  description,
+                  sourceLink,
+                  category,
+                  subcategory,
+                })
+              }
+            >
+              Save Evidence
+            </PrimaryBtn>
+          ) : (
+            <PrimaryBtn
+              disabled={!challenge.trim() || !lesson.trim()}
+              onClick={() =>
+                onSaveKnowledge({
+                  challenge,
+                  lesson,
+                  reset: resetKnowledgeFields,
+                })
+              }
+            >
+              Save Knowledge
+            </PrimaryBtn>
+          )}
         </div>
       </motion.div>
     </Backdrop>
   );
 }
 
-function Backdrop({
-  children,
-  onClose,
-}: {
-  children: React.ReactNode;
-  onClose: () => void;
-}) {
+function Backdrop({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -4101,7 +5062,11 @@ function Field({
       <div className="flex items-baseline justify-between mb-1.5">
         <div className="text-xs font-semibold" style={{ color: C.slate }}>
           {label}
-          {required && <span className="ml-0.5" style={{ color: "#DE350B" }}>*</span>}
+          {required && (
+            <span className="ml-0.5" style={{ color: "#DE350B" }}>
+              *
+            </span>
+          )}
         </div>
         {optional && (
           <span className="text-[10px] uppercase tracking-wide" style={{ color: C.subtle }}>
@@ -4124,7 +5089,7 @@ function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
     <textarea
       {...props}
       className="w-full px-3 py-2 text-sm rounded border bg-[#F4F5F7] focus:bg-white outline-none transition-all resize-none"
-      style={{ borderColor: C.border, color: C.navy }}
+      style={{ borderColor: C.border, color: C.navy, overflowWrap: "anywhere" }}
       onFocus={(e) => {
         e.currentTarget.style.background = "#fff";
         e.currentTarget.style.borderColor = C.primary;
@@ -4155,12 +5120,12 @@ function CreateObjectiveModal({
   const [subcategory, setSubcategory] = useState(SUBCATEGORIES[objCategories[0]][0]);
   const [title, setTitle] = useState("");
   const [statement, setStatement] = useState("");
-  const [deadline, setDeadline] = useState("");
+  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
   const [s, setS] = useState("");
   const [m, setM] = useState("");
   const [a, setA] = useState("");
   const [r, setR] = useState("");
-  const [t, setT] = useState("");
+  const [timeboundDate, setTimeboundDate] = useState("");
   const [learn, setLearn] = useState<SuccessCriterion[]>([
     { criteria: "", evidence: "", attachments: [] },
   ]);
@@ -4176,14 +5141,12 @@ function CreateObjectiveModal({
     setSubcategory(SUBCATEGORIES[v][0]);
   }
 
-  const formatDate = (iso: string) =>
-    iso
-      ? new Date(iso).toLocaleDateString("en-US", {
-          month: "short",
-          day: "2-digit",
-          year: "numeric",
-        })
-      : "TBD";
+  useEffect(() => {
+    if (!startDate || !timeboundDate) return;
+    if (timeboundDate < startDate) {
+      setTimeboundDate(startDate);
+    }
+  }, [startDate, timeboundDate]);
 
   return (
     <Backdrop onClose={onClose}>
@@ -4196,16 +5159,26 @@ function CreateObjectiveModal({
         style={{ borderColor: C.border }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="p-5 border-b flex items-center justify-between" style={{ borderColor: C.border }}>
+        <div
+          className="p-5 border-b flex items-center justify-between"
+          style={{ borderColor: C.border }}
+        >
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+            <div
+              className="text-xs font-semibold uppercase tracking-wide"
+              style={{ color: C.subtle }}
+            >
               New Objective
             </div>
             <div className="text-lg font-bold mt-0.5" style={{ color: C.navy }}>
               Create SMART Objective
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded hover:bg-[#F4F5F7]"
+            style={{ color: C.slate }}
+          >
             <X size={18} />
           </button>
         </div>
@@ -4214,14 +5187,17 @@ function CreateObjectiveModal({
           {/* Form */}
           <div className="col-span-3 p-6 overflow-y-auto space-y-6">
             <div className="space-y-4">
-              <Field label="Objective Title">
+              <div className="text-[11px]" style={{ color: C.subtle }}>
+                Fields marked <span style={{ color: "#DE350B" }}>*</span> are required.
+              </div>
+              <Field label="Objective Title" required>
                 <Input
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="Short, action-oriented title"
                 />
               </Field>
-              <Field label="Objective Statement">
+              <Field label="Objective Statement" required>
                 <Textarea
                   rows={3}
                   value={statement}
@@ -4230,15 +5206,19 @@ function CreateObjectiveModal({
                 />
               </Field>
               <div className="grid grid-cols-2 gap-4">
-                <Field label="Start Date">
+                <Field
+                  label="Start Date (Authored Date)"
+                  required
+                  hint="Defaults to today and represents when the objective starts."
+                >
                   <Input
                     type="date"
-                    value={deadline}
-                    onChange={(e) => setDeadline(e.target.value)}
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
                     icon={<Calendar size={14} />}
                   />
                 </Field>
-                <Field label="Target Category">
+                <Field label="Target Category" required>
                   <Select value={competency} onChange={(e) => onCatChange(e.target.value)}>
                     {objCategories.map((c) => (
                       <option key={c}>{c}</option>
@@ -4246,7 +5226,7 @@ function CreateObjectiveModal({
                   </Select>
                 </Field>
               </div>
-              <Field label="Target Subcategory / Question">
+              <Field label="Target Subcategory / Question" required>
                 <Select value={subcategory} onChange={(e) => setSubcategory(e.target.value)}>
                   {SUBCATEGORIES[competency].map((sc) => (
                     <option key={sc}>{sc}</option>
@@ -4261,37 +5241,40 @@ function CreateObjectiveModal({
             <hr style={{ borderColor: C.border }} />
 
             <div className="space-y-4">
-              <div className="text-xs font-bold uppercase tracking-wider" style={{ color: C.subtle }}>
+              <div
+                className="text-xs font-bold uppercase tracking-wider"
+                style={{ color: C.subtle }}
+              >
                 SMART Breakdown
               </div>
               <SmartField
-              letter="S"
-              name="Specific"
-              hint="Clearly state who, what action, and context. Avoid vague verbs like 'understand'."
-              value={s}
-              onChange={setS}
-            />
-            <SmartField
-              letter="M"
-              name="Measurable"
-              hint="Define how you will evaluate success (e.g., a completed project or assessment)."
-              value={m}
-              onChange={setM}
-            />
-            <SmartField
-              letter="A"
-              name="Achievable"
-              hint="Ensure it is realistic based on your current skills, resources, and time."
-              value={a}
-              onChange={setA}
-            />
-            <SmartField
-              letter="R"
-              name="Relevant"
-              hint="How does this align with your promotion goals?"
-              value={r}
-              onChange={setR}
-            />
+                letter="S"
+                name="Specific"
+                hint="Clearly state who, what action, and context. Avoid vague verbs like 'understand'."
+                value={s}
+                onChange={setS}
+              />
+              <SmartField
+                letter="M"
+                name="Measurable"
+                hint="Define how you will evaluate success (e.g., a completed project or assessment)."
+                value={m}
+                onChange={setM}
+              />
+              <SmartField
+                letter="A"
+                name="Achievable"
+                hint="Ensure it is realistic based on your current skills, resources, and time."
+                value={a}
+                onChange={setA}
+              />
+              <SmartField
+                letter="R"
+                name="Relevant"
+                hint="How does this align with your promotion goals?"
+                value={r}
+                onChange={setR}
+              />
               <div>
                 <div className="flex items-center gap-2 mb-1.5">
                   <div
@@ -4302,16 +5285,20 @@ function CreateObjectiveModal({
                   </div>
                   <div className="text-sm font-semibold" style={{ color: C.navy }}>
                     Time-bound
+                    <span className="ml-0.5" style={{ color: "#DE350B" }}>
+                      *
+                    </span>
                   </div>
                 </div>
                 <Input
                   type="date"
-                  value={t}
-                  onChange={(e) => setT(e.target.value)}
+                  value={timeboundDate}
+                  onChange={(e) => setTimeboundDate(e.target.value)}
+                  min={startDate || undefined}
                   icon={<Calendar size={14} />}
                 />
                 <div className="text-[11px] mt-1" style={{ color: C.subtle }}>
-                  Specific timeframe or start date.
+                  Completion date. Dates earlier than Start Date are disabled.
                 </div>
               </div>
             </div>
@@ -4372,7 +5359,10 @@ function CreateObjectiveModal({
               className="p-3 rounded border mb-4"
               style={{ background: C.primarySoft, borderColor: "transparent" }}
             >
-              <div className="text-[11px] font-bold uppercase tracking-wider mb-1" style={{ color: C.primary }}>
+              <div
+                className="text-[11px] font-bold uppercase tracking-wider mb-1"
+                style={{ color: C.primary }}
+              >
                 Pro Tip - Bloom's Taxonomy
               </div>
               <div className="text-xs leading-relaxed" style={{ color: C.navy }}>
@@ -4381,7 +5371,10 @@ function CreateObjectiveModal({
               </div>
             </div>
 
-            <div className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: C.subtle }}>
+            <div
+              className="text-xs font-bold uppercase tracking-wider mb-2"
+              style={{ color: C.subtle }}
+            >
               Examples
             </div>
             <div
@@ -4408,26 +5401,26 @@ function CreateObjectiveModal({
           </aside>
         </div>
 
-        <div className="p-4 border-t flex items-center justify-end gap-2" style={{ borderColor: C.border }}>
+        <div
+          className="p-4 border-t flex items-center justify-end gap-2"
+          style={{ borderColor: C.border }}
+        >
           <GhostBtn onClick={onClose}>Cancel</GhostBtn>
           <PrimaryBtn
-            disabled={!title || !statement || !deadline}
+            disabled={!title.trim() || !statement.trim() || !startDate || !timeboundDate}
             onClick={() =>
               onSubmit({
-                title,
+                title: title.trim(),
                 competency,
-                due: formatDate(deadline),
-                statement,
-                dateAuthored: new Date().toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "2-digit",
-                  year: "numeric",
-                }),
+                targetSubcategory: subcategory,
+                due: timeboundDate,
+                statement: statement.trim(),
+                dateAuthored: startDate,
                 specific: s,
                 measurable: m,
                 achievable: a,
                 relevant: r,
-                timebound: t ? `Complete by ${formatDate(t)}` : `Complete by ${formatDate(deadline)}`,
+                timebound: timeboundDate,
                 successCriteria: {
                   learn: learn.filter((x) => x.criteria.trim()),
                   demonstrate: demonstrate.filter((x) => x.criteria.trim()),
@@ -4469,6 +5462,9 @@ function SmartField({
         <div className="text-sm font-semibold" style={{ color: C.navy }}>
           {name}
         </div>
+        <span className="text-[10px] uppercase tracking-wide" style={{ color: C.subtle }}>
+          Optional
+        </span>
       </div>
       <Textarea rows={2} value={value} onChange={(e) => onChange(e.target.value)} />
       <div className="text-[11px] mt-1" style={{ color: C.subtle }}>
@@ -4579,7 +5575,13 @@ function ObjectiveSlideover({
   onChangeStatus: (o: Objective, next: Objective["status"]) => void;
   onArchive: (o: Objective) => void;
 }) {
+  const objCategories = Object.keys(SUBCATEGORIES);
   const [smartOpen, setSmartOpen] = useState(false);
+  const [title, setTitle] = useState(objective.title);
+  const [competency, setCompetency] = useState(objective.competency);
+  const [targetSubcategory, setTargetSubcategory] = useState(
+    objective.targetSubcategory ?? SUBCATEGORIES[objective.competency]?.[0] ?? "",
+  );
   const [links, setLinks] = useState(objective.links ?? []);
   const [newLink, setNewLink] = useState("");
   const [notes, setNotes] = useState(objective.notes ?? "");
@@ -4587,13 +5589,29 @@ function ObjectiveSlideover({
   const [criteria, setCriteria] = useState(
     objective.successCriteria ?? { learn: [], demonstrate: [], share: [] },
   );
+  const isTodo = objective.status === "Pending Approval";
   const locked = objective.status === "Completed";
+  const readOnly = !isTodo;
   const [editMode, setEditMode] = useState(false);
-  const isEditable = !locked && editMode;
+  const isEditable = isTodo && editMode;
   const [confirmArchive, setConfirmArchive] = useState(false);
 
+  function onObjectiveCategoryChange(nextCategory: string) {
+    setCompetency(nextCategory);
+    setTargetSubcategory(SUBCATEGORIES[nextCategory]?.[0] ?? "");
+  }
+
   function buildUpdated(): Objective {
-    return { ...objective, notes, links, statement, successCriteria: criteria };
+    return {
+      ...objective,
+      title,
+      competency,
+      targetSubcategory,
+      notes,
+      links,
+      statement,
+      successCriteria: criteria,
+    };
   }
 
   const nextStatus: Objective["status"] | null =
@@ -4624,7 +5642,7 @@ function ObjectiveSlideover({
         animate={{ x: 0 }}
         exit={{ x: "100%" }}
         transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-        className="absolute top-0 right-0 h-full w-full md:w-[48%] bg-white shadow-2xl flex flex-col"
+        className="absolute top-0 right-0 h-full w-full md:w-[48%] bg-white shadow-2xl flex flex-col overflow-x-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -4633,41 +5651,58 @@ function ObjectiveSlideover({
             <div className="flex items-center gap-1 text-xs" style={{ color: C.subtle }}>
               <span>Objectives</span>
               <ChevronRight size={12} />
-              <span className="font-semibold" style={{ color: C.slate }}>
-                {objective.id}
+              <span
+                className="font-semibold truncate max-w-[220px] md:max-w-[320px]"
+                style={{ color: C.slate }}
+                title={objective.title}
+              >
+                {objective.title}
               </span>
             </div>
             <div className="flex items-center gap-1">
-              {!locked && (
-                <>
-                  <button
-                    onClick={() => setEditMode((v) => !v)}
-                    title={editMode ? "Done editing" : "Edit"}
-                    className="p-1.5 rounded hover:bg-[#F4F5F7]"
-                    style={{ color: editMode ? C.primary : C.slate }}
-                  >
-                    <Pencil size={16} />
-                  </button>
-                  <button
-                    onClick={() => {
-                      setConfirmArchive(true);
-                    }}
-                    title="Archive"
-                    className="p-1.5 rounded hover:bg-[#FFEBE6]"
-                    style={{ color: C.red }}
-                  >
-                    <Archive size={16} />
-                  </button>
-                </>
+              {isTodo && (
+                <button
+                  onClick={() => setEditMode((v) => !v)}
+                  title={editMode ? "Done editing" : "Edit"}
+                  className="p-1.5 rounded hover:bg-[#F4F5F7]"
+                  style={{ color: editMode ? C.primary : C.slate }}
+                >
+                  <Pencil size={16} />
+                </button>
               )}
-              <button onClick={onClose} className="p-1.5 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
+              {!locked && (
+                <button
+                  onClick={() => {
+                    setConfirmArchive(true);
+                  }}
+                  title="Archive"
+                  className="p-1.5 rounded hover:bg-[#FFEBE6]"
+                  style={{ color: C.red }}
+                >
+                  <Archive size={16} />
+                </button>
+              )}
+              <button
+                onClick={onClose}
+                className="p-1.5 rounded hover:bg-[#F4F5F7]"
+                style={{ color: C.slate }}
+              >
                 <X size={18} />
               </button>
             </div>
           </div>
-          <div className="text-xl font-bold mt-2 leading-snug" style={{ color: C.navy }}>
-            {objective.title}
-          </div>
+          {isEditable ? (
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="text-lg font-semibold mt-2"
+              placeholder="Objective title"
+            />
+          ) : (
+            <div className="text-xl font-bold mt-2 leading-snug" style={{ color: C.navy }}>
+              {title}
+            </div>
+          )}
           <div className="flex items-center gap-2 mt-3">
             <Badge
               tone={
@@ -4681,18 +5716,19 @@ function ObjectiveSlideover({
               {locked && <Lock size={10} className="inline mr-1" />}
               {objective.status}
             </Badge>
-            <Badge tone="info">{objective.competency}</Badge>
+            <Badge tone="info">{competency}</Badge>
+            <Badge tone="neutral">{targetSubcategory || "No subcategory selected"}</Badge>
             <CountdownBadge due={objective.due} />
-            {locked && (
+            {readOnly && (
               <span className="text-[11px]" style={{ color: C.subtle }}>
-                Locked - read only
+                {locked ? "Locked - read only" : "Read only after moving out of To Do"}
               </span>
             )}
           </div>
         </div>
 
         {/* Scrollable */}
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden px-6 py-5 space-y-6">
           {/* SMART accordion */}
           <div className="rounded border" style={{ borderColor: C.border }}>
             <button
@@ -4701,7 +5737,10 @@ function ObjectiveSlideover({
               style={{ color: C.navy }}
             >
               <span>SMART Details</span>
-              <motion.span animate={{ rotate: smartOpen ? 180 : 0 }} transition={{ duration: 0.18 }}>
+              <motion.span
+                animate={{ rotate: smartOpen ? 180 : 0 }}
+                transition={{ duration: 0.18 }}
+              >
                 <ChevronDown size={16} />
               </motion.span>
             </button>
@@ -4725,10 +5764,15 @@ function ObjectiveSlideover({
                       ] as const
                     ).map(([k, n, v]) => (
                       <div key={k}>
-                        <div className="text-[11px] font-bold uppercase tracking-wider" style={{ color: C.primary }}>
+                        <div
+                          className="text-[11px] font-bold uppercase tracking-wider"
+                          style={{ color: C.primary }}
+                        >
                           {k} - {n}
                         </div>
-                        <div className="mt-0.5">{v || <span style={{ color: C.subtle }}>Not provided</span>}</div>
+                        <div className="mt-0.5">
+                          {v || <span style={{ color: C.subtle }}>Not provided</span>}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -4737,13 +5781,65 @@ function ObjectiveSlideover({
             </AnimatePresence>
           </div>
 
+          <section
+            className="p-4 rounded border"
+            style={{ borderColor: C.border, background: "#FAFBFC" }}
+          >
+            <div
+              className="text-[11px] font-bold uppercase tracking-wider mb-2"
+              style={{ color: C.subtle }}
+            >
+              Competency Mapping
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>
+                  Target Category
+                </div>
+                {isEditable ? (
+                  <Select value={competency} onChange={(e) => onObjectiveCategoryChange(e.target.value)}>
+                    {objCategories.map((c) => (
+                      <option key={c}>{c}</option>
+                    ))}
+                  </Select>
+                ) : (
+                  <div className="text-sm" style={{ color: C.navy }}>
+                    {competency}
+                  </div>
+                )}
+              </div>
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>
+                  Target Subcategory / Question
+                </div>
+                {isEditable ? (
+                  <Select
+                    value={targetSubcategory}
+                    onChange={(e) => setTargetSubcategory(e.target.value)}
+                  >
+                    {(SUBCATEGORIES[competency] ?? []).map((sc) => (
+                      <option key={sc}>{sc}</option>
+                    ))}
+                  </Select>
+                ) : (
+                  <div className="text-sm leading-snug" style={{ color: C.navy }}>
+                    {targetSubcategory || "Not provided"}
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+
           {/* Objective Statement */}
           {(objective.statement || isEditable) && (
             <section
               className="p-4 rounded border"
               style={{ borderColor: C.border, background: "#FAFBFC" }}
             >
-              <div className="text-[11px] font-bold uppercase tracking-wider mb-1.5" style={{ color: C.subtle }}>
+              <div
+                className="text-[11px] font-bold uppercase tracking-wider mb-1.5"
+                style={{ color: C.subtle }}
+              >
                 Objective Statement
               </div>
               {isEditable ? (
@@ -4754,14 +5850,14 @@ function ObjectiveSlideover({
                   placeholder="Describe what you intend to achieve and why it matters."
                 />
               ) : (
-                <div className="text-sm leading-relaxed" style={{ color: C.navy }}>
+                <div className="text-sm leading-relaxed break-words" style={{ color: C.navy }}>
                   {statement || <span style={{ color: C.subtle }}>No statement.</span>}
                 </div>
               )}
               <div className="flex items-center justify-between mt-2 gap-3 flex-wrap">
                 {objective.dateAuthored && (
                   <div className="text-[11px]" style={{ color: C.subtle }}>
-                    Authored {objective.dateAuthored} - Start Date {objective.due}
+                    Authored {objective.dateAuthored} - Time-bound {objective.due}
                   </div>
                 )}
                 <CountdownBadge due={objective.due} />
@@ -4781,7 +5877,15 @@ function ObjectiveSlideover({
               <div className="space-y-4">
                 {(
                   [
-                    { key: "learn" as const, label: "Learn", icon: BookOpen, tone: "info" as const, evidenceLabel: "Materials Used", evidencePlaceholder: "Link to docs, videos, courses", criteriaPlaceholder: "What will you learn?" },
+                    {
+                      key: "learn" as const,
+                      label: "Learn",
+                      icon: BookOpen,
+                      tone: "info" as const,
+                      evidenceLabel: "Materials Used",
+                      evidencePlaceholder: "Link to docs, videos, courses",
+                      criteriaPlaceholder: "What will you learn?",
+                    },
                     {
                       key: "demonstrate" as const,
                       label: "Demonstrate",
@@ -4791,88 +5895,112 @@ function ObjectiveSlideover({
                       evidencePlaceholder: "Link to PR, code snippet, doc",
                       criteriaPlaceholder: "How will you apply what you learned?",
                     },
-                    { key: "share" as const, label: "Share", icon: Share2, tone: "success" as const, evidenceLabel: "Presentation Artifacts", evidencePlaceholder: "Link to slides, YouTube, doc", criteriaPlaceholder: "How will you teach others?" },
+                    {
+                      key: "share" as const,
+                      label: "Share",
+                      icon: Share2,
+                      tone: "success" as const,
+                      evidenceLabel: "Presentation Artifacts",
+                      evidencePlaceholder: "Link to slides, YouTube, doc",
+                      criteriaPlaceholder: "How will you teach others?",
+                    },
                   ] as const
-                ).map(({ key, label, icon: Icon, tone, evidenceLabel, evidencePlaceholder, criteriaPlaceholder }) => {
-                  const rows = criteria[key] ?? [];
-                  if (isEditable) {
+                ).map(
+                  ({
+                    key,
+                    label,
+                    icon: Icon,
+                    tone,
+                    evidenceLabel,
+                    evidencePlaceholder,
+                    criteriaPlaceholder,
+                  }) => {
+                    const rows = criteria[key] ?? [];
+                    if (isEditable) {
+                      return (
+                        <div
+                          key={key}
+                          className="rounded border p-3"
+                          style={{ borderColor: C.border }}
+                        >
+                          <CriteriaSection
+                            title={label}
+                            icon={Icon}
+                            tone={tone}
+                            evidenceLabel={evidenceLabel}
+                            evidencePlaceholder={evidencePlaceholder}
+                            rows={rows}
+                            onChange={(next) => setCriteria((c) => ({ ...c, [key]: next }))}
+                            criteriaPlaceholder={criteriaPlaceholder}
+                          />
+                        </div>
+                      );
+                    }
                     return (
-                      <div key={key} className="rounded border p-3" style={{ borderColor: C.border }}>
-                        <CriteriaSection
-                          title={label}
-                          icon={Icon}
-                          tone={tone}
-                          evidenceLabel={evidenceLabel}
-                          evidencePlaceholder={evidencePlaceholder}
-                          rows={rows}
-                          onChange={(next) => setCriteria((c) => ({ ...c, [key]: next }))}
-                          criteriaPlaceholder={criteriaPlaceholder}
-                        />
+                      <div
+                        key={key}
+                        className="rounded border overflow-hidden"
+                        style={{ borderColor: C.border }}
+                      >
+                        <div
+                          className="px-4 py-2.5 flex items-center justify-between border-b"
+                          style={{ borderColor: C.border, background: "#FAFBFC" }}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Icon size={14} style={{ color: C.primary }} />
+                            <span className="text-sm font-semibold" style={{ color: C.navy }}>
+                              {label}
+                            </span>
+                          </div>
+                          <Badge tone={tone}>{rows.length} criteria</Badge>
+                        </div>
+                        <div className="divide-y" style={{ borderColor: C.border }}>
+                          {rows.map((r, i) => (
+                            <div
+                              key={i}
+                              className="px-4 py-3 grid grid-cols-[1fr_auto] gap-3 items-start min-w-0"
+                              style={{ borderColor: C.border }}
+                            >
+                              <div className="min-w-0">
+                                <div className="text-sm leading-snug break-words" style={{ color: C.navy }}>
+                                  {r.criteria}
+                                </div>
+                                <div
+                                  className="text-[11px] mt-1 flex items-center gap-1 break-all"
+                                  style={{ color: C.subtle }}
+                                >
+                                  <Paperclip size={11} />
+                                  Evidence: {r.evidence}
+                                </div>
+                              </div>
+                              {r.evidence && /^https?:\/\//i.test(r.evidence) ? (
+                                <button
+                                  onClick={() => window.open(r.evidence, "_blank", "noopener")}
+                                  className="text-[11px] font-semibold px-2 py-1 rounded border inline-flex items-center gap-1 hover:bg-[#DEEBFF]"
+                                  style={{ borderColor: C.border, color: C.primary }}
+                                  title="Open evidence link"
+                                >
+                                  <ExternalLink size={11} />
+                                  Open
+                                </button>
+                              ) : r.done ? (
+                                <Badge tone="success">Done</Badge>
+                              ) : null}
+                            </div>
+                          ))}
+                          {rows.length === 0 && (
+                            <div className="px-4 py-3 text-xs" style={{ color: C.subtle }}>
+                              No criteria added.
+                            </div>
+                          )}
+                        </div>
                       </div>
                     );
-                  }
-                  return (
-                    <div
-                      key={key}
-                      className="rounded border overflow-hidden"
-                      style={{ borderColor: C.border }}
-                    >
-                      <div
-                        className="px-4 py-2.5 flex items-center justify-between border-b"
-                        style={{ borderColor: C.border, background: "#FAFBFC" }}
-                      >
-                        <div className="flex items-center gap-2">
-                          <Icon size={14} style={{ color: C.primary }} />
-                          <span className="text-sm font-semibold" style={{ color: C.navy }}>
-                            {label}
-                          </span>
-                        </div>
-                        <Badge tone={tone}>{rows.length} criteria</Badge>
-                      </div>
-                      <div className="divide-y" style={{ borderColor: C.border }}>
-                        {rows.map((r, i) => (
-                          <div
-                            key={i}
-                            className="px-4 py-3 grid grid-cols-[1fr_auto] gap-3 items-start"
-                            style={{ borderColor: C.border }}
-                          >
-                            <div>
-                              <div className="text-sm leading-snug" style={{ color: C.navy }}>
-                                {r.criteria}
-                              </div>
-                              <div className="text-[11px] mt-1 flex items-center gap-1" style={{ color: C.subtle }}>
-                                <Paperclip size={11} />
-                                Evidence: {r.evidence}
-                              </div>
-                            </div>
-                            {r.evidence && /^https?:\/\//i.test(r.evidence) ? (
-                              <button
-                                onClick={() => window.open(r.evidence, "_blank", "noopener")}
-                                className="text-[11px] font-semibold px-2 py-1 rounded border inline-flex items-center gap-1 hover:bg-[#DEEBFF]"
-                                style={{ borderColor: C.border, color: C.primary }}
-                                title="Open evidence link"
-                              >
-                                <ExternalLink size={11} />
-                                Open
-                              </button>
-                            ) : r.done ? (
-                              <Badge tone="success">Done</Badge>
-                            ) : null}
-                          </div>
-                        ))}
-                        {rows.length === 0 && (
-                          <div className="px-4 py-3 text-xs" style={{ color: C.subtle }}>
-                            No criteria added.
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+                  },
+                )}
               </div>
             </section>
           )}
-
 
           {/* Links */}
           <section>
@@ -4886,19 +6014,21 @@ function ObjectiveSlideover({
               {links.map((l, i) => (
                 <div
                   key={i}
-                  className="flex items-center justify-between px-3 py-2 rounded border"
+                  className="flex items-center justify-between px-3 py-2 rounded border gap-2"
                   style={{ borderColor: C.border }}
                 >
                   {isEditable ? (
                     <Input
                       value={l.label}
                       onChange={(e) =>
-                        setLinks((arr) => arr.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x)))
+                        setLinks((arr) =>
+                          arr.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x)),
+                        )
                       }
                       placeholder="Label"
                     />
                   ) : (
-                    <span className="text-sm" style={{ color: C.navy }}>
+                    <span className="text-sm truncate min-w-0 max-w-[360px]" style={{ color: C.navy }} title={l.label}>
                       {l.label}
                     </span>
                   )}
@@ -4940,7 +6070,10 @@ function ObjectiveSlideover({
                   <GhostBtn
                     onClick={() => {
                       if (!newLink) return;
-                      setLinks((l) => [...l, { label: newLink.replace(/^https?:\/\//, ""), url: newLink }]);
+                      setLinks((l) => [
+                        ...l,
+                        { label: newLink.replace(/^https?:\/\//, ""), url: newLink },
+                      ]);
                       setNewLink("");
                     }}
                   >
@@ -4975,7 +6108,9 @@ function ObjectiveSlideover({
               </div>
             ) : (
               <div className="text-xs" style={{ color: C.subtle }}>
-                {locked ? "Locked - artifacts are read-only." : "Enter edit mode to upload artifacts."}
+                {locked
+                  ? "Locked - artifacts are read-only."
+                  : "Enter edit mode to upload artifacts."}
               </div>
             )}
           </section>
@@ -5026,11 +6161,7 @@ function ObjectiveSlideover({
               </GhostBtn>
             )}
             {nextStatus && (
-              <PrimaryBtn
-                onClick={() =>
-                  onChangeStatus(buildUpdated(), nextStatus)
-                }
-              >
+              <PrimaryBtn onClick={() => onChangeStatus(buildUpdated(), nextStatus)}>
                 <CheckCircle size={16} />
                 {nextLabel}
               </PrimaryBtn>
@@ -5061,109 +6192,6 @@ function ObjectiveSlideover({
 /*           VIEW 1: CHROME EXTENSION POPUP                     */
 /* ============================================================ */
 
-function ExtensionPopup({ onDismiss, onSave }: { onDismiss: () => void; onSave: () => void }) {
-  const [trigger, setTrigger] = useState("event");
-  const [text, setText] = useState(
-    "Coordinated cutover plan with on-call and data teams; zero downtime achieved.",
-  );
-  const [comps, setComps] = useState<string[]>(["Analytical Thinking", "Delivery"]);
-  function toggle(c: string) {
-    setComps((s) => (s.includes(c) ? s.filter((x) => x !== c) : [...s, c]));
-  }
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20, scale: 0.96 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 20, scale: 0.96 }}
-      transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-      className="fixed bottom-6 right-6 w-96 rounded-lg shadow-xl border bg-white z-40 overflow-hidden"
-      style={{ borderColor: C.border }}
-    >
-      {/* Header */}
-      <div className="px-4 py-3 flex items-center justify-between border-b" style={{ borderColor: C.border }}>
-        <div className="flex items-center gap-2">
-          <div
-            className="w-6 h-6 rounded flex items-center justify-center"
-            style={{ background: C.primary }}
-          >
-            <RadarIcon size={13} color="#fff" />
-          </div>
-          <span className="text-sm font-bold tracking-tight" style={{ color: C.navy }}>
-            Evitrace
-          </span>
-          <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded" style={{ background: "#F4F5F7", color: C.subtle }}>
-            Extension
-          </span>
-        </div>
-        <button onClick={onDismiss} className="p-1 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
-          <X size={14} />
-        </button>
-      </div>
-
-      {/* Trigger */}
-      <div className="px-4 pt-3">
-        <div className="text-[10px] font-bold uppercase tracking-wider mb-1.5" style={{ color: C.subtle }}>
-          Trigger
-        </div>
-        <Select value={trigger} onChange={(e) => setTrigger(e.target.value)}>
-          <option value="event">Event: Ticket moved to Done</option>
-          <option value="time">Time: 16:00 (1 hour before close)</option>
-          <option value="pr">Event: Pull request merged</option>
-        </Select>
-      </div>
-
-      {/* Content */}
-      <div className="px-4 py-3">
-        <div className="text-sm font-bold" style={{ color: C.navy }}>
-          Great work! What did you learn?
-        </div>
-        <div className="text-xs mt-0.5" style={{ color: C.subtle }}>
-          Capture it while it's fresh.
-        </div>
-        <div className="mt-3">
-          <Textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} />
-        </div>
-
-        <div className="mt-3">
-          <div className="flex items-center gap-1.5 mb-1.5">
-            <Sparkles size={12} style={{ color: C.primary }} />
-            <span className="text-[11px] font-semibold" style={{ color: C.slate }}>
-              AI auto-mapped competencies
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {["Analytical Thinking", "Delivery", "System Design", "Communication"].map((c) => (
-              <Pill key={c} active={comps.includes(c)} onClick={() => toggle(c)}>
-                {c}
-              </Pill>
-            ))}
-          </div>
-          {comps.length > 0 && (
-            <div className="mt-2 space-y-1">
-              {comps.map((c) => (
-                <div key={c} className="text-[11px] leading-snug" style={{ color: C.subtle }}>
-                  <span className="font-semibold" style={{ color: C.slate }}>{c}:</span>{" "}
-                  {COMPETENCY_DESC[c]}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div className="px-4 py-3 border-t flex items-center justify-between" style={{ borderColor: C.border, background: C.bg }}>
-        <GhostBtn onClick={onDismiss}>Snooze</GhostBtn>
-        <PrimaryBtn onClick={onSave}>
-          <CheckCircle size={14} />
-          Save Evidence
-        </PrimaryBtn>
-      </div>
-    </motion.div>
-  );
-}
-
 /* ============================================================ */
 /*                   TAB 5: SETTINGS HUB                        */
 /* ============================================================ */
@@ -5173,7 +6201,8 @@ type SettingsSection =
   | "team"
   | "notifications"
   | "extension"
-  | "framework";
+  | "framework"
+  | "dashboard";
 
 /* ============================================================ */
 /*               TAB: 360 FEEDBACK                              */
@@ -5189,54 +6218,6 @@ type FeedbackItem = {
   anonymous: boolean;
 };
 
-const initialFeedback: FeedbackItem[] = [
-  {
-    id: "FB-101",
-    date: "Jun 12, 2026",
-    provider: "Daniela Espitia",
-    type: "Manager Requested",
-    notes:
-      "Jordan ran the payments incident retro with clarity, calling out concrete next steps and owners. Communication was crisp and the team left aligned on remediation.",
-    anonymous: false,
-  },
-  {
-    id: "FB-102",
-    date: "Jun 04, 2026",
-    provider: "Anonymous",
-    type: "Peer Review",
-    notes:
-      "Strong reviewer on PRs. Pushes for thoughtful tests but sometimes batches feedback late in the day, which slows turnaround for time-zoned colleagues.",
-    anonymous: true,
-  },
-  {
-    id: "FB-103",
-    date: "May 28, 2026",
-    provider: "Edward Harper",
-    type: "Ad-hoc",
-    notes:
-      "Pairing on the JWT remediation was excellent. Jordan walked me through the threat model and made the security tradeoffs easy to follow.",
-    anonymous: false,
-  },
-  {
-    id: "FB-104",
-    date: "May 19, 2026",
-    provider: "Anonymous",
-    type: "Manager Requested",
-    notes:
-      "Would like to see more proactive updates on long-running objectives. Status is great when asked, but a weekly written note would help stakeholders plan.",
-    anonymous: true,
-  },
-  {
-    id: "FB-105",
-    date: "May 07, 2026",
-    provider: "Chelsea Howard",
-    type: "Peer Review",
-    notes:
-      "Collaboration with design has improved noticeably this quarter. Jordan brings UX considerations into engineering reviews early.",
-    anonymous: false,
-  },
-];
-
 function FeedbackTypeBadge({ type }: { type: FeedbackType }) {
   const tone: "info" | "success" | "neutral" =
     type === "Manager Requested" ? "info" : type === "Peer Review" ? "success" : "neutral";
@@ -5244,7 +6225,10 @@ function FeedbackTypeBadge({ type }: { type: FeedbackType }) {
 }
 
 function FeedbackView() {
-  const [items, setItems] = useState<FeedbackItem[]>(initialFeedback);
+  const { userId } = useAuth();
+  const feedbackUserId = userId ?? "";
+  const { data: items = [] } = useFeedbackQuery(feedbackUserId);
+  const addFeedbackMutation = useAddFeedback(feedbackUserId);
   const [filter, setFilter] = useState<"All" | FeedbackType>("All");
   const [asking, setAsking] = useState(false);
 
@@ -5254,23 +6238,21 @@ function FeedbackView() {
   );
 
   function addRequest(reviewer: string, focus: string) {
-    setItems((x) => [
+    addFeedbackMutation.mutate(
       {
-        id: `FB-${100 + x.length + 10}`,
-        date: new Date().toLocaleDateString("en-US", {
-          month: "short",
-          day: "2-digit",
-          year: "numeric",
-        }),
+        date: new Date().toISOString().slice(0, 10),
         provider: reviewer,
         type: "Manager Requested",
         notes: `Requested feedback on: ${focus}. Awaiting response.`,
         anonymous: false,
       },
-      ...x,
-    ]);
-    setAsking(false);
-    toast.success("Feedback request sent");
+      {
+        onSuccess: () => {
+          setAsking(false);
+          toast.success("Feedback request sent");
+        },
+      },
+    );
   }
 
   return (
@@ -5285,7 +6267,10 @@ function FeedbackView() {
           <Pill active={filter === "All"} onClick={() => setFilter("All")}>
             All
           </Pill>
-          <Pill active={filter === "Manager Requested"} onClick={() => setFilter("Manager Requested")}>
+          <Pill
+            active={filter === "Manager Requested"}
+            onClick={() => setFilter("Manager Requested")}
+          >
             Manager Requested
           </Pill>
           <Pill active={filter === "Peer Review"} onClick={() => setFilter("Peer Review")}>
@@ -5318,19 +6303,19 @@ function FeedbackView() {
             <tbody>
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-4 py-12 text-center text-sm" style={{ color: C.subtle }}>
+                  <td
+                    colSpan={4}
+                    className="px-4 py-12 text-center text-sm"
+                    style={{ color: C.subtle }}
+                  >
                     No feedback in this filter yet.
                   </td>
                 </tr>
               )}
               {filtered.map((f) => (
-                <tr
-                  key={f.id}
-                  className="border-t align-top"
-                  style={{ borderColor: C.border }}
-                >
+                <tr key={f.id} className="border-t align-top" style={{ borderColor: C.border }}>
                   <td className="px-4 py-3 whitespace-nowrap" style={{ color: C.slate }}>
-                    {f.date}
+                    {formatDisplayDate(f.date)}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <div className="flex items-center gap-2">
@@ -5392,7 +6377,10 @@ function AskFeedbackModal({
         style={{ borderColor: C.border }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="p-5 border-b flex items-center justify-between" style={{ borderColor: C.border }}>
+        <div
+          className="p-5 border-b flex items-center justify-between"
+          style={{ borderColor: C.border }}
+        >
           <div className="flex items-center gap-2">
             <div
               className="w-8 h-8 rounded flex items-center justify-center"
@@ -5409,7 +6397,11 @@ function AskFeedbackModal({
               </div>
             </div>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
+          <button
+            onClick={onClose}
+            className="p-1 rounded hover:bg-[#F4F5F7]"
+            style={{ color: C.slate }}
+          >
             <X size={16} />
           </button>
         </div>
@@ -5432,7 +6424,10 @@ function AskFeedbackModal({
         </div>
         <div className="p-4 border-t flex justify-end gap-2" style={{ borderColor: C.border }}>
           <GhostBtn onClick={onClose}>Cancel</GhostBtn>
-          <PrimaryBtn onClick={() => canSend && onSubmit(reviewer.trim(), focus.trim())} disabled={!canSend}>
+          <PrimaryBtn
+            onClick={() => canSend && onSubmit(reviewer.trim(), focus.trim())}
+            disabled={!canSend}
+          >
             <Send size={14} />
             Send Request
           </PrimaryBtn>
@@ -5442,14 +6437,25 @@ function AskFeedbackModal({
   );
 }
 
-function SettingsView() {
+function SettingsView({
+  sampleContent,
+  onSampleContentChange,
+}: {
+  sampleContent: SampleContentVisibility;
+  onSampleContentChange: (next: SampleContentVisibility) => void;
+}) {
   const [section, setSection] = useState<SettingsSection>("profile");
-  const items: { id: SettingsSection; label: string; icon: React.ComponentType<{ size?: number }> }[] = [
+  const items: {
+    id: SettingsSection;
+    label: string;
+    icon: React.ComponentType<{ size?: number }>;
+  }[] = [
     { id: "profile", label: "Profile", icon: User },
     { id: "team", label: "Team & Manager", icon: Users },
     { id: "notifications", label: "Notifications", icon: Bell },
     { id: "extension", label: "Extension Preferences", icon: Puzzle },
     { id: "framework", label: "Competency Framework", icon: Layers },
+    { id: "dashboard", label: "Sample Content", icon: LayoutDashboard },
   ];
   return (
     <div className="grid grid-cols-4 gap-6">
@@ -5488,6 +6494,12 @@ function SettingsView() {
         {section === "notifications" && <NotificationsSettings />}
         {section === "extension" && <ExtensionSettings />}
         {section === "framework" && <FrameworkSettings />}
+        {section === "dashboard" && (
+          <DashboardSamplesSettings
+            sampleContent={sampleContent}
+            onSampleContentChange={onSampleContentChange}
+          />
+        )}
         <div className="flex justify-end gap-2 pt-2">
           <GhostBtn>Cancel</GhostBtn>
           <PrimaryBtn onClick={() => toast.success("Settings saved")}>
@@ -5500,13 +6512,50 @@ function SettingsView() {
   );
 }
 
-function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) {
+function DashboardSamplesSettings({
+  sampleContent,
+  onSampleContentChange,
+}: {
+  sampleContent: SampleContentVisibility;
+  onSampleContentChange: (next: SampleContentVisibility) => void;
+}) {
+  const toggle = (key: keyof SampleContentVisibility) =>
+    onSampleContentChange({ ...sampleContent, [key]: !sampleContent[key] });
+
+  return (
+    <Card className="p-6">
+      <SectionHeader
+        title="Sample Content Visibility"
+        sub="Choose where educational sample content appears. Turn off any area once you have enough real activity."
+      />
+      <div className="mt-3 space-y-1">
+        <SettingRow
+          title="Dashboard Samples"
+          desc="Controls sample cards and placeholder records in dashboard highlights."
+          right={<Toggle on={sampleContent.dashboard} onChange={() => toggle("dashboard")} />}
+        />
+        <SettingRow
+          title="Objectives Samples"
+          desc="Controls preloaded SMART objective examples in the Objectives board."
+          right={<Toggle on={sampleContent.objectives} onChange={() => toggle("objectives")} />}
+        />
+        <SettingRow
+          title="Evidence Log Samples"
+          desc="Controls sample captured evidence and sample objective-logged entries in Evidence Log."
+          right={<Toggle on={sampleContent.evidence} onChange={() => toggle("evidence")} />}
+        />
+      </div>
+    </Card>
+  );
+}
+
+function Toggle({ on, onChange }: { on: boolean; onChange: () => void }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={on}
-      onClick={() => onChange(!on)}
+      onClick={onChange}
       className="relative inline-flex w-9 h-5 rounded-full cursor-pointer transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1"
       style={{ background: on ? C.primary : "#C1C7D0" }}
     >
@@ -5529,8 +6578,11 @@ function SettingRow({
   right: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between py-3 border-b last:border-b-0" style={{ borderColor: C.border }}>
-      <div className="pr-6">
+    <div
+      className="grid grid-cols-[1fr_auto] items-center gap-4 py-3 border-b last:border-b-0"
+      style={{ borderColor: C.border }}
+    >
+      <div className="pr-2 min-w-0">
         <div className="text-sm font-semibold" style={{ color: C.navy }}>
           {title}
         </div>
@@ -5538,20 +6590,37 @@ function SettingRow({
           {desc}
         </div>
       </div>
-      {right}
+      <div className="shrink-0">{right}</div>
     </div>
   );
 }
 
 function ProfileSettings() {
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const { userId } = useAuth();
+  const uploadAvatarMutation = useUploadAvatar(userId ?? "");
   const [photo, setPhoto] = useState<string | null>(null);
   const { user, updateUser } = useAuth();
+  const displayName = getDisplayName(user?.fullName, user?.email);
+  const firstName = displayName.split(" ")[0] || "Engineer";
+  const profileInitials =
+    displayName
+      .split(" ")
+      .map((s) => s[0])
+      .slice(0, 2)
+      .join("")
+      .toUpperCase() || "US";
   const [title, setTitle] = useState(
-    user ? `${user.fullName.split(" ")[0]} - ${user.team}` : "Senior Engineer",
+    user ? `${firstName} - ${user.team}` : "Senior Engineer",
   );
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState<{ fullName: string; email: string; currentLevel: string; targetLevel: string; title: string }>({
+  const [draft, setDraft] = useState<{
+    fullName: string;
+    email: string;
+    currentLevel: string;
+    targetLevel: string;
+    title: string;
+  }>({
     fullName: user?.fullName ?? "",
     email: user?.email ?? "",
     currentLevel: user?.currentLevel ?? "",
@@ -5562,13 +6631,18 @@ function ProfileSettings() {
   const [pwd, setPwd] = useState("");
   if (!user) return null;
 
+  useEffect(() => {
+    if (user?.avatarUrl) setPhoto(user.avatarUrl);
+  }, [user?.avatarUrl]);
+
   function onPickPhoto(file: File | null | undefined) {
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    setTimeout(() => {
-      setPhoto(url);
-      toast.success("Profile picture updated");
-    }, 400);
+    uploadAvatarMutation.mutate(file, {
+      onSuccess: (url) => {
+        setPhoto(url);
+        toast.success("Profile picture updated");
+      },
+    });
   }
 
   function startEdit() {
@@ -5588,8 +6662,8 @@ function ProfileSettings() {
     setPwd("");
   }
 
-  function saveAll() {
-    const ok = updateUser(
+  async function saveAll() {
+    const ok = await updateUser(
       {
         fullName: draft.fullName.trim(),
         email: draft.email.trim(),
@@ -5638,7 +6712,7 @@ function ProfileSettings() {
             <img src={photo} alt="Profile" className="w-full h-full object-cover" />
           ) : (
             <span className="absolute inset-0 flex items-center justify-center text-lg font-semibold text-white">
-              {user.fullName.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase() || "JM"}
+              {profileInitials}
             </span>
           )}
           <span
@@ -5657,7 +6731,7 @@ function ProfileSettings() {
         />
         <div className="min-w-0">
           <div className="text-base font-semibold" style={{ color: C.navy }}>
-            {user.fullName}
+            {displayName}
           </div>
           <div className="text-sm" style={{ color: C.subtle }}>
             {title}
@@ -5671,7 +6745,7 @@ function ProfileSettings() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
         <Field label="Full name">
           <Input
-            value={editing ? draft.fullName : user.fullName}
+            value={editing ? draft.fullName : displayName}
             readOnly={!editing}
             onChange={(e) => setDraft((d) => ({ ...d, fullName: e.target.value }))}
           />
@@ -5720,17 +6794,31 @@ function ProfileSettings() {
               style={{ borderColor: C.border }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="p-5 border-b flex items-center justify-between" style={{ borderColor: C.border }}>
+              <div
+                className="p-5 border-b flex items-center justify-between"
+                style={{ borderColor: C.border }}
+              >
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded flex items-center justify-center" style={{ background: C.primarySoft, color: C.primary }}>
+                  <div
+                    className="w-8 h-8 rounded flex items-center justify-center"
+                    style={{ background: C.primarySoft, color: C.primary }}
+                  >
                     <Lock size={16} />
                   </div>
                   <div>
-                    <div className="text-sm font-bold" style={{ color: C.navy }}>Confirm your password</div>
-                    <div className="text-xs" style={{ color: C.subtle }}>Required to save profile changes.</div>
+                    <div className="text-sm font-bold" style={{ color: C.navy }}>
+                      Confirm your password
+                    </div>
+                    <div className="text-xs" style={{ color: C.subtle }}>
+                      Required to save profile changes.
+                    </div>
                   </div>
                 </div>
-                <button onClick={() => setConfirming(false)} className="p-1 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
+                <button
+                  onClick={() => setConfirming(false)}
+                  className="p-1 rounded hover:bg-[#F4F5F7]"
+                  style={{ color: C.slate }}
+                >
                   <X size={16} />
                 </button>
               </div>
@@ -5745,9 +6833,14 @@ function ProfileSettings() {
                   />
                 </Field>
               </div>
-              <div className="p-4 border-t flex justify-end gap-2" style={{ borderColor: C.border }}>
+              <div
+                className="p-4 border-t flex justify-end gap-2"
+                style={{ borderColor: C.border }}
+              >
                 <GhostBtn onClick={() => setConfirming(false)}>Cancel</GhostBtn>
-                <PrimaryBtn disabled={!pwd.trim()} onClick={saveAll}>Save changes</PrimaryBtn>
+                <PrimaryBtn disabled={!pwd.trim()} onClick={saveAll}>
+                  Save changes
+                </PrimaryBtn>
               </div>
             </motion.div>
           </Backdrop>
@@ -5780,7 +6873,10 @@ function EditTitleModal({
         style={{ borderColor: C.border }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="p-5 border-b flex items-center justify-between" style={{ borderColor: C.border }}>
+        <div
+          className="p-5 border-b flex items-center justify-between"
+          style={{ borderColor: C.border }}
+        >
           <div className="flex items-center gap-2">
             <div
               className="w-8 h-8 rounded flex items-center justify-center"
@@ -5797,7 +6893,11 @@ function EditTitleModal({
               </div>
             </div>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
+          <button
+            onClick={onClose}
+            className="p-1 rounded hover:bg-[#F4F5F7]"
+            style={{ color: C.slate }}
+          >
             <X size={16} />
           </button>
         </div>
@@ -5857,8 +6957,8 @@ function TeamSettings() {
     setConfirming(false);
     setPwd("");
   }
-  function saveAll() {
-    const ok = updateUser(
+  async function saveAll() {
+    const ok = await updateUser(
       {
         manager: draft.manager.trim(),
         managerEmail: draft.managerEmail.trim(),
@@ -5945,17 +7045,31 @@ function TeamSettings() {
               style={{ borderColor: C.border }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="p-5 border-b flex items-center justify-between" style={{ borderColor: C.border }}>
+              <div
+                className="p-5 border-b flex items-center justify-between"
+                style={{ borderColor: C.border }}
+              >
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded flex items-center justify-center" style={{ background: C.primarySoft, color: C.primary }}>
+                  <div
+                    className="w-8 h-8 rounded flex items-center justify-center"
+                    style={{ background: C.primarySoft, color: C.primary }}
+                  >
                     <Lock size={16} />
                   </div>
                   <div>
-                    <div className="text-sm font-bold" style={{ color: C.navy }}>Confirm your password</div>
-                    <div className="text-xs" style={{ color: C.subtle }}>Required to update reporting details.</div>
+                    <div className="text-sm font-bold" style={{ color: C.navy }}>
+                      Confirm your password
+                    </div>
+                    <div className="text-xs" style={{ color: C.subtle }}>
+                      Required to update reporting details.
+                    </div>
                   </div>
                 </div>
-                <button onClick={() => setConfirming(false)} className="p-1 rounded hover:bg-[#F4F5F7]" style={{ color: C.slate }}>
+                <button
+                  onClick={() => setConfirming(false)}
+                  className="p-1 rounded hover:bg-[#F4F5F7]"
+                  style={{ color: C.slate }}
+                >
                   <X size={16} />
                 </button>
               </div>
@@ -5970,9 +7084,14 @@ function TeamSettings() {
                   />
                 </Field>
               </div>
-              <div className="p-4 border-t flex justify-end gap-2" style={{ borderColor: C.border }}>
+              <div
+                className="p-4 border-t flex justify-end gap-2"
+                style={{ borderColor: C.border }}
+              >
                 <GhostBtn onClick={() => setConfirming(false)}>Cancel</GhostBtn>
-                <PrimaryBtn disabled={!pwd.trim()} onClick={saveAll}>Save changes</PrimaryBtn>
+                <PrimaryBtn disabled={!pwd.trim()} onClick={saveAll}>
+                  Save changes
+                </PrimaryBtn>
               </div>
             </motion.div>
           </Backdrop>
@@ -5983,10 +7102,85 @@ function TeamSettings() {
 }
 
 function NotificationsSettings() {
+  const { userId } = useAuth();
+  const settingsUserId = userId ?? "";
+  const { data: settings } = useSettingsQuery(settingsUserId);
+  const saveNotificationsMutation = useSaveNotifications(settingsUserId);
   const [a, setA] = useState(true);
   const [b, setB] = useState(true);
   const [c, setC] = useState(false);
   const [d, setD] = useState(true);
+  const [timeSlots, setTimeSlots] = useState<string[]>(["16:00"]);
+  const [snoozeMinutes, setSnoozeMinutes] = useState(15);
+  const [weekdaysOnly, setWeekdaysOnly] = useState(true);
+  const [timezone, setTimezone] = useState("GMT");
+
+  function sendExtensionConfig(notifications: NotificationPrefs) {
+    const chromeApi = (globalThis as typeof globalThis & { chrome?: any }).chrome;
+    if (!chromeApi?.runtime?.sendMessage) return;
+    chromeApi.runtime.sendMessage({
+      type: "UPDATE_PROMPT_CONFIG",
+      scheduleTimes: notifications.dailyReminder
+        ? notifications.extensionPromptTimes
+        : [],
+      snoozeMinutes: notifications.extensionSnoozeMinutes,
+      weekdaysOnly: notifications.extensionWeekdaysOnly,
+      timezone: notifications.extensionTimezone,
+    });
+  }
+
+  useEffect(() => {
+    if (!settings) return;
+    setA(settings.notifications.dailyReminder);
+    setB(settings.notifications.managerApprovals);
+    setC(settings.notifications.weeklyDigest);
+    setD(settings.notifications.browserPush);
+    setTimeSlots(
+      settings.notifications.extensionPromptTimes.length > 0
+        ? settings.notifications.extensionPromptTimes
+        : ["16:00"],
+    );
+    setSnoozeMinutes(settings.notifications.extensionSnoozeMinutes);
+    setWeekdaysOnly(settings.notifications.extensionWeekdaysOnly);
+    setTimezone(settings.notifications.extensionTimezone);
+  }, [settings]);
+
+  useEffect(() => {
+    if (!settings) return;
+    sendExtensionConfig(settings.notifications);
+  }, [settings]);
+
+  function persist(next: Partial<NotificationPrefs>) {
+    if (!settings) return;
+    const notifications = { ...settings.notifications, ...next };
+    saveNotificationsMutation.mutate(notifications);
+    sendExtensionConfig(notifications);
+  }
+
+  function updateTimeSlot(index: number, nextValue: string) {
+    const next = [...timeSlots];
+    next[index] = nextValue;
+    setTimeSlots(next);
+    const sanitized = [...new Set(next.filter((v) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(v)))].sort();
+    if (sanitized.length > 0) {
+      persist({ extensionPromptTimes: sanitized });
+    }
+  }
+
+  function addTimeSlot() {
+    const next = [...timeSlots, "17:00"];
+    setTimeSlots(next);
+    persist({ extensionPromptTimes: [...new Set(next)].sort() });
+  }
+
+  function removeTimeSlot(index: number) {
+    if (timeSlots.length <= 1) return;
+    const next = timeSlots.filter((_, i) => i !== index);
+    setTimeSlots(next);
+    const sanitized = [...new Set(next.filter((v) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(v)))].sort();
+    persist({ extensionPromptTimes: sanitized.length > 0 ? sanitized : ["16:00"] });
+  }
+
   return (
     <Card className="p-6">
       <SectionHeader title="Notifications" sub="Control how Evitrace reaches you" />
@@ -5994,22 +7188,160 @@ function NotificationsSettings() {
         <SettingRow
           title="Daily reflection reminder"
           desc="Nudge me at 16:00 to log evidence before close of day."
-          right={<Toggle on={a} onChange={setA} />}
+          right={
+            <Toggle
+              on={a}
+              onChange={(v) => {
+                setA(v);
+                persist({ dailyReminder: v });
+              }}
+            />
+          }
         />
         <SettingRow
           title="Manager approvals"
           desc="Email me when my manager approves or comments."
-          right={<Toggle on={b} onChange={setB} />}
+          right={
+            <Toggle
+              on={b}
+              onChange={(v) => {
+                setB(v);
+                persist({ managerApprovals: v });
+              }}
+            />
+          }
         />
         <SettingRow
           title="Weekly digest"
           desc="Monday summary of evidence, gaps, and objective progress."
-          right={<Toggle on={c} onChange={setC} />}
+          right={
+            <Toggle
+              on={c}
+              onChange={(v) => {
+                setC(v);
+                persist({ weeklyDigest: v });
+              }}
+            />
+          }
         />
         <SettingRow
           title="Browser push"
           desc="Show desktop notifications from the Evitrace extension."
-          right={<Toggle on={d} onChange={setD} />}
+          right={
+            <Toggle
+              on={d}
+              onChange={(v) => {
+                setD(v);
+                persist({ browserPush: v });
+              }}
+            />
+          }
+        />
+        <div
+          className="flex items-start justify-between py-3 border-b last:border-b-0"
+          style={{ borderColor: C.border }}
+        >
+          <div className="pr-6 min-w-0">
+            <div className="text-sm font-semibold" style={{ color: C.navy }}>
+              Extension prompt times
+            </div>
+            <div className="text-xs mt-0.5" style={{ color: C.subtle }}>
+              Add one or more reminder times. These drive extension prompt alarms.
+            </div>
+          </div>
+          <div className="w-[220px] space-y-2">
+            {timeSlots.map((slot, idx) => (
+              <div key={`slot-${idx}`} className="flex items-center gap-2">
+                <input
+                  type="time"
+                  value={slot}
+                  onChange={(e) => updateTimeSlot(idx, e.target.value)}
+                  className="h-9 w-full px-2 rounded border text-sm bg-[#F4F5F7] focus:bg-white outline-none"
+                  style={{ borderColor: C.border, color: C.navy }}
+                />
+                <button
+                  type="button"
+                  onClick={() => removeTimeSlot(idx)}
+                  disabled={timeSlots.length <= 1}
+                  className="h-9 w-9 rounded border inline-flex items-center justify-center disabled:opacity-50"
+                  style={{ borderColor: C.border, color: C.slate }}
+                  title="Remove time"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addTimeSlot}
+              className="h-8 px-2.5 rounded border inline-flex items-center gap-1 text-xs font-semibold"
+              style={{ borderColor: C.border, color: C.primary }}
+            >
+              <Plus size={12} />
+              Add time slot
+            </button>
+          </div>
+        </div>
+        <SettingRow
+          title="Weekdays only"
+          desc="Only trigger reminders Monday through Friday."
+          right={
+            <Toggle
+              on={weekdaysOnly}
+              onChange={(v) => {
+                setWeekdaysOnly(v);
+                persist({ extensionWeekdaysOnly: v });
+              }}
+            />
+          }
+        />
+        <div
+          className="flex items-center justify-between py-3 border-b last:border-b-0"
+          style={{ borderColor: C.border }}
+        >
+          <div className="pr-6 min-w-0">
+            <div className="text-sm font-semibold" style={{ color: C.navy }}>
+              Snooze duration
+            </div>
+            <div className="text-xs mt-0.5" style={{ color: C.subtle }}>
+              One-time snooze window for each prompt event.
+            </div>
+          </div>
+          <div className="w-[120px]">
+            <select
+              value={String(snoozeMinutes)}
+              onChange={(e) => {
+                const next = Number(e.target.value);
+                setSnoozeMinutes(next);
+                persist({ extensionSnoozeMinutes: next });
+              }}
+              className="h-9 w-full px-2 rounded border text-sm bg-[#F4F5F7] focus:bg-white outline-none"
+              style={{ borderColor: C.border, color: C.navy }}
+            >
+              {[5, 10, 15, 20, 30, 45, 60].map((minutes) => (
+                <option key={minutes} value={minutes}>
+                  {minutes} min
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <SettingRow
+          title="Prompt timezone label"
+          desc="Shown in the extension header and synced to reminder config."
+          right={
+            <input
+              value={timezone}
+              onChange={(e) => {
+                const next = e.target.value || "GMT";
+                setTimezone(next);
+                persist({ extensionTimezone: next });
+              }}
+              placeholder="GMT"
+              className="h-9 w-[120px] px-2 rounded border text-sm bg-[#F4F5F7] focus:bg-white outline-none"
+              style={{ borderColor: C.border, color: C.navy }}
+            />
+          }
         />
       </div>
     </Card>
@@ -6017,6 +7349,10 @@ function NotificationsSettings() {
 }
 
 function ExtensionSettings() {
+  const { userId } = useAuth();
+  const settingsUserId = userId ?? "";
+  const { data: settings } = useSettingsQuery(settingsUserId);
+  const saveIntegrationsMutation = useSaveIntegrations(settingsUserId);
   const [auto, setAuto] = useState(true);
   const [jira, setJira] = useState(true);
   const [github, setGithub] = useState(true);
@@ -6026,6 +7362,24 @@ function ExtensionSettings() {
   const [confluence, setConfluence] = useState(false);
   const [notion, setNotion] = useState(false);
 
+  useEffect(() => {
+    if (!settings) return;
+    setAuto(settings.integrations.autoCaptureEvents);
+    setJira(settings.integrations.jira);
+    setGithub(settings.integrations.github);
+    setBitbucket(settings.integrations.bitbucket);
+    setSlack(settings.integrations.slack);
+    setTeams(settings.integrations.teams);
+    setConfluence(settings.integrations.confluence);
+    setNotion(settings.integrations.notion);
+  }, [settings]);
+
+  function persist(next: Partial<IntegrationPrefs>) {
+    if (!settings) return;
+    const integrations = { ...settings.integrations, ...next };
+    saveIntegrationsMutation.mutate(integrations);
+  }
+
   return (
     <div className="space-y-6">
       <Card className="p-6">
@@ -6034,7 +7388,15 @@ function ExtensionSettings() {
           <SettingRow
             title="Auto-capture events"
             desc="Surface a capture prompt when work is completed."
-            right={<Toggle on={auto} onChange={setAuto} />}
+            right={
+              <Toggle
+                on={auto}
+                onChange={(v) => {
+                  setAuto(v);
+                  persist({ autoCaptureEvents: v });
+                }}
+              />
+            }
           />
         </div>
       </Card>
@@ -6052,7 +7414,10 @@ function ExtensionSettings() {
             title="Jira"
             desc="Trigger when a ticket moves to Done."
             on={jira}
-            onChange={setJira}
+            onChange={(v) => {
+              setJira(v);
+              persist({ jira: v });
+            }}
           />
           <IntegrationRow
             icon={<Github size={16} />}
@@ -6061,7 +7426,10 @@ function ExtensionSettings() {
             title="GitHub"
             desc="Trigger when a PR is merged with you as author or reviewer."
             on={github}
-            onChange={setGithub}
+            onChange={(v) => {
+              setGithub(v);
+              persist({ github: v });
+            }}
           />
           <IntegrationRow
             icon={<GitBranch size={16} />}
@@ -6070,7 +7438,10 @@ function ExtensionSettings() {
             title="Bitbucket"
             desc="Capture merged pull requests and code reviews."
             on={bitbucket}
-            onChange={setBitbucket}
+            onChange={(v) => {
+              setBitbucket(v);
+              persist({ bitbucket: v });
+            }}
           />
         </div>
       </Card>
@@ -6088,7 +7459,10 @@ function ExtensionSettings() {
             title="Slack"
             desc="Capture saved messages and channel threads tagged with #wins."
             on={slack}
-            onChange={setSlack}
+            onChange={(v) => {
+              setSlack(v);
+              persist({ slack: v });
+            }}
           />
           <IntegrationRow
             icon={<MessageSquare size={16} />}
@@ -6097,7 +7471,10 @@ function ExtensionSettings() {
             title="Microsoft Teams"
             desc="Capture meeting recaps and team channel mentions."
             on={teams}
-            onChange={setTeams}
+            onChange={(v) => {
+              setTeams(v);
+              persist({ teams: v });
+            }}
           />
         </div>
       </Card>
@@ -6115,7 +7492,10 @@ function ExtensionSettings() {
             title="Confluence"
             desc="Capture pages you author, edit, or get tagged in."
             on={confluence}
-            onChange={setConfluence}
+            onChange={(v) => {
+              setConfluence(v);
+              persist({ confluence: v });
+            }}
           />
           <IntegrationRow
             icon={<Notebook size={16} />}
@@ -6124,7 +7504,10 @@ function ExtensionSettings() {
             title="Notion"
             desc="Capture databases and docs you contribute to."
             on={notion}
-            onChange={setNotion}
+            onChange={(v) => {
+              setNotion(v);
+              persist({ notion: v });
+            }}
           />
         </div>
       </Card>
@@ -6170,22 +7553,19 @@ function IntegrationRow({
           </div>
         </div>
       </div>
-      <Toggle on={on} onChange={onChange} />
+      <Toggle on={on} onChange={() => onChange(!on)} />
     </div>
   );
 }
 
 function FrameworkSettings() {
+  const { userId } = useAuth();
+  const frameworkUserId = userId ?? "";
+  const { data: activeFramework } = useFrameworkQuery(frameworkUserId);
+  const uploadFrameworkMutation = useUploadFramework(frameworkUserId);
   const [dragOver, setDragOver] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [mismatch, setMismatch] = useState(false);
-  const [activeFramework, setActiveFramework] = useState<{
-    name: string;
-    summary: string;
-  } | null>({
-    name: "Company Engineering Matrix v2.0",
-    summary: "8 Categories, 42 Questions",
-  });
   const inputRef = React.useRef<HTMLInputElement | null>(null);
 
   function handleFile(file: File) {
@@ -6209,11 +7589,33 @@ function FrameworkSettings() {
         setMismatch(true);
         return;
       }
-      setActiveFramework({
-        name: file.name.replace(/\.(json|csv|pdf|xlsx)$/i, ""),
-        summary: "8 Categories, 42 Questions",
-      });
-      toast.success("Framework successfully updated.");
+      const frameworkId = crypto.randomUUID();
+      const frameworkName = file.name.replace(/\.(json|csv|pdf|xlsx)$/i, "");
+      uploadFrameworkMutation.mutate(
+        {
+          framework: {
+            id: frameworkId,
+            user_id: frameworkUserId,
+            name: frameworkName,
+            version: "1.0",
+            is_active: true,
+          },
+          categories: COMPETENCIES.map((name, idx) => ({
+            id: crypto.randomUUID(),
+            framework_id: frameworkId,
+            user_id: frameworkUserId,
+            name,
+            weight: 1,
+            questions: SUBCATEGORIES[name] ?? [],
+            sort_order: idx,
+          })),
+        },
+        {
+          onSuccess: () => {
+            toast.success("Framework successfully updated.");
+          },
+        },
+      );
     }, 1000);
   }
 
@@ -6329,7 +7731,8 @@ function FrameworkSettings() {
                 Active Framework
               </div>
               <div className="text-sm font-semibold" style={{ color: C.navy }}>
-                {activeFramework.name} - {activeFramework.summary}
+                {activeFramework.name} - {activeFramework.competency_categories?.length ?? 0}{" "}
+                Categories
               </div>
             </div>
           </div>
@@ -6337,7 +7740,10 @@ function FrameworkSettings() {
         </div>
       )}
 
-      <div className="mt-6 text-xs font-semibold uppercase tracking-wider" style={{ color: C.subtle }}>
+      <div
+        className="mt-6 text-xs font-semibold uppercase tracking-wider"
+        style={{ color: C.subtle }}
+      >
         Current Competency Axes
       </div>
       <div className="mt-4 grid grid-cols-2 gap-3">
@@ -6378,9 +7784,10 @@ function EvidenceSlideover({
 }) {
   const [draft, setDraft] = useState<EvidenceItem>(item);
   const [confirmArchive, setConfirmArchive] = useState(false);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(item);
+  const objectiveLinked = item.source === "Objective" || Boolean(item.linkageKey);
+  const dirty = !objectiveLinked && JSON.stringify(draft) !== JSON.stringify(item);
   const update = <K extends keyof EvidenceItem>(k: K, v: EvidenceItem[K]) =>
-    setDraft((d) => ({ ...d, [k]: v }));
+    setDraft((d) => (objectiveLinked ? d : { ...d, [k]: v }));
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -6396,7 +7803,7 @@ function EvidenceSlideover({
         animate={{ x: 0 }}
         exit={{ x: "100%" }}
         transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-        className="absolute top-0 right-0 h-full w-full md:w-[44%] bg-white shadow-2xl flex flex-col"
+        className="absolute top-0 right-0 h-full w-full md:w-[44%] bg-white shadow-2xl flex flex-col overflow-x-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -6405,8 +7812,12 @@ function EvidenceSlideover({
             <div className="flex items-center gap-1 text-xs" style={{ color: C.subtle }}>
               <span>Evidence Log</span>
               <ChevronRight size={12} />
-              <span className="font-semibold" style={{ color: C.slate }}>
-                {item.id}
+              <span
+                className="font-semibold truncate max-w-[220px] md:max-w-[320px]"
+                style={{ color: C.slate }}
+                title={item.title}
+              >
+                {item.title}
               </span>
             </div>
             <div className="flex items-center gap-1">
@@ -6427,36 +7838,62 @@ function EvidenceSlideover({
               </button>
             </div>
           </div>
-          <input
-            value={draft.title}
-            onChange={(e) => update("title", e.target.value)}
-            className="text-xl font-bold mt-2 leading-snug w-full bg-transparent outline-none border border-transparent hover:border-[#DFE1E6] focus:border-[#0052CC] focus:bg-white rounded px-1 -mx-1 py-0.5"
-            style={{ color: C.navy }}
-          />
-          <div className="flex flex-wrap items-center gap-2 mt-3 text-xs" style={{ color: C.subtle }}>
+          {objectiveLinked ? (
+            <div className="text-xl font-bold mt-2 leading-snug" style={{ color: C.navy }}>
+              {draft.title}
+            </div>
+          ) : (
+            <input
+              value={draft.title}
+              onChange={(e) => update("title", e.target.value)}
+              className="text-xl font-bold mt-2 leading-snug w-full bg-transparent outline-none border border-transparent hover:border-[#DFE1E6] focus:border-[#0052CC] focus:bg-white rounded px-1 -mx-1 py-0.5"
+              style={{ color: C.navy }}
+            />
+          )}
+          <div
+            className="flex flex-wrap items-center gap-2 mt-3 text-xs"
+            style={{ color: C.subtle }}
+          >
             <span className="flex items-center gap-1.5">
               <Calendar size={12} />
-              {item.date}
+              {formatDisplayDate(item.date)}
             </span>
             <SourceChip source={draft.source} />
             {draft.status === "Reviewed" ? (
-              <Badge tone="success" icon={<CheckCircle size={11} />}>Reviewed</Badge>
+              <Badge tone="success" icon={<CheckCircle size={11} />}>
+                Reviewed
+              </Badge>
             ) : (
-              <Badge tone="warning" icon={<Clock size={11} />}>Pending Review</Badge>
+              <Badge tone="warning" icon={<Clock size={11} />}>
+                Pending Review
+              </Badge>
             )}
             <MatchBadge match={draft.matchState} />
           </div>
+          {objectiveLinked && (
+            <div className="text-[11px] mt-2" style={{ color: C.subtle }}>
+              Logged from Objectives. Edit this objective in the Objectives board.
+            </div>
+          )}
         </div>
 
         {/* Scrollable */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden px-6 py-5 space-y-8">
           <section>
-            <div className="text-xs font-bold uppercase tracking-wider mb-3" style={{ color: C.subtle }}>
+            <div
+              className="text-xs font-bold uppercase tracking-wider mb-3"
+              style={{ color: C.subtle }}
+            >
               Competency Mapping
             </div>
             <div className="flex flex-col gap-4">
               <div>
-                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Category</div>
+                <div
+                  className="text-[10px] font-bold uppercase tracking-wider mb-1"
+                  style={{ color: C.subtle }}
+                >
+                  Category
+                </div>
                 <Dropdown
                   value={PDF_CATEGORIES.includes(draft.category) ? draft.category : ""}
                   options={PDF_CATEGORIES}
@@ -6467,10 +7904,16 @@ function EvidenceSlideover({
                     const firstSub = PDF_FRAMEWORK[nextCat]?.[0] ?? "";
                     update("competency", firstSub);
                   }}
+                  disabled={objectiveLinked}
                 />
               </div>
               <div>
-                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Subcategory / Question</div>
+                <div
+                  className="text-[10px] font-bold uppercase tracking-wider mb-1"
+                  style={{ color: C.subtle }}
+                >
+                  Subcategory / Question
+                </div>
                 <Dropdown
                   value={
                     (PDF_FRAMEWORK[draft.category] ?? []).includes(draft.competency)
@@ -6484,7 +7927,7 @@ function EvidenceSlideover({
                       : "Pick a category first"
                   }
                   onChange={(val) => update("competency", val)}
-                  disabled={!PDF_CATEGORIES.includes(draft.category)}
+                  disabled={objectiveLinked || !PDF_CATEGORIES.includes(draft.category)}
                 />
               </div>
             </div>
@@ -6501,7 +7944,8 @@ function EvidenceSlideover({
               value={draft.description}
               onChange={(e) => update("description", e.target.value)}
               className="w-full min-h-[160px] resize-y text-sm rounded border px-3 py-2 outline-none focus:ring-2"
-              style={{ borderColor: C.border, color: C.slate }}
+              style={{ borderColor: C.border, color: C.slate, overflowWrap: "anywhere" }}
+              readOnly={objectiveLinked}
             />
           </section>
 
@@ -6514,24 +7958,56 @@ function EvidenceSlideover({
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
               <div>
-                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Source</div>
-                <Select value={draft.source} onChange={(e) => update("source", e.target.value)}>
-                  {["Bitbucket", "GitHub", "GitLab", "Jira", "Slack", "Teams", "Confluence", "Figma", "Trello", "Excel", "PowerPoint", "Word"].map((s) => <option key={s}>{s}</option>)}
-                </Select>
+                <div
+                  className="text-[10px] font-bold uppercase tracking-wider mb-1"
+                  style={{ color: C.subtle }}
+                >
+                  Source
+                </div>
+                {objectiveLinked ? (
+                  <Input value={draft.source} readOnly />
+                ) : (
+                  <Select value={draft.source} onChange={(e) => update("source", e.target.value)}>
+                    {[
+                      "Bitbucket",
+                      "GitHub",
+                      "GitLab",
+                      "Jira",
+                      "Slack",
+                      "Teams",
+                      "Confluence",
+                      "Figma",
+                      "Trello",
+                      "Excel",
+                      "PowerPoint",
+                      "Word",
+                    ].map((s) => (
+                      <option key={s}>{s}</option>
+                    ))}
+                  </Select>
+                )}
               </div>
               <div>
-                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Link</div>
+                <div
+                  className="text-[10px] font-bold uppercase tracking-wider mb-1"
+                  style={{ color: C.subtle }}
+                >
+                  Link
+                </div>
                 <div className="flex gap-2">
                   <Input
                     value={draft.link}
                     onChange={(e) => update("link", e.target.value)}
                     placeholder="example.com/path or full URL"
                     icon={<LinkIcon size={14} />}
+                    readOnly={objectiveLinked}
                   />
                   {draft.link && (
                     <GhostBtn
                       onClick={() => {
-                        const u = /^https?:\/\//i.test(draft.link) ? draft.link : `https://${draft.link}`;
+                        const u = /^https?:\/\//i.test(draft.link)
+                          ? draft.link
+                          : `https://${draft.link}`;
                         window.open(u, "_blank", "noopener");
                       }}
                     >
@@ -6546,23 +8022,40 @@ function EvidenceSlideover({
           <section className="bg-slate-50 rounded-lg p-4 border border-slate-200">
             <div className="flex items-center gap-2 mb-3">
               <UserCheck size={14} style={{ color: C.slate }} />
-              <div className="text-sm font-bold" style={{ color: C.navy }}>Manager Review</div>
+              <div className="text-sm font-bold" style={{ color: C.navy }}>
+                Manager Review
+              </div>
             </div>
             <div className="space-y-4">
               <div>
-                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Review Status</div>
-                <Select value={draft.status} onChange={(e) => update("status", e.target.value as EvidenceStatus)}>
+                <div
+                  className="text-[10px] font-bold uppercase tracking-wider mb-1"
+                  style={{ color: C.subtle }}
+                >
+                  Review Status
+                </div>
+                <Select
+                  value={draft.status}
+                  onChange={(e) => update("status", e.target.value as EvidenceStatus)}
+                  disabled={objectiveLinked}
+                >
                   <option>Pending Review</option>
                   <option>Reviewed</option>
                 </Select>
               </div>
               <div>
-                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Competency Match</div>
+                <div
+                  className="text-[10px] font-bold uppercase tracking-wider mb-1"
+                  style={{ color: C.subtle }}
+                >
+                  Competency Match
+                </div>
                 <div className="grid grid-cols-4 gap-2">
                   {(["Yes", "Somewhat", "No", "Unset"] as EvidenceMatch[]).map((m) => (
                     <button
                       key={m}
                       onClick={() => update("matchState", m)}
+                      disabled={objectiveLinked}
                       className="px-2 py-1.5 rounded border text-xs font-semibold transition-colors"
                       style={{
                         borderColor: draft.matchState === m ? C.primary : C.border,
@@ -6577,34 +8070,45 @@ function EvidenceSlideover({
               </div>
             </div>
             <div className="mt-4">
-              <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Manager Assessment</div>
+              <div
+                className="text-[10px] font-bold uppercase tracking-wider mb-1"
+                style={{ color: C.subtle }}
+              >
+                Manager Assessment
+              </div>
               <textarea
                 value={draft.managerNotes}
                 onChange={(e) => update("managerNotes", e.target.value)}
                 placeholder="Manager corroborates context, asks for more detail, suggests rewording, or links related artifacts."
                 className="w-full min-h-[120px] resize-y text-sm rounded border px-3 py-2 outline-none focus:ring-2"
-                style={{ borderColor: C.border, color: C.slate, background: "#fff" }}
+                style={{
+                  borderColor: C.border,
+                  color: C.slate,
+                  background: "#fff",
+                  overflowWrap: "anywhere",
+                }}
+                readOnly={objectiveLinked}
               />
             </div>
           </section>
         </div>
-
 
         <div
           className="px-6 py-4 border-t flex items-center justify-end gap-2"
           style={{ borderColor: C.border, background: C.bg }}
         >
           <GhostBtn onClick={onClose}>Close</GhostBtn>
-          <PrimaryBtn
-            onClick={() => {
-              onSave(draft);
-              onClose();
-            }}
-            disabled={!dirty}
-          >
-            <Save size={14} />
-            Save Changes
-          </PrimaryBtn>
+          {!objectiveLinked && (
+            <PrimaryBtn
+              onClick={() => {
+                onSave(draft);
+              }}
+              disabled={!dirty}
+            >
+              <Save size={14} />
+              Save Changes
+            </PrimaryBtn>
+          )}
         </div>
       </motion.div>
       <AnimatePresence>
@@ -6637,17 +8141,19 @@ function ReportView({
   review,
   assessments,
   onOpenAssessment,
+  onSaveTopics,
   onClearReview,
   onStartReview,
   onOpenHistory,
 }: {
-  evidence: typeof initialEvidence;
+  evidence: EvidenceRecord[];
   objectives: Objective[];
-  radarData: typeof initialRadar;
+  radarData: ReturnType<typeof deriveRadarData>;
   onFlash: (m: string) => void;
   review: ReviewSession | null;
   assessments: Assessment[];
   onOpenAssessment: (a: Assessment) => void;
+  onSaveTopics: (assessmentId: string, topics: string[]) => void;
   onClearReview: () => void;
   onStartReview: () => void;
   onOpenHistory: () => void;
@@ -6715,12 +8221,16 @@ function ReportView({
     [deltas],
   );
 
-  const [topics, setTopics] = useState<string[]>([
-    "Discuss timeline for the formal L4 promotion panel.",
-    "Request budget for AWS Advanced Networking certification.",
-    "Align on which Q4 initiative best demonstrates System Design at L4.",
-  ]);
+  const [topics, setTopics] = useState<string[]>([]);
   const [draft, setDraft] = useState("");
+  const [topicsDirty, setTopicsDirty] = useState(false);
+
+  useEffect(() => {
+    if (!review) return;
+    const selected = assessments.find((a) => a.id === review.id);
+    setTopics(selected?.oneOnOneTopics ?? []);
+    setTopicsDirty(false);
+  }, [review, assessments]);
 
   type LearningResource = {
     id: string;
@@ -6736,11 +8246,13 @@ function ReportView({
     const t = draft.trim();
     if (!t) return;
     setTopics((x) => [...x, t]);
+    setTopicsDirty(true);
     setDraft("");
   }
 
   function removeTopic(i: number) {
     setTopics((x) => x.filter((_, idx) => idx !== i));
+    setTopicsDirty(true);
   }
 
   function copyLink() {
@@ -6775,10 +8287,7 @@ function ReportView({
           </div>
         </div>
 
-        <AssessmentsArchiveTable
-          assessments={assessments}
-          onOpen={onOpenAssessment}
-        />
+        <AssessmentsArchiveTable assessments={assessments} onOpen={onOpenAssessment} />
 
         {assessments.length === 0 && (
           <Card className="p-10 text-center max-w-2xl mx-auto">
@@ -6810,10 +8319,7 @@ function ReportView({
           <ArrowLeft size={14} />
           Back to Assessments Archive
         </GhostBtn>
-        <PrimaryBtn
-          onClick={onStartReview}
-          className="!px-6 !h-10 whitespace-nowrap"
-        >
+        <PrimaryBtn onClick={onStartReview} className="!px-6 !h-10 whitespace-nowrap">
           <ClipboardList size={14} />
           Start Performance Review
         </PrimaryBtn>
@@ -6834,15 +8340,12 @@ function ReportView({
               >
                 <RadarIcon size={18} color="#fff" />
               </div>
-              <h1
-                className="text-3xl font-bold tracking-tight"
-                style={{ color: C.navy }}
-              >
+              <h1 className="text-3xl font-bold tracking-tight" style={{ color: C.navy }}>
                 {review.period}
               </h1>
             </div>
             <div className="flex items-center gap-2 print-hide">
-              <GhostBtn onClick={copyLink} className="border" >
+              <GhostBtn onClick={copyLink} className="border">
                 <LinkIcon size={14} />
                 Copy Share Link
               </GhostBtn>
@@ -6875,21 +8378,21 @@ function ReportView({
         <section className="mt-8 print:break-inside-avoid">
           <SectionHeading icon={<Target size={18} />} title="Executive Summary" />
           <p className="mt-3 text-[15px] leading-relaxed" style={{ color: C.slate }}>
-            Engineer{" "}
-            <span style={{ color: C.navy, fontWeight: 600 }}>{review.engineer}</span>{" "}
-            is currently tracking at{" "}
+            Engineer <span style={{ color: C.navy, fontWeight: 600 }}>{review.engineer}</span> is
+            currently tracking at{" "}
             <span style={{ color: C.primary, fontWeight: 700 }}>{overallReadiness ?? 0}%</span>{" "}
-            overall readiness for the L4 Senior target. Demonstrates exceptional proficiency
-            in{" "}
+            overall readiness for the L4 Senior target. Demonstrates exceptional proficiency in{" "}
             <span style={{ color: C.navy, fontWeight: 600 }}>
-              {topStrengths.length > 0 ? topStrengths.join(" and ") : "Analytical Thinking and Code Quality"}
+              {topStrengths.length > 0
+                ? topStrengths.join(" and ")
+                : "Analytical Thinking and Code Quality"}
             </span>
             . Primary growth opportunities exist in{" "}
             <span style={{ color: C.navy, fontWeight: 600 }}>
               {primaryGaps.length > 0 ? primaryGaps.join(" and ") : "System Design and Leadership"}
             </span>
-            , requiring targeted focus in the upcoming cycle to bridge the remaining gaps.
-            Verified evidence log: {approved.length} item{approved.length === 1 ? "" : "s"}.
+            , requiring targeted focus in the upcoming cycle to bridge the remaining gaps. Verified
+            evidence log: {approved.length} item{approved.length === 1 ? "" : "s"}.
           </p>
         </section>
 
@@ -6904,40 +8407,38 @@ function ReportView({
               No score changes were recorded in this review.
             </div>
           ) : (
-          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 print:break-inside-avoid">
-            {deltas.map((d) => {
-              const pct = d.from === 0 ? 0 : Math.round(((d.to - d.from) / d.from) * 100);
-              const width = Math.min(100, (d.to / 4) * 100);
-              const positive = d.to >= d.from;
-              return (
-                <div key={d.name} className="print:break-inside-avoid">
-                  <div className="flex items-baseline justify-between mb-1.5">
-                    <div className="text-sm font-semibold" style={{ color: C.navy }}>
-                      {d.name}
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 print:break-inside-avoid">
+              {deltas.map((d) => {
+                const pct = d.from === 0 ? 0 : Math.round(((d.to - d.from) / d.from) * 100);
+                const width = Math.min(100, (d.to / 4) * 100);
+                const positive = d.to >= d.from;
+                return (
+                  <div key={d.name} className="print:break-inside-avoid">
+                    <div className="flex items-baseline justify-between mb-1.5">
+                      <div className="text-sm font-semibold" style={{ color: C.navy }}>
+                        {d.name}
+                      </div>
+                      <div className="text-xs font-medium" style={{ color: C.slate }}>
+                        {d.from.toFixed(2)} → {d.to.toFixed(2)}{" "}
+                        <span style={{ color: positive ? C.green : C.red, fontWeight: 700 }}>
+                          {positive ? "+" : ""}
+                          {pct}%
+                        </span>
+                      </div>
                     </div>
-                    <div className="text-xs font-medium" style={{ color: C.slate }}>
-                      {d.from.toFixed(2)} → {d.to.toFixed(2)}{" "}
-                      <span
-                        style={{ color: positive ? C.green : C.red, fontWeight: 700 }}
-                      >
-                        {positive ? "+" : ""}
-                        {pct}%
-                      </span>
-                    </div>
-                  </div>
-                  <div
-                    className="h-2 rounded-full overflow-hidden"
-                    style={{ background: "#EBECF0" }}
-                  >
                     <div
-                      className="h-full rounded-full"
-                      style={{ width: `${width}%`, background: positive ? C.green : C.red }}
-                    />
+                      className="h-2 rounded-full overflow-hidden"
+                      style={{ background: "#EBECF0" }}
+                    >
+                      <div
+                        className="h-full rounded-full"
+                        style={{ width: `${width}%`, background: positive ? C.green : C.red }}
+                      />
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
           )}
         </section>
 
@@ -6988,32 +8489,32 @@ function ReportView({
               No evidence was attached during the review.
             </div>
           ) : (
-          <div className="mt-4 space-y-3">
-            {highlightedEvidence.map((e) => (
-              <div
-                key={e.id}
-                className="border-l-4 pl-4 py-3 pr-4 rounded-sm print:break-inside-avoid"
-                style={{ borderColor: C.primary, background: "#FAFBFC" }}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="text-[15px] font-bold" style={{ color: C.navy }}>
-                    {e.title}
-                  </div>
-                  <Badge tone="info">{e.competency}</Badge>
-                </div>
-                <p className="mt-1.5 text-sm leading-relaxed" style={{ color: C.slate }}>
-                  {e.description}
-                </p>
+            <div className="mt-4 space-y-3">
+              {highlightedEvidence.map((e) => (
                 <div
-                  className="mt-2 flex items-center gap-1.5 text-xs font-medium"
-                  style={{ color: "#006644" }}
+                  key={e.id}
+                  className="border-l-4 pl-4 py-3 pr-4 rounded-sm print:break-inside-avoid"
+                  style={{ borderColor: C.primary, background: "#FAFBFC" }}
                 >
-                  <CheckCircle size={13} />
-                  Verified on {e.date}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="text-[15px] font-bold" style={{ color: C.navy }}>
+                      {e.title}
+                    </div>
+                    <Badge tone="info">{e.competency}</Badge>
+                  </div>
+                  <p className="mt-1.5 text-sm leading-relaxed" style={{ color: C.slate }}>
+                    {e.description}
+                  </p>
+                  <div
+                    className="mt-2 flex items-center gap-1.5 text-xs font-medium"
+                    style={{ color: "#006644" }}
+                  >
+                    <CheckCircle size={13} />
+                    Verified on {formatDisplayDate(e.date)}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
           )}
         </section>
 
@@ -7038,8 +8539,8 @@ function ReportView({
               className="mt-4 text-sm p-4 rounded border border-dashed"
               style={{ color: C.subtle, borderColor: C.border }}
             >
-              No learning resources added yet. Click "Add Learning Resource" to curate
-              materials for the engineer.
+              No learning resources added yet. Click "Add Learning Resource" to curate materials for
+              the engineer.
             </div>
           ) : (
             <ul className="mt-4 space-y-3">
@@ -7056,13 +8557,9 @@ function ReportView({
                     >
                       {r.competency}
                     </span>
-                    <div className="mt-2 text-[15px] font-bold text-slate-900">
-                      {r.title}
-                    </div>
+                    <div className="mt-2 text-[15px] font-bold text-slate-900">{r.title}</div>
                     {r.notes && (
-                      <div className="mt-1 text-sm text-slate-500 leading-relaxed">
-                        {r.notes}
-                      </div>
+                      <div className="mt-1 text-sm text-slate-500 leading-relaxed">{r.notes}</div>
                     )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0 print-hide">
@@ -7077,9 +8574,7 @@ function ReportView({
                     </button>
                     <button
                       type="button"
-                      onClick={() =>
-                        setResources((rs) => rs.filter((x) => x.id !== r.id))
-                      }
+                      onClick={() => setResources((rs) => rs.filter((x) => x.id !== r.id))}
                       aria-label="Remove resource"
                       className="w-9 h-9 inline-flex items-center justify-center rounded text-slate-400 hover:text-red-600 hover:bg-[#F4F5F7] transition-colors"
                     >
@@ -7120,7 +8615,11 @@ function ReportView({
           >
             <ol className="space-y-2.5">
               {topics.map((t, i) => (
-                <li key={i} className="group flex items-start gap-3 text-sm print:break-inside-avoid" style={{ color: C.slate }}>
+                <li
+                  key={i}
+                  className="group flex items-start gap-3 text-sm print:break-inside-avoid"
+                  style={{ color: C.slate }}
+                >
                   <span
                     className="shrink-0 w-5 h-5 rounded-full text-[11px] font-bold flex items-center justify-center"
                     style={{ background: C.primarySoft, color: C.primary }}
@@ -7155,6 +8654,17 @@ function ReportView({
                 <Plus size={14} />
                 Add Topic
               </GhostBtn>
+              <PrimaryBtn
+                disabled={!topicsDirty}
+                onClick={() => {
+                  if (!review) return;
+                  onSaveTopics(review.id, topics);
+                  setTopicsDirty(false);
+                }}
+              >
+                <Save size={14} />
+                Save Topics
+              </PrimaryBtn>
             </div>
           </div>
         </section>
@@ -7173,10 +8683,7 @@ function ReportView({
             competencies={Object.keys(review.scores)}
             onCancel={() => setResourceModalOpen(false)}
             onSave={(r) => {
-              setResources((rs) => [
-                ...rs,
-                { ...r, id: `lr-${Date.now()}` },
-              ]);
+              setResources((rs) => [...rs, { ...r, id: `lr-${Date.now()}` }]);
               setResourceModalOpen(false);
               onFlash("Learning resource added");
             }}
@@ -7224,7 +8731,10 @@ function LearningResourceModal({
         </div>
         <div className="p-5 space-y-4">
           <div>
-            <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+            <label
+              className="text-xs font-semibold uppercase tracking-wide"
+              style={{ color: C.subtle }}
+            >
               Target Competency
             </label>
             <select
@@ -7234,12 +8744,17 @@ function LearningResourceModal({
               style={{ borderColor: C.border, color: C.navy }}
             >
               {options.map((c) => (
-                <option key={c} value={c}>{c}</option>
+                <option key={c} value={c}>
+                  {c}
+                </option>
               ))}
             </select>
           </div>
           <div>
-            <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+            <label
+              className="text-xs font-semibold uppercase tracking-wide"
+              style={{ color: C.subtle }}
+            >
               Resource Title
             </label>
             <input
@@ -7251,7 +8766,10 @@ function LearningResourceModal({
             />
           </div>
           <div>
-            <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+            <label
+              className="text-xs font-semibold uppercase tracking-wide"
+              style={{ color: C.subtle }}
+            >
               Resource URL
             </label>
             <input
@@ -7263,7 +8781,10 @@ function LearningResourceModal({
             />
           </div>
           <div>
-            <label className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+            <label
+              className="text-xs font-semibold uppercase tracking-wide"
+              style={{ color: C.subtle }}
+            >
               Manager Notes
             </label>
             <textarea
@@ -7281,7 +8802,10 @@ function LearningResourceModal({
         >
           <GhostBtn onClick={onCancel}>Cancel</GhostBtn>
           <button
-            onClick={() => canSave && onSave({ competency, title: title.trim(), url: url.trim(), notes: notes.trim() })}
+            onClick={() =>
+              canSave &&
+              onSave({ competency, title: title.trim(), url: url.trim(), notes: notes.trim() })
+            }
             disabled={!canSave}
             className="px-4 h-9 rounded text-sm font-semibold text-white transition-colors disabled:opacity-50"
             style={{ background: C.primary }}
@@ -7294,13 +8818,7 @@ function LearningResourceModal({
   );
 }
 
-function SectionHeading({
-  icon,
-  title,
-}: {
-  icon: React.ReactNode;
-  title: string;
-}) {
+function SectionHeading({ icon, title }: { icon: React.ReactNode; title: string }) {
   return (
     <div className="flex items-center gap-2">
       <span style={{ color: C.primary }}>{icon}</span>
@@ -7386,21 +8904,17 @@ function InboxReviewSlideover({
   onConfirm,
   onDismiss,
 }: {
-  item: InboxItem;
+  item: InboxViewItem;
   onClose: () => void;
-  onConfirm: (comps: string[]) => void;
+  onConfirm: (payload: InboxConfirmPayload) => void;
   onDismiss: () => void;
 }) {
   const inboxCats = Object.keys(SUBCATEGORIES);
   const initialCat = inboxCats.find((c) => item.suggestion.includes(c)) ?? inboxCats[0];
   const [title, setTitle] = useState(item.title);
   const [description, setDescription] = useState("");
-  const [selected, setSelected] = useState<string[]>(item.suggestion);
   const [category, setCategory] = useState(initialCat);
   const [subcategory, setSubcategory] = useState(SUBCATEGORIES[initialCat][0]);
-  function toggle(c: string) {
-    setSelected((s) => (s.includes(c) ? s.filter((x) => x !== c) : [...s, c]));
-  }
   function onCatChange(v: string) {
     setCategory(v);
     setSubcategory(SUBCATEGORIES[v][0]);
@@ -7441,14 +8955,18 @@ function InboxReviewSlideover({
             </button>
           </div>
           <div className="text-[13px] mt-2" style={{ color: C.subtle }}>
-            The AI captured this event {item.when}. Confirm details before saving to your evidence log.
+            The AI captured this event {item.when}. Confirm details before saving to your evidence
+            log.
           </div>
         </div>
 
         {/* Scrollable */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
           <section>
-            <label className="text-xs font-bold uppercase tracking-wider mb-1.5 block" style={{ color: C.subtle }}>
+            <label
+              className="text-xs font-bold uppercase tracking-wider mb-1.5 block"
+              style={{ color: C.subtle }}
+            >
               Evidence Title
             </label>
             <input
@@ -7460,7 +8978,10 @@ function InboxReviewSlideover({
           </section>
 
           <section>
-            <label className="text-xs font-bold uppercase tracking-wider mb-1.5 block" style={{ color: C.subtle }}>
+            <label
+              className="text-xs font-bold uppercase tracking-wider mb-1.5 block"
+              style={{ color: C.subtle }}
+            >
               Source Link
             </label>
             <div
@@ -7494,7 +9015,10 @@ function InboxReviewSlideover({
           </section>
 
           <section>
-            <label className="text-xs font-bold uppercase tracking-wider mb-1.5 block" style={{ color: C.subtle }}>
+            <label
+              className="text-xs font-bold uppercase tracking-wider mb-1.5 block"
+              style={{ color: C.subtle }}
+            >
               Description & Context
             </label>
             <textarea
@@ -7510,7 +9034,10 @@ function InboxReviewSlideover({
           <section>
             <div className="flex items-center gap-2 mb-2">
               <Sparkles size={13} style={{ color: C.primary }} />
-              <label className="text-xs font-bold uppercase tracking-wider" style={{ color: C.subtle }}>
+              <label
+                className="text-xs font-bold uppercase tracking-wider"
+                style={{ color: C.subtle }}
+              >
                 AI Competency Mapping
               </label>
             </div>
@@ -7522,7 +9049,12 @@ function InboxReviewSlideover({
             </div>
             <div className="grid grid-cols-1 gap-4">
               <div>
-                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Category</div>
+                <div
+                  className="text-[10px] font-bold uppercase tracking-wider mb-1"
+                  style={{ color: C.subtle }}
+                >
+                  Category
+                </div>
                 <Select value={category} onChange={(e) => onCatChange(e.target.value)}>
                   {inboxCats.map((c) => (
                     <option key={c}>{c}</option>
@@ -7530,7 +9062,12 @@ function InboxReviewSlideover({
                 </Select>
               </div>
               <div>
-                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>Subcategory / Question</div>
+                <div
+                  className="text-[10px] font-bold uppercase tracking-wider mb-1"
+                  style={{ color: C.subtle }}
+                >
+                  Subcategory / Question
+                </div>
                 <Select value={subcategory} onChange={(e) => setSubcategory(e.target.value)}>
                   {SUBCATEGORIES[category].map((s) => (
                     <option key={s}>{s}</option>
@@ -7551,9 +9088,18 @@ function InboxReviewSlideover({
             className="px-3 h-9 rounded text-sm font-medium hover:bg-[#FFEBE6] transition-colors"
             style={{ color: C.red }}
           >
-            Dismiss Event
+            {item.isSample ? "Close Sample" : "Dismiss Event"}
           </button>
-          <PrimaryBtn onClick={() => onConfirm(selected.length > 0 ? selected : [category])}>
+          <PrimaryBtn
+            onClick={() =>
+              onConfirm({
+                title,
+                description,
+                category,
+                subcategory,
+              })
+            }
+          >
             <CheckCircle size={14} />
             Confirm & Save
           </PrimaryBtn>
@@ -7573,10 +9119,10 @@ function ReviewWizard({
   onFinalize,
   onOpenEvidence,
 }: {
-  evidence: typeof initialEvidence;
+  evidence: EvidenceRecord[];
   onClose: () => void;
   onFinalize: (s: ReviewSession) => void;
-  onOpenEvidence: (e: (typeof initialEvidence)[number]) => void;
+  onOpenEvidence: (e: EvidenceRecord) => void;
 }) {
   const categories = ALL_CATEGORIES;
   const [activeIdx, setActiveIdx] = useState(0);
@@ -7606,9 +9152,7 @@ function ReviewWizard({
   function toggleEvidence(cat: string, sub: string, id: string) {
     setScores((s) => {
       const existing = s[cat][sub].evidenceIds;
-      const next = existing.includes(id)
-        ? existing.filter((x) => x !== id)
-        : [...existing, id];
+      const next = existing.includes(id) ? existing.filter((x) => x !== id) : [...existing, id];
       return { ...s, [cat]: { ...s[cat], [sub]: { ...s[cat][sub], evidenceIds: next } } };
     });
   }
@@ -7627,7 +9171,7 @@ function ReviewWizard({
     const today = new Date();
     const session: ReviewSession = {
       id: `REV-${today.getFullYear()}-Q${Math.ceil((today.getMonth() + 1) / 3)}`,
-      date: today.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" }),
+      date: formatDisplayDate(today),
       period: `${today.toLocaleString("en-US", { month: "long" })} ${today.getFullYear()}`,
       engineer: "Courage U.",
       manager: "Alex M.",
@@ -7735,7 +9279,10 @@ function ReviewWizard({
           <div className="flex-1 flex flex-col min-w-0">
             <div className="flex-1 overflow-y-auto pr-1">
               <div className="mb-4">
-                <div className="text-[11px] font-bold uppercase tracking-wider" style={{ color: C.subtle }}>
+                <div
+                  className="text-[11px] font-bold uppercase tracking-wider"
+                  style={{ color: C.subtle }}
+                >
                   Category {activeIdx + 1} of {categories.length}
                 </div>
                 <h2 className="text-2xl font-bold tracking-tight mt-1" style={{ color: C.navy }}>
@@ -7754,7 +9301,10 @@ function ReviewWizard({
                     <Card key={sub} className="p-5">
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1">
-                          <div className="text-xs font-bold uppercase tracking-wider" style={{ color: C.subtle }}>
+                          <div
+                            className="text-xs font-bold uppercase tracking-wider"
+                            style={{ color: C.subtle }}
+                          >
                             Question
                           </div>
                           <div className="text-[15px] font-semibold mt-1" style={{ color: C.navy }}>
@@ -7768,7 +9318,9 @@ function ReviewWizard({
                         <Field label="New score (1-5)">
                           <Select
                             value={String(q.next)}
-                            onChange={(e) => updateQ(activeCat, sub, { next: Number(e.target.value) })}
+                            onChange={(e) =>
+                              updateQ(activeCat, sub, { next: Number(e.target.value) })
+                            }
                           >
                             {EFFECTIVENESS_SCALE.map((s) => (
                               <option key={s.value} value={s.value}>
@@ -7783,8 +9335,7 @@ function ReviewWizard({
                             style={{
                               background: "#F4F5F7",
                               borderColor: C.border,
-                              color:
-                                q.next > q.prev ? C.green : q.next < q.prev ? C.red : C.subtle,
+                              color: q.next > q.prev ? C.green : q.next < q.prev ? C.red : C.subtle,
                               fontWeight: 600,
                             }}
                           >
@@ -7815,7 +9366,8 @@ function ReviewWizard({
                           style={{ borderColor: C.border, color: C.primary }}
                         >
                           <Paperclip size={13} />
-                          Attach Evidence{q.evidenceIds.length > 0 ? ` (${q.evidenceIds.length})` : ""}
+                          Attach Evidence
+                          {q.evidenceIds.length > 0 ? ` (${q.evidenceIds.length})` : ""}
                         </button>
                         {q.evidenceIds.length > 0 && (
                           <div className="flex items-center gap-1.5 flex-wrap justify-end">
@@ -7868,28 +9420,31 @@ function ReviewWizard({
                                 );
                               }
                               return filtered.map((ev) => {
-                              const checked = q.evidenceIds.includes(ev.id);
-                              return (
-                                <label
-                                  key={ev.id}
-                                  className="flex items-start gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-[#F4F5F7]"
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={checked}
-                                    onChange={() => toggleEvidence(activeCat, sub, ev.id)}
-                                    className="mt-1"
-                                  />
-                                  <div className="flex-1 min-w-0">
-                                    <div className="text-[13px] font-semibold truncate" style={{ color: C.navy }}>
-                                      {ev.title}
+                                const checked = q.evidenceIds.includes(ev.id);
+                                return (
+                                  <label
+                                    key={ev.id}
+                                    className="flex items-start gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-[#F4F5F7]"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={() => toggleEvidence(activeCat, sub, ev.id)}
+                                      className="mt-1"
+                                    />
+                                    <div className="flex-1 min-w-0">
+                                      <div
+                                        className="text-[13px] font-semibold truncate"
+                                        style={{ color: C.navy }}
+                                      >
+                                        {ev.title}
+                                      </div>
+                                      <div className="text-[11px]" style={{ color: C.subtle }}>
+                                        {ev.id} · {ev.source} · {formatDisplayDate(ev.date)}
+                                      </div>
                                     </div>
-                                    <div className="text-[11px]" style={{ color: C.subtle }}>
-                                      {ev.id} · {ev.source} · {ev.date}
-                                    </div>
-                                  </div>
-                                </label>
-                              );
+                                  </label>
+                                );
                               });
                             })()}
                           </motion.div>
@@ -7911,7 +9466,11 @@ function ReviewWizard({
                   <X size={14} />
                   Cancel
                 </GhostBtn>
-                <GhostBtn onClick={() => { /* draft is in-memory */ onClose(); }}>
+                <GhostBtn
+                  onClick={() => {
+                    /* draft is in-memory */ onClose();
+                  }}
+                >
                   <Save size={14} />
                   Save Draft
                 </GhostBtn>
@@ -7925,7 +9484,9 @@ function ReviewWizard({
                   Previous
                 </GhostBtn>
                 {!isLast && (
-                  <PrimaryBtn onClick={() => setActiveIdx((i) => Math.min(categories.length - 1, i + 1))}>
+                  <PrimaryBtn
+                    onClick={() => setActiveIdx((i) => Math.min(categories.length - 1, i + 1))}
+                  >
                     Next Category
                     <ChevronRight size={14} />
                   </PrimaryBtn>
@@ -7990,11 +9551,7 @@ function AssessmentsArchiveTable({
               </tr>
             )}
             {assessments.map((a) => {
-              const date = new Date(a.dateCompleted).toLocaleDateString("en-US", {
-                month: "short",
-                day: "2-digit",
-                year: "numeric",
-              });
+              const date = formatDisplayDate(a.dateCompleted);
               const statusTone: "success" | "warning" | "info" =
                 a.status === "Finalized" ? "success" : a.status === "Draft" ? "warning" : "info";
               const pct = a.overallReadinessScore;
@@ -8018,7 +9575,10 @@ function AssessmentsArchiveTable({
                   </Td>
                   <Td>
                     <div className="flex items-center gap-3 min-w-[180px]">
-                      <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: "#EBECF0" }}>
+                      <div
+                        className="flex-1 h-1.5 rounded-full overflow-hidden"
+                        style={{ background: "#EBECF0" }}
+                      >
                         <div
                           className="h-full rounded-full"
                           style={{ width: `${pct}%`, background: pct >= 75 ? C.green : C.primary }}
@@ -8076,7 +9636,10 @@ function AssessmentHistoryModal({
         style={{ borderColor: C.border }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-5 h-14 flex items-center justify-between border-b" style={{ borderColor: C.border }}>
+        <div
+          className="px-5 h-14 flex items-center justify-between border-b"
+          style={{ borderColor: C.border }}
+        >
           <div className="flex items-center gap-2">
             <History size={16} style={{ color: C.primary }} />
             <h3 className="text-base font-bold tracking-tight" style={{ color: C.navy }}>
@@ -8100,11 +9663,7 @@ function AssessmentHistoryModal({
           )}
           {assessments.map((a) => {
             const isCurrent = a.id === currentId;
-            const date = new Date(a.dateCompleted).toLocaleDateString("en-US", {
-              month: "short",
-              day: "2-digit",
-              year: "numeric",
-            });
+            const date = formatDisplayDate(a.dateCompleted);
             return (
               <button
                 key={a.id}
@@ -8121,7 +9680,9 @@ function AssessmentHistoryModal({
                   </div>
                   <div className="flex items-center gap-1.5">
                     {isCurrent && <Badge tone="info">Current</Badge>}
-                    <Badge tone={a.status === "Finalized" ? "success" : "warning"}>{a.status}</Badge>
+                    <Badge tone={a.status === "Finalized" ? "success" : "warning"}>
+                      {a.status}
+                    </Badge>
                   </div>
                 </div>
                 <div className="flex items-center justify-between mt-1.5">
@@ -8136,11 +9697,13 @@ function AssessmentHistoryModal({
             );
           })}
         </div>
-        <div className="px-5 h-14 flex items-center justify-end border-t" style={{ borderColor: C.border }}>
+        <div
+          className="px-5 h-14 flex items-center justify-end border-t"
+          style={{ borderColor: C.border }}
+        >
           <GhostBtn onClick={onClose}>Close</GhostBtn>
         </div>
       </motion.div>
     </motion.div>
   );
 }
-

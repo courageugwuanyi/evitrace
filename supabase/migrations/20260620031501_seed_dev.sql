@@ -1,4 +1,4 @@
--- 009_seed_dev.sql
+-- 20260620031501_seed_dev.sql
 -- Dev seed data — only runs on non-production databases.
 -- Uses a fixed dev user UUID to bypass auth.users FK (session_replication_role = replica).
 -- All inserts are idempotent via ON CONFLICT DO NOTHING.

@@ -312,7 +312,7 @@ Replace all in-memory mock state in `src/routes/index.tsx` with a real Supabase 
     - On mutation success: call `onSave()` to dismiss; on failure: `toast.error(error.message)`, keep popup open
     - In `index.tsx`: import `ExtensionPopup` from `src/components/ExtensionPopup.tsx`, remove inline definition
     - _Requirements: 27, 28_
-  - [ ]* 13.2 Write property test for trigger options
+  - [ ] 13.2 Write property test for trigger options
     - **Property 8: ExtensionPopup Trigger Options Match Enabled Integrations**
     - **Validates: Requirements 28.1, 28.2, 28.3, 28.4, 28.5**
     - For any `IntegrationPrefs` object, verify `buildTriggerOptions()` returns exactly one entry per `true` integration plus always the time-based fallback, and no entries for disabled integrations

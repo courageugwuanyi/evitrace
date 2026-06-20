@@ -59,6 +59,8 @@ export type EvidenceRecord = {
   status: EvidenceStatus
   matchState: EvidenceMatch
   managerNotes: string
+  linkageKey?: string
+  isSample?: boolean
   isArchived: boolean
   archivedDate?: string
   createdAt: string   // for dashboard sorting
@@ -75,6 +77,8 @@ export type Objective = {
   id: string
   title: string
   competency: string
+  targetSubcategory?: string
+  isSample?: boolean
   due: string
   status: 'Pending Approval' | 'In Progress' | 'Completed'
   statement?: string
@@ -166,6 +170,10 @@ export type NotificationPrefs = {
   managerApprovals: boolean
   weeklyDigest: boolean
   browserPush: boolean
+  extensionPromptTimes: string[]
+  extensionSnoozeMinutes: number
+  extensionWeekdaysOnly: boolean
+  extensionTimezone: string
 }
 
 export type IntegrationPrefs = {
@@ -244,6 +252,11 @@ export function sessionToAssessment(s: ReviewSession): Assessment {
  * Converts a stored Assessment back to a ReviewSession for the review wizard.
  */
 export function assessmentToSession(a: Assessment): ReviewSession {
+  const formattedDate = new Intl.DateTimeFormat('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  }).format(new Date(a.dateCompleted))
   const scores: Record<string, Record<string, ReviewQuestion>> = {}
   a.categories.forEach((c) => {
     scores[c.categoryName] = {}
@@ -258,11 +271,7 @@ export function assessmentToSession(a: Assessment): ReviewSession {
   })
   return {
     id: a.id,
-    date: new Date(a.dateCompleted).toLocaleDateString('en-US', {
-      month: 'short',
-      day: '2-digit',
-      year: 'numeric',
-    }),
+    date: formattedDate,
     period: a.reviewPeriod,
     engineer: a.engineerName,
     manager: a.managerName,
@@ -308,6 +317,14 @@ export function profileRowToAuthUser(row: ProfileRow): AuthUser {
  * date field stays as-is (YYYY-MM-DD)
  */
 export function evidenceRowToRecord(row: EvidenceRow): EvidenceRecord {
+  const rawManagerNotes = row.manager_notes ?? ''
+  const linkageMatch = rawManagerNotes.match(/\[auto-objective:[^\]]+\]/)
+  const sampleMatch = rawManagerNotes.includes('[sample-content]')
+  const managerNotes = rawManagerNotes
+    .replace(/\[auto-objective:[^\]]+\]/g, '')
+    .replace(/\[sample-content\]/g, '')
+    .trim()
+
   return {
     id: row.id,
     date: row.date,
@@ -319,7 +336,9 @@ export function evidenceRowToRecord(row: EvidenceRow): EvidenceRecord {
     link: row.link,
     status: row.status as EvidenceStatus,
     matchState: row.match_state as EvidenceMatch,
-    managerNotes: row.manager_notes,
+    managerNotes,
+    ...(linkageMatch ? { linkageKey: linkageMatch[0] } : {}),
+    ...(sampleMatch ? { isSample: true } : {}),
     isArchived: row.is_archived,
     ...(row.archived_date != null ? { archivedDate: row.archived_date } : {}),
     createdAt: row.created_at,
@@ -344,6 +363,8 @@ export function objectiveRowToObjective(row: ObjectiveRow): Objective {
 
   // Parse success_criteria JSONB
   type RawSuccessCriteria = {
+    targetSubcategory?: string
+    sampleSeed?: boolean
     learn?: Array<{ criteria?: string; evidence?: string; attachments?: Array<{ label: string; url: string }>; done?: boolean }>
     demonstrate?: Array<{ criteria?: string; evidence?: string; attachments?: Array<{ label: string; url: string }>; done?: boolean }>
     share?: Array<{ criteria?: string; evidence?: string; attachments?: Array<{ label: string; url: string }>; done?: boolean }>
@@ -408,6 +429,10 @@ export function objectiveRowToObjective(row: ObjectiveRow): Objective {
     ...(row.achievable != null ? { achievable: row.achievable } : {}),
     ...(row.relevant != null ? { relevant: row.relevant } : {}),
     ...(row.timebound != null ? { timebound: row.timebound } : {}),
+    ...(typeof (row.success_criteria as RawSuccessCriteria | null)?.targetSubcategory === 'string'
+      ? { targetSubcategory: String((row.success_criteria as RawSuccessCriteria).targetSubcategory) }
+      : {}),
+    ...(Boolean((row.success_criteria as RawSuccessCriteria | null)?.sampleSeed) ? { isSample: true } : {}),
     links,
     ...(row.notes != null ? { notes: row.notes } : {}),
     successCriteria,
@@ -505,6 +530,10 @@ export function settingsRowToSettings(
     managerApprovals: true,
     weeklyDigest: false,
     browserPush: true,
+    extensionPromptTimes: ['16:00'],
+    extensionSnoozeMinutes: 15,
+    extensionWeekdaysOnly: true,
+    extensionTimezone: 'GMT',
   }
 
   const defaultIntegrations: IntegrationPrefs = {
@@ -535,6 +564,23 @@ export function settingsRowToSettings(
     managerApprovals: typeof rawN.managerApprovals === 'boolean' ? rawN.managerApprovals : defaultNotifications.managerApprovals,
     weeklyDigest: typeof rawN.weeklyDigest === 'boolean' ? rawN.weeklyDigest : defaultNotifications.weeklyDigest,
     browserPush: typeof rawN.browserPush === 'boolean' ? rawN.browserPush : defaultNotifications.browserPush,
+    extensionPromptTimes:
+      Array.isArray(rawN.extensionPromptTimes) &&
+      rawN.extensionPromptTimes.every((v) => typeof v === 'string')
+        ? (rawN.extensionPromptTimes as string[])
+        : defaultNotifications.extensionPromptTimes,
+    extensionSnoozeMinutes:
+      typeof rawN.extensionSnoozeMinutes === 'number' && Number.isFinite(rawN.extensionSnoozeMinutes)
+        ? Math.max(1, Math.round(rawN.extensionSnoozeMinutes))
+        : defaultNotifications.extensionSnoozeMinutes,
+    extensionWeekdaysOnly:
+      typeof rawN.extensionWeekdaysOnly === 'boolean'
+        ? rawN.extensionWeekdaysOnly
+        : defaultNotifications.extensionWeekdaysOnly,
+    extensionTimezone:
+      typeof rawN.extensionTimezone === 'string' && rawN.extensionTimezone.trim().length > 0
+        ? rawN.extensionTimezone
+        : defaultNotifications.extensionTimezone,
   }
 
   const integrations: IntegrationPrefs = {
@@ -558,6 +604,8 @@ export function settingsRowToSettings(
  * Omits createdAt/updatedAt (DB-generated).
  */
 export function evidenceRecordToRow(r: EvidenceRecord, userId: string): EvidenceInsert {
+  const metadata = [r.linkageKey, r.isSample ? '[sample-content]' : null].filter(Boolean).join(' ')
+  const managerNotes = [metadata, r.managerNotes?.trim() ?? ''].filter(Boolean).join(' ').trim()
   return {
     id: r.id,
     user_id: userId,
@@ -570,7 +618,7 @@ export function evidenceRecordToRow(r: EvidenceRecord, userId: string): Evidence
     link: r.link,
     status: r.status,
     match_state: r.matchState,
-    manager_notes: r.managerNotes,
+    manager_notes: managerNotes,
     is_archived: r.isArchived,
     ...(r.archivedDate != null ? { archived_date: r.archivedDate } : { archived_date: null }),
   }
@@ -581,6 +629,7 @@ export function evidenceRecordToRow(r: EvidenceRecord, userId: string): Evidence
  * Serializes links and successCriteria back to JSONB-compatible plain objects.
  */
 export function objectiveToRow(o: Objective, userId: string): ObjectiveInsert {
+  const existingCriteria = o.successCriteria ?? { learn: [], demonstrate: [], share: [] }
   return {
     id: o.id,
     user_id: userId,
@@ -599,7 +648,10 @@ export function objectiveToRow(o: Objective, userId: string): ObjectiveInsert {
     timebound: o.timebound ?? null,
     links: (o.links ?? []) as unknown as ObjectiveInsert['links'],
     notes: o.notes ?? null,
-    success_criteria: (o.successCriteria ?? { learn: [], demonstrate: [], share: [] }) as unknown as ObjectiveInsert['success_criteria'],
+    success_criteria: {
+      ...existingCriteria,
+      ...(o.targetSubcategory ? { targetSubcategory: o.targetSubcategory } : {}),
+    } as unknown as ObjectiveInsert['success_criteria'],
   }
 }
 

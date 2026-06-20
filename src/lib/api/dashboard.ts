@@ -7,6 +7,13 @@ import { useEvidenceQuery } from './evidence'
 import { useObjectivesQuery } from './objectives'
 import type { EvidenceRecord, Objective } from './mappers'
 
+const DASHBOARD_SAMPLE_MIN_ITEMS = 3
+const formatDateOnly = (date: Date | string | number): string => {
+  const d = new Date(date)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toISOString().split('T')[0]
+}
+
 // ── Quarter helpers ────────────────────────────────────────────────────────────
 
 /**
@@ -81,14 +88,61 @@ export function computeStreak(evidence: EvidenceRecord[]): number {
   return streak
 }
 
+/**
+ * Counts consecutive calendar weeks (current week backwards) with at least one
+ * non-archived evidence entry.
+ */
+export function computeWeeklyStreak(evidence: EvidenceRecord[]): number {
+  const activeDays = new Set<string>()
+  for (const e of evidence) {
+    if (!e.isArchived) {
+      const normalizedDate = formatDateOnly(e.date)
+      if (normalizedDate) activeDays.add(normalizedDate)
+    }
+  }
+
+  let streak = 0
+  const cursor = new Date()
+
+  while (true) {
+    const weekStart = new Date(cursor)
+    const day = weekStart.getDay() // 0=Sun, 1=Mon, ...
+    const diffToMonday = day === 0 ? 6 : day - 1
+    weekStart.setDate(weekStart.getDate() - diffToMonday)
+
+    const weekDates: string[] = []
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(weekStart)
+      d.setDate(weekStart.getDate() + i)
+      const normalizedDate = formatDateOnly(d)
+      if (normalizedDate) weekDates.push(normalizedDate)
+    }
+
+    const hasActivity = weekDates.some((dateStr) => activeDays.has(dateStr))
+    if (!hasActivity) break
+
+    streak++
+    cursor.setDate(cursor.getDate() - 7)
+  }
+
+  return streak
+}
+
 // ── useDashboardStats ─────────────────────────────────────────────────────────
 
 export interface DashboardStats {
   evidenceThisQuarter: number
   streak: number
   pendingReviewCount: number
+  pendingEvidenceCount: number
+  pendingObjectivesCount: number
+  pendingPeerFeedbackCount: number
   recentEvidence: EvidenceRecord[]
   focusAreas: Objective[]
+}
+
+export interface DashboardStatsOptions {
+  showSamples?: boolean
 }
 
 /**
@@ -98,37 +152,60 @@ export interface DashboardStats {
  * @param userId - The authenticated user's ID.
  * @returns DashboardStats memoised on evidence and objectives data changes.
  */
-export function useDashboardStats(userId: string): DashboardStats {
+export function useDashboardStats(userId: string, options: DashboardStatsOptions = {}): DashboardStats {
   const evidenceQuery = useEvidenceQuery(userId)
   const objectivesQuery = useObjectivesQuery(userId)
+  const showSamples = options.showSamples ?? true
+
+  const toSortableDate = (item: Pick<EvidenceRecord, "createdAt" | "date">): string =>
+    item.createdAt ?? item.date ?? ""
 
   return useMemo(() => {
-    const evidence = evidenceQuery.data ?? []
-    const objectives = objectivesQuery.data ?? []
+    const liveEvidence = evidenceQuery.data ?? []
+    const liveObjectives = objectivesQuery.data ?? []
+
+    const evidence = showSamples ? liveEvidence : liveEvidence.filter((item) => !item.isSample)
+    const objectives = showSamples
+      ? liveObjectives
+      : liveObjectives.filter((item) => !item.isSample)
 
     const now = new Date()
     const qStart = startOfQuarter(now)
     const qEnd = endOfQuarter(now)
 
     const evidenceThisQuarter = evidence.filter(
-      (e) => !e.isArchived && e.date >= qStart && e.date <= qEnd,
+      (e) => !e.isArchived && typeof e.date === "string" && e.date >= qStart && e.date <= qEnd,
     ).length
 
-    const streak = computeStreak(evidence)
+    const streak = computeWeeklyStreak(evidence)
 
+    const pendingEvidenceCount = evidence.filter((e) => !e.isArchived && e.status === "Pending Review")
+      .length
+    const pendingObjectivesCount = objectives.filter(
+      (o) => !o.isArchived && o.status === "Pending Approval",
+    ).length
+    const pendingPeerFeedbackCount = 0
     const pendingReviewCount =
-      evidence.filter((e) => !e.isArchived && e.status === 'Pending Review').length +
-      objectives.filter((o) => !o.isArchived && o.status === 'Pending Approval').length
+      pendingEvidenceCount + pendingObjectivesCount + pendingPeerFeedbackCount
 
     const recentEvidence = evidence
       .filter((e) => !e.isArchived)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-      .slice(0, 5)
+      .sort((a, b) => toSortableDate(b).localeCompare(toSortableDate(a)))
+      .slice(0, DASHBOARD_SAMPLE_MIN_ITEMS)
 
     const focusAreas = objectives.filter(
       (o) => !o.isArchived && o.status === 'In Progress',
-    )
+    ).slice(0, DASHBOARD_SAMPLE_MIN_ITEMS)
 
-    return { evidenceThisQuarter, streak, pendingReviewCount, recentEvidence, focusAreas }
-  }, [evidenceQuery.data, objectivesQuery.data])
+    return {
+      evidenceThisQuarter,
+      streak,
+      pendingReviewCount,
+      pendingEvidenceCount,
+      pendingObjectivesCount,
+      pendingPeerFeedbackCount,
+      recentEvidence,
+      focusAreas,
+    }
+  }, [evidenceQuery.data, objectivesQuery.data, showSamples])
 }

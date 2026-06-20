@@ -7,9 +7,11 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Build artifacts
 node_modules
 dist
 dist-ssr
+dist-ext/
 .output
 .vinxi
 .tanstack/**
@@ -30,3 +32,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Supabase local workspace artifacts
+supabase/.branches/
+supabase/.temp/
+supabase/config.toml
