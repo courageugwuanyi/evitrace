@@ -3338,33 +3338,41 @@ function EvidenceView({
             icon={<Search size={14} />}
           />
         </div>
-        <Select icon={<Calendar size={14} />} defaultValue="all">
-          <option value="all">All dates</option>
-          <option>Last 7 days</option>
-          <option>Last 30 days</option>
-          <option>This quarter</option>
-        </Select>
-        <Select icon={<Filter size={14} />} value={comp} onChange={(e) => setComp(e.target.value)}>
-          <option>All</option>
-          {COMPETENCIES.map((c) => (
-            <option key={c}>{c}</option>
-          ))}
-        </Select>
-        <Select icon={<Filter size={14} />} value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option>All</option>
-          <option>Pending Review</option>
-          <option>Reviewed</option>
-        </Select>
-        <Select icon={<Filter size={14} />} value={source} onChange={(e) => setSource(e.target.value)}>
-          <option>All</option>
-          <option>Bitbucket</option>
-          <option>Jira</option>
-          <option>GitHub</option>
-          <option>GitLab</option>
-          <option>Slack</option>
-          <option>Teams</option>
-          <option>Confluence</option>
-        </Select>
+        <div className="w-40">
+          <Select icon={<Calendar size={14} />} defaultValue="all">
+            <option value="all">All dates</option>
+            <option>Last 7 days</option>
+            <option>Last 30 days</option>
+            <option>This quarter</option>
+          </Select>
+        </div>
+        <div className="w-48">
+          <Select icon={<Filter size={14} />} value={comp} onChange={(e) => setComp(e.target.value)}>
+            <option>All</option>
+            {COMPETENCIES.map((c) => (
+              <option key={c}>{c}</option>
+            ))}
+          </Select>
+        </div>
+        <div className="w-44">
+          <Select icon={<Filter size={14} />} value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option>All</option>
+            <option>Pending Review</option>
+            <option>Reviewed</option>
+          </Select>
+        </div>
+        <div className="w-40">
+          <Select icon={<Filter size={14} />} value={source} onChange={(e) => setSource(e.target.value)}>
+            <option>All</option>
+            <option>Bitbucket</option>
+            <option>Jira</option>
+            <option>GitHub</option>
+            <option>GitLab</option>
+            <option>Slack</option>
+            <option>Teams</option>
+            <option>Confluence</option>
+          </Select>
+        </div>
         <div className="ml-auto flex items-center gap-3">
           <div className="text-xs" style={{ color: C.subtle }}>
             {filtered.length} of {visible.length} items
