@@ -1461,6 +1461,17 @@ function SignupForm({ onSwitch }: { onSwitch: () => void }) {
         <div className="flex-1 h-px" style={{ background: C.border }} />
       </div>
       <form onSubmit={submit} className="space-y-6">
+        {err && (
+          <div
+            role="alert"
+            aria-live="polite"
+            className="flex items-start gap-2 rounded-md border px-3 py-2 text-xs"
+            style={{ borderColor: "#F5BCB1", background: "#FFEBE6", color: "#BF2600" }}
+          >
+            <AlertCircle size={14} className="mt-0.5 shrink-0" />
+            <span>{err}</span>
+          </div>
+        )}
         <section>
           <div className="text-[11px] font-bold uppercase tracking-wider mb-3" style={{ color: C.subtle }}>
             Account
