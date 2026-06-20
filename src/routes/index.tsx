@@ -4347,7 +4347,7 @@ function CreateObjectiveModal({
                 />
               </Field>
               <div className="grid grid-cols-2 gap-4">
-                <Field label="Deadline">
+                <Field label="Start Date">
                   <Input
                     type="date"
                     value={deadline}
@@ -4428,7 +4428,7 @@ function CreateObjectiveModal({
                   icon={<Calendar size={14} />}
                 />
                 <div className="text-[11px] mt-1" style={{ color: C.subtle }}>
-                  Specific timeframe or deadline.
+                  Specific timeframe or start date.
                 </div>
               </div>
             </div>
@@ -4878,7 +4878,7 @@ function ObjectiveSlideover({
               <div className="flex items-center justify-between mt-2 gap-3 flex-wrap">
                 {objective.dateAuthored && (
                   <div className="text-[11px]" style={{ color: C.subtle }}>
-                    Authored {objective.dateAuthored} - Deadline {objective.due}
+                    Authored {objective.dateAuthored} - Start Date {objective.due}
                   </div>
                 )}
                 <CountdownBadge due={objective.due} />
