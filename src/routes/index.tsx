@@ -4878,7 +4878,7 @@ function ObjectiveSlideover({
               <div className="flex items-center justify-between mt-2 gap-3 flex-wrap">
                 {objective.dateAuthored && (
                   <div className="text-[11px]" style={{ color: C.subtle }}>
-                    Authored {objective.dateAuthored} - Deadline {objective.due}
+                    Authored {objective.dateAuthored} - Start Date {objective.due}
                   </div>
                 )}
                 <CountdownBadge due={objective.due} />
