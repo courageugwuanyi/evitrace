@@ -1,5 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { AuthProvider, useAuth } from "@/lib/auth";
+import type { AuthUser, InboxItem } from "@/lib/api/mappers";
+import { useEvidenceQuery } from "@/lib/api/evidence";
+import { useInboxQuery, useApproveInbox, useDismissInbox } from "@/lib/api/inbox";
+import { useObjectivesQuery } from "@/lib/api/objectives";
+import { useAssessmentsQuery } from "@/lib/api/assessments";
+import { useDashboardStats } from "@/lib/api/dashboard";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import {
@@ -327,6 +334,32 @@ function categoryToRadarLabel(cat: string): string {
   if (cat === "Analytical Thinking") return "Analytical";
   if (cat === "Engineering for UX") return "UX Eng";
   return cat;
+}
+
+/** Derives radar chart data from the most recent Assessment.
+ *  Maps each category's `categoryCurrentAvg` (1–5 scale) to 0–4 radar scale.
+ *  Falls back to the static initialRadar shape when no assessment is available. */
+function deriveRadarData(
+  assessment: Assessment | undefined,
+): { competency: string; current: number; target: number }[] {
+  const RADAR_COMPETENCIES = [
+    "Analytical",
+    "System Design",
+    "Code Quality",
+    "Communication",
+    "Leadership",
+    "UX Eng",
+    "Security",
+    "Delivery",
+  ];
+  return RADAR_COMPETENCIES.map((label) => {
+    const cat = radarLabelToCategory(label);
+    const found = assessment?.categories.find((c) => c.categoryName === cat);
+    const current = found
+      ? +Math.min(4, (found.categoryCurrentAvg / 5) * 4).toFixed(2)
+      : 0;
+    return { competency: label, current, target: 4 };
+  });
 }
 
 /* ---------- Review session types ---------- */
@@ -1192,74 +1225,20 @@ type Tab = "dashboard" | "radar" | "evidence" | "objectives" | "feedback" | "rep
 /*        AUTH: context, gate, signup / signin screens          */
 /* ============================================================ */
 
-type AuthUser = {
-  fullName: string;
-  email: string;
-  password: string;
-  currentLevel: string;
-  targetLevel: string;
-  team: string;
-  manager: string;
-  managerEmail: string;
-  skipLevel: string;
-};
-
-type AuthCtx = {
-  user: AuthUser | null;
-  signin: (email: string, password: string) => boolean;
-  signup: (u: AuthUser) => void;
-  signout: () => void;
-  updateUser: (patch: Partial<AuthUser>, password: string) => boolean;
-};
-
-const AuthContext = React.createContext<AuthCtx | null>(null);
-function useAuth(): AuthCtx {
-  const v = React.useContext(AuthContext);
-  if (!v) throw new Error("AuthContext missing");
-  return v;
-}
 
 const LEVEL_OPTIONS = ["L1", "L2", "L3", "L4", "L5", "L6", "L7"];
 
 function App() {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const ctx = useMemo<AuthCtx>(
-    () => ({
-      user,
-      signin: (email, password) => {
-        if (user && user.email === email && user.password === password) return true;
-        if (!user) {
-          setUser({
-            fullName: "Jordan Mills",
-            email,
-            password,
-            currentLevel: "L3",
-            targetLevel: "L4",
-            team: "Payments Platform",
-            manager: "Alex Morgan",
-            managerEmail: "alex.morgan@acme.com",
-            skipLevel: "Priya Shah",
-          });
-          return true;
-        }
-        return false;
-      },
-      signup: (u) => setUser(u),
-      signout: () => setUser(null),
-      updateUser: (patch, pwd) => {
-        if (!user) return false;
-        if (pwd !== user.password) return false;
-        setUser({ ...user, ...patch });
-        return true;
-      },
-    }),
-    [user],
-  );
   return (
-    <AuthContext.Provider value={ctx}>
-      {user ? <EvitraceApp /> : <AuthScreens />}
-    </AuthContext.Provider>
+    <AuthProvider>
+      <AppGate />
+    </AuthProvider>
   );
+}
+
+function AppGate() {
+  const { user } = useAuth();
+  return user ? <EvitraceApp /> : <AuthScreens />;
 }
 
 function AuthScreens() {
@@ -1297,12 +1276,13 @@ function AuthScreens() {
 }
 
 function SsoButton({ provider }: { provider: "Google" | "Microsoft" }) {
+  const { signInWithGoogle, signInWithMicrosoft } = useAuth();
   const letter = provider === "Google" ? "G" : "M";
   const bg = provider === "Google" ? "#EA4335" : "#0078D4";
   return (
     <button
       type="button"
-      onClick={() => toast.success(`${provider} sign-in (demo)`)}
+      onClick={() => provider === "Google" ? signInWithGoogle() : signInWithMicrosoft()}
       className="w-full h-10 px-3 rounded border flex items-center justify-center gap-2 text-sm font-semibold hover:bg-[#F4F5F7] transition-colors"
       style={{ borderColor: C.border, color: C.navy, background: "#fff" }}
     >
@@ -1405,7 +1385,7 @@ function SigninForm({ onSwitch }: { onSwitch: () => void }) {
 
 function SignupForm({ onSwitch }: { onSwitch: () => void }) {
   const { signup } = useAuth();
-  const [f, setF] = useState<AuthUser>({
+  const [f, setF] = useState<AuthUser & { password: string }>({
     fullName: "",
     email: "",
     password: "",
@@ -1419,7 +1399,7 @@ function SignupForm({ onSwitch }: { onSwitch: () => void }) {
   const [err, setErr] = useState<string | null>(null);
   const upd = <K extends keyof AuthUser>(k: K, v: AuthUser[K]) =>
     setF((p) => ({ ...p, [k]: v }));
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
     const required: (keyof AuthUser)[] = [
@@ -1438,8 +1418,7 @@ function SignupForm({ onSwitch }: { onSwitch: () => void }) {
         return;
       }
     }
-    signup(f);
-    toast.success("Account created");
+    await signup(f);
   }
   return (
     <Card className="p-7 sm:p-8">
@@ -1714,21 +1693,28 @@ function SecureField({
 }
 
 function EvitraceApp() {
+  const { user, userId: authUserId } = useAuth();
+  const userId = authUserId!;
+
   const [tab, setTab] = useState<Tab>("dashboard");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [evidence, setEvidence] = useState(initialEvidence);
-  const [inbox, setInbox] = useState(initialInbox);
-  const [radarData, setRadarData] = useState(initialRadar);
-  const [objectives, setObjectives] = useState(initialObjectives);
-  const [assessments, setAssessments] = useState<Assessment[]>(initialAssessments);
+  const { data: evidence = [] } = useEvidenceQuery(userId);
+  const { data: archivedEvidence = [] } = useEvidenceQuery(userId, { archived: true });
+  const { data: inbox = [] } = useInboxQuery(userId);
+  const approveInboxMutation = useApproveInbox(userId);
+  const dismissInboxMutation = useDismissInbox(userId);
+  const { data: objectives = [] } = useObjectivesQuery(userId);
+  const { data: assessments = [] } = useAssessmentsQuery(userId);
+
+  const radarData = useMemo(() => deriveRadarData(assessments[0]), [assessments]);
 
   const [showExtension, setShowExtension] = useState(true);
   const [showCapture, setShowCapture] = useState(false);
   const [showCreateObjective, setShowCreateObjective] = useState(false);
   const [openObjective, setOpenObjective] = useState<Objective | null>(null);
-  const [openEvidence, setOpenEvidence] = useState<(typeof initialEvidence)[number] | null>(null);
-  const [openInbox, setOpenInbox] = useState<(typeof initialInbox)[number] | null>(null);
+  const [openEvidence, setOpenEvidence] = useState<EvidenceRecord | null>(null);
+  const [openInbox, setOpenInbox] = useState<InboxItem | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [showWizard, setShowWizard] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -1752,36 +1738,25 @@ function EvitraceApp() {
   function approveInbox(id: string, comps: string[]) {
     const item = inbox.find((i) => i.id === id);
     if (!item) return;
-    setInbox((x) => x.filter((i) => i.id !== id));
-    setEvidence((e) => [
-      {
-        id: `EV-${300 + e.length}`,
-        date: new Date().toLocaleDateString("en-US", {
-          month: "short",
-          day: "2-digit",
-          year: "numeric",
-        }),
-        source: item.source,
-        category: "Technical",
-        competency: comps[0] ?? "Delivery",
-        title: item.title,
-        description: "Auto-captured and mapped from " + item.source,
-        link: "",
-        status: "Pending Review" as const,
-                  matchState: "Unset" as const,
-                  managerNotes: "",
-                  isArchived: false,
-      },
-      ...e,
-    ]);
-    setRadarData((d) =>
-      d.map((row) =>
-        comps.some((c) => c.toLowerCase().includes(row.competency.toLowerCase().split(" ")[0]))
-          ? { ...row, current: Math.min(4, +(row.current + 0.1).toFixed(2)) }
-          : row,
-      ),
+    const competency = comps[0] ?? item.suggestion[0] ?? "";
+    const newEvidenceRow = {
+      user_id: userId,
+      date: new Date().toISOString().slice(0, 10),
+      source: item.source,
+      category: "Integration",
+      competency,
+      title: item.title,
+      description: "",
+      link: "",
+      status: "Pending Review" as const,
+      match_state: "Unset" as const,
+      manager_notes: "",
+      is_archived: false,
+    };
+    approveInboxMutation.mutate(
+      { inboxItem: item, newEvidenceRow },
+      { onSuccess: () => flash("Evidence mapped and added to log") }
     );
-    flash("Evidence mapped and added to log");
   }
 
   return (
@@ -1819,8 +1794,6 @@ function EvitraceApp() {
               {tab === "dashboard" && (
                 <DashboardView
                   inbox={inbox}
-                  objectives={objectives}
-                  evidence={evidence}
                   onOpenInbox={setOpenInbox}
                   onOpenObjective={setOpenObjective}
                   onOpenEvidence={setOpenEvidence}
@@ -1839,14 +1812,12 @@ function EvitraceApp() {
                 <EvidenceView
                   rows={evidence}
                   onOpenRow={setOpenEvidence}
-                  onPermanentDelete={(id) => {
-                    setEvidence((e) => e.filter((x) => x.id !== id));
+                  onPermanentDelete={(_id) => {
+                    // Mutation wired in subsequent task
                     flash("Evidence permanently deleted");
                   }}
-                  onRestore={(id) => {
-                    setEvidence((e) =>
-                      e.map((x) => (x.id === id ? { ...x, isArchived: false, archivedDate: undefined } : x)),
-                    );
+                  onRestore={(_id) => {
+                    // Mutation wired in subsequent task
                     flash("Evidence restored to log");
                   }}
                 />
@@ -1856,48 +1827,19 @@ function EvitraceApp() {
                   items={objectives}
                   onOpen={setOpenObjective}
                   onCreate={() => setShowCreateObjective(true)}
-                  onRestore={(o) => {
-                    setObjectives((x) =>
-                      x.map((it) =>
-                        it.id === o.id
-                          ? { ...it, isArchived: false, archivedDate: undefined, status: "In Progress" as const }
-                          : it,
-                      ),
-                    );
+                  onRestore={(_o) => {
+                    // Mutation wired in subsequent task
                     flash("Objective restored to Kanban board");
                   }}
-                  onDelete={(o) => {
-                    setObjectives((x) => x.filter((it) => it.id !== o.id));
+                  onDelete={(_o) => {
+                    // Mutation wired in subsequent task
                     flash("Objective permanently deleted");
                   }}
                   onMove={(id, status) => {
                     const target = objectives.find((o) => o.id === id);
                     if (!target || target.status === status || target.status === "Completed") return;
-                    setObjectives((x) =>
-                      x.map((it) => (it.id === id ? { ...it, status } : it)),
-                    );
+                    // Mutation wired in subsequent task
                     if (status === "Completed") {
-                      setEvidence((e) => [
-                        {
-                          id: `EV-${300 + e.length}`,
-                          date: new Date().toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "2-digit",
-                            year: "numeric",
-                          }),
-                          source: "Bitbucket",
-                          category: "Objective",
-                          competency: target.competency,
-                          title: target.title,
-                          description: target.notes ?? "Completed objective summary",
-                          link: "",
-                          status: "Pending Review" as const,
-                  matchState: "Unset" as const,
-                  managerNotes: "",
-                  isArchived: false,
-                        },
-                        ...e,
-                      ]);
                       flash("Objective completed and added to evidence");
                     } else {
                       flash(`Moved to ${status}`);
@@ -1944,28 +1886,8 @@ function EvitraceApp() {
         {showCapture && (
           <CaptureModal
             onClose={() => setShowCapture(false)}
-            onSave={(title, comps, link, reflection) => {
-              setEvidence((e) => [
-                {
-                  id: `EV-${300 + e.length}`,
-                  date: new Date().toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "2-digit",
-                    year: "numeric",
-                  }),
-                  source: "Bitbucket",
-                  category: "Technical",
-                  competency: comps[0] ?? "Delivery",
-                  title,
-                  description: reflection || "Manually captured reflection",
-                  link,
-                  status: "Pending Review" as const,
-                  matchState: "Unset" as const,
-                  managerNotes: "",
-                  isArchived: false,
-                },
-                ...e,
-              ]);
+            onSave={(_title, _comps, _link, _reflection) => {
+              // Mutation wired in subsequent task
               setShowCapture(false);
               flash("Evidence captured");
             }}
@@ -1978,11 +1900,8 @@ function EvitraceApp() {
         {showCreateObjective && (
           <CreateObjectiveModal
             onClose={() => setShowCreateObjective(false)}
-            onSubmit={(o) => {
-              setObjectives((x) => [
-                { ...o, id: `OBJ-${100 + x.length}`, status: "Pending Approval" as const },
-                ...x,
-              ]);
+            onSubmit={(_o) => {
+              // Mutation wired in subsequent task
               setShowCreateObjective(false);
               flash("Objective submitted for approval");
             }}
@@ -1997,57 +1916,22 @@ function EvitraceApp() {
             objective={openObjective}
             onClose={() => setOpenObjective(null)}
             onSave={(o) => {
-              setObjectives((x) => x.map((it) => (it.id === o.id ? o : it)));
+              // Mutation wired in subsequent task
               setOpenObjective(o);
               flash("Objective updated");
             }}
             onChangeStatus={(o, next) => {
               const updated = { ...o, status: next };
-              setObjectives((x) => x.map((it) => (it.id === o.id ? updated : it)));
               setOpenObjective(updated);
               if (next === "Completed") {
-                setEvidence((e) => [
-                  {
-                    id: `EV-${300 + e.length}`,
-                    date: new Date().toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "2-digit",
-                      year: "numeric",
-                    }),
-                    source: "Bitbucket",
-                    category: "Objective",
-                    competency: o.competency,
-                    title: o.title,
-                    description: o.notes ?? "Completed objective summary",
-                    link: "",
-                    status: "Pending Review" as const,
-                  matchState: "Unset" as const,
-                  managerNotes: "",
-                  isArchived: false,
-                  },
-                  ...e,
-                ]);
+                // Mutation wired in subsequent task
                 flash("Objective completed and added to evidence");
               } else if (next === "In Progress") {
                 flash("Objective approved and moved to In Progress");
               }
             }}
-            onArchive={(o) => {
-              setObjectives((x) =>
-                x.map((it) =>
-                  it.id === o.id
-                    ? {
-                        ...it,
-                        isArchived: true,
-                        archivedDate: new Date().toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "2-digit",
-                          year: "numeric",
-                        }),
-                      }
-                    : it,
-                ),
-              );
+            onArchive={(_o) => {
+              // Mutation wired in subsequent task
               setOpenObjective(null);
               flash("Objective archived");
             }}
@@ -2062,26 +1946,12 @@ function EvitraceApp() {
             item={openEvidence}
             onClose={() => setOpenEvidence(null)}
             onSave={(updated) => {
-              setEvidence((e) => e.map((x) => (x.id === updated.id ? updated : x)));
+              // Mutation wired in subsequent task
               setOpenEvidence(updated);
               flash("Evidence updated");
             }}
-            onArchive={(id) => {
-              setEvidence((e) =>
-                e.map((x) =>
-                  x.id === id
-                    ? {
-                        ...x,
-                        isArchived: true,
-                        archivedDate: new Date().toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "2-digit",
-                          year: "numeric",
-                        }),
-                      }
-                    : x,
-                ),
-              );
+            onArchive={(_id) => {
+              // Mutation wired in subsequent task
               setOpenEvidence(null);
               flash("Evidence archived");
             }}
@@ -2100,9 +1970,10 @@ function EvitraceApp() {
               setOpenInbox(null);
             }}
             onDismiss={() => {
-              setInbox((x) => x.filter((i) => i.id !== openInbox.id));
+              dismissInboxMutation.mutate(openInbox.id, {
+                onSuccess: () => flash("Event dismissed"),
+              });
               setOpenInbox(null);
-              flash("Event dismissed");
             }}
           />
         )}
@@ -2119,20 +1990,8 @@ function EvitraceApp() {
               setReview(session);
               // Persist the finalized session into the historical assessments log
               const newAssessment = sessionToAssessment(session);
-              setAssessments((prev) => [newAssessment, ...prev]);
-              // Roll up averaged "next" scores into the radarData for matrix + radar chart
-              setRadarData((rows) =>
-                rows.map((r) => {
-                  const cat = radarLabelToCategory(r.competency);
-                  const subs = session.scores[cat];
-                  if (!subs) return r;
-                  const vals = (Object.values(subs) as ReviewQuestion[]).map((q) => q.next);
-                  if (vals.length === 0) return r;
-                  const avg = vals.reduce((s, v) => s + v, 0) / vals.length;
-                  // radar uses 0-4 scale, scores use 1-5; map by clamp
-                  return { ...r, current: +Math.min(4, (avg / 5) * 4).toFixed(2) };
-                }),
-              );
+              void newAssessment; // setAssessments stubbed — wired in task 12.4 via useFinalizeAssessment
+              // setRadarData stubbed — radarData is now derived via useMemo from assessments query
               setShowWizard(false);
               setTab("report");
               flash("Assessment finalized · Report generated");
@@ -2216,7 +2075,7 @@ function Sidebar({
   const displayName = user?.fullName ?? "Jordan Mills";
   const displayRole = user ? `${user.currentLevel || "Engineer"}${user.team ? ` · ${user.team}` : ""}` : "Senior Engineer L3";
   function handleSignout() {
-    signout();
+    void signout();
     onCloseMobile();
     toast.success("Signed out");
   }
@@ -2534,21 +2393,19 @@ function TopHeader({
 
 function DashboardView({
   inbox,
-  objectives,
-  evidence,
   onOpenInbox,
   onOpenObjective,
   onOpenEvidence,
 }: {
-  inbox: typeof initialInbox;
-  objectives: Objective[];
-  evidence: typeof initialEvidence;
-  onOpenInbox: (item: (typeof initialInbox)[number]) => void;
+  inbox: InboxItem[];
+  onOpenInbox: (item: InboxItem) => void;
   onOpenObjective: (o: Objective) => void;
-  onOpenEvidence: (e: (typeof initialEvidence)[number]) => void;
+  onOpenEvidence: (e: EvidenceRecord) => void;
 }) {
-  const active = objectives.filter((o) => o.status === "In Progress");
-  const recentEvidence = evidence.filter((e) => !e.isArchived).slice(0, 4);
+  const { userId } = useAuth();
+  const stats = useDashboardStats(userId!);
+  const active = stats.focusAreas;
+  const recentEvidence = stats.recentEvidence;
   function relativeDate(dateStr: string) {
     const d = new Date(dateStr);
     if (isNaN(d.getTime())) return dateStr;
@@ -2566,18 +2423,18 @@ function DashboardView({
         <StatCard
           icon={<TrendingUp size={18} />}
           label="Evidence This Quarter"
-          value="42"
+          value={String(stats.evidenceThisQuarter)}
           delta="+8 vs last quarter"
           tone="info"
         />
         <StatCard
           icon={<Calendar size={18} />}
           label="Current Streak"
-          value="14 days"
+          value={stats.streak === 1 ? "1 day" : `${stats.streak} days`}
           delta="Best: 21 days"
           tone="success"
         />
-        <PendingReviewCard />
+        <PendingReviewCard total={stats.pendingReviewCount} />
       </div>
 
       <div className="grid grid-cols-3 gap-6">
@@ -2725,13 +2582,12 @@ function StatCard({
   );
 }
 
-function PendingReviewCard() {
+function PendingReviewCard({ total }: { total: number }) {
   const items = [
     { label: "Evidence Logs", count: 3, tone: "warning" as const, icon: <FileText size={12} /> },
     { label: "SMART Objective", count: 1, tone: "info" as const, icon: <Target size={12} /> },
     { label: "Peer Feedbacks", count: 0, tone: "neutral" as const, icon: <MessageCircleHeart size={12} /> },
   ];
-  const total = items.reduce((a, b) => a + b.count, 0);
   return (
     <Card className="p-5">
       <div className="flex items-center justify-between">
@@ -2794,10 +2650,9 @@ function InboxRow({
   item,
   onOpen,
 }: {
-  item: (typeof initialInbox)[number];
+  item: InboxItem;
   onOpen: () => void;
 }) {
-  const Icon = item.icon;
   return (
     <button
       onClick={onOpen}
@@ -2807,7 +2662,7 @@ function InboxRow({
         className="w-9 h-9 rounded flex items-center justify-center shrink-0"
         style={{ background: "#F4F5F7", color: C.slate }}
       >
-        <Icon size={16} />
+        <SourceIcon source={item.source} size={16} />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 text-[11px]" style={{ color: C.subtle }}>
@@ -5993,7 +5848,7 @@ function TeamSettings() {
       manager: user!.manager,
       managerEmail: user!.managerEmail,
       team: user!.team,
-      skipLevel: user!.skipLevel,
+      skipLevel: user!.skipLevel ?? "",
     });
     setEditing(true);
   }
@@ -7531,7 +7386,7 @@ function InboxReviewSlideover({
   onConfirm,
   onDismiss,
 }: {
-  item: (typeof initialInbox)[number];
+  item: InboxItem;
   onClose: () => void;
   onConfirm: (comps: string[]) => void;
   onDismiss: () => void;
@@ -7543,7 +7398,6 @@ function InboxReviewSlideover({
   const [selected, setSelected] = useState<string[]>(item.suggestion);
   const [category, setCategory] = useState(initialCat);
   const [subcategory, setSubcategory] = useState(SUBCATEGORIES[initialCat][0]);
-  const Icon = item.icon;
   function toggle(c: string) {
     setSelected((s) => (s.includes(c) ? s.filter((x) => x !== c) : [...s, c]));
   }
@@ -7618,7 +7472,7 @@ function InboxReviewSlideover({
                   className="w-7 h-7 rounded flex items-center justify-center shrink-0"
                   style={{ background: "#FFFFFF", color: C.slate, border: `1px solid ${C.border}` }}
                 >
-                  <Icon size={14} />
+                  <SourceIcon source={item.source} size={14} />
                 </div>
                 <div className="min-w-0">
                   <div className="text-xs font-semibold" style={{ color: C.navy }}>
