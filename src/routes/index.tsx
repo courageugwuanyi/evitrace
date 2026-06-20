@@ -1338,7 +1338,7 @@ function SigninForm({ onSwitch }: { onSwitch: () => void }) {
       <div className="text-xs mt-1" style={{ color: C.subtle }}>
         Sign in to track your evidence and competencies.
       </div>
-      <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <div className="mt-5 space-y-2">
         <SsoButton provider="Google" />
         <SsoButton provider="Microsoft" />
       </div>
@@ -2181,6 +2181,17 @@ function Sidebar({
   mobileOpen: boolean;
   onCloseMobile: () => void;
 }) {
+  const { user, signout } = useAuth();
+  const initials = user
+    ? user.fullName.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase()
+    : "JM";
+  const displayName = user?.fullName ?? "Jordan Mills";
+  const displayRole = user ? `${user.currentLevel || "Engineer"}${user.team ? ` · ${user.team}` : ""}` : "Senior Engineer L3";
+  function handleSignout() {
+    signout();
+    onCloseMobile();
+    toast.success("Signed out");
+  }
   const mainNav: { id: Tab; label: string; sub: string; icon: React.ComponentType<{ size?: number }> }[] = [
     { id: "dashboard", label: "Dashboard", sub: "Daily Actions", icon: LayoutDashboard },
     { id: "evidence", label: "Evidence Log", sub: "Data Table", icon: TableProperties },
@@ -2263,17 +2274,35 @@ function Sidebar({
               className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white"
               style={{ background: "#5243AA" }}
             >
-              JM
+              {initials}
             </div>
-            <div className="leading-tight">
+            <div className="leading-tight flex-1 min-w-0">
               <div className="text-xs font-semibold" style={{ color: C.navy }}>
-                Jordan Mills
+                {displayName}
               </div>
-              <div className="text-[11px]" style={{ color: C.subtle }}>
-                Senior Engineer L3
+              <div className="text-[11px] truncate" style={{ color: C.subtle }}>
+                {displayRole}
               </div>
             </div>
+            <button
+              onClick={handleSignout}
+              title="Sign out"
+              className="p-1.5 rounded hover:bg-[#F4F5F7]"
+              style={{ color: C.slate }}
+            >
+              <LogOut size={14} />
+            </button>
           </div>
+        )}
+        {collapsed && (
+          <button
+            onClick={handleSignout}
+            title="Sign out"
+            className="w-full flex items-center justify-center py-2 rounded text-xs hover:bg-[#F4F5F7]"
+            style={{ color: C.slate }}
+          >
+            <LogOut size={16} />
+          </button>
         )}
         <button
           onClick={onToggleCollapse}
@@ -2327,8 +2356,16 @@ function Sidebar({
               <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
                 {mainNav.map((n) => <NavButton key={n.id} n={n} />)}
               </nav>
-              <div className="p-3 border-t" style={{ borderColor: C.border }}>
+              <div className="p-3 border-t space-y-2" style={{ borderColor: C.border }}>
                 <NavButton n={settingsItem} />
+                <button
+                  onClick={handleSignout}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded text-left text-sm font-semibold hover:bg-[#F4F5F7]"
+                  style={{ color: C.slate }}
+                >
+                  <LogOut size={16} />
+                  Sign out
+                </button>
               </div>
             </motion.aside>
           </motion.div>
@@ -3338,33 +3375,41 @@ function EvidenceView({
             icon={<Search size={14} />}
           />
         </div>
-        <Select icon={<Calendar size={14} />} defaultValue="all">
-          <option value="all">All dates</option>
-          <option>Last 7 days</option>
-          <option>Last 30 days</option>
-          <option>This quarter</option>
-        </Select>
-        <Select icon={<Filter size={14} />} value={comp} onChange={(e) => setComp(e.target.value)}>
-          <option>All</option>
-          {COMPETENCIES.map((c) => (
-            <option key={c}>{c}</option>
-          ))}
-        </Select>
-        <Select icon={<Filter size={14} />} value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option>All</option>
-          <option>Pending Review</option>
-          <option>Reviewed</option>
-        </Select>
-        <Select icon={<Filter size={14} />} value={source} onChange={(e) => setSource(e.target.value)}>
-          <option>All</option>
-          <option>Bitbucket</option>
-          <option>Jira</option>
-          <option>GitHub</option>
-          <option>GitLab</option>
-          <option>Slack</option>
-          <option>Teams</option>
-          <option>Confluence</option>
-        </Select>
+        <div className="w-40">
+          <Select icon={<Calendar size={14} />} defaultValue="all">
+            <option value="all">All dates</option>
+            <option>Last 7 days</option>
+            <option>Last 30 days</option>
+            <option>This quarter</option>
+          </Select>
+        </div>
+        <div className="w-48">
+          <Select icon={<Filter size={14} />} value={comp} onChange={(e) => setComp(e.target.value)}>
+            <option>All</option>
+            {COMPETENCIES.map((c) => (
+              <option key={c}>{c}</option>
+            ))}
+          </Select>
+        </div>
+        <div className="w-44">
+          <Select icon={<Filter size={14} />} value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option>All</option>
+            <option>Pending Review</option>
+            <option>Reviewed</option>
+          </Select>
+        </div>
+        <div className="w-40">
+          <Select icon={<Filter size={14} />} value={source} onChange={(e) => setSource(e.target.value)}>
+            <option>All</option>
+            <option>Bitbucket</option>
+            <option>Jira</option>
+            <option>GitHub</option>
+            <option>GitLab</option>
+            <option>Slack</option>
+            <option>Teams</option>
+            <option>Confluence</option>
+          </Select>
+        </div>
         <div className="ml-auto flex items-center gap-3">
           <div className="text-xs" style={{ color: C.subtle }}>
             {filtered.length} of {visible.length} items
