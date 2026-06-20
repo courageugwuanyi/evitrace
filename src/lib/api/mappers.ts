@@ -3,6 +3,7 @@
 // Translates between DB snake_case row types and camelCase UI types.
 
 import type { Database } from '../database.types'
+import { generateSafeId } from '../utils/generateSafeId'
 
 // ── DB Row type aliases ────────────────────────────────────────────────────────
 
@@ -680,7 +681,7 @@ export function assessmentToRows(
 
   a.categories.forEach((cat, ci) => {
     // Generate a stable UUID per category for the insert batch
-    const catUuid = crypto.randomUUID()
+    const catUuid = generateSafeId()
     const catAvg = avg(cat.questions.map((q) => q.currentScore))
 
     categoryInserts.push({

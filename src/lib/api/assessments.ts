@@ -21,11 +21,16 @@ type QuestionRow = Database['public']['Tables']['assessment_questions']['Row']
 
 export interface FinalizeAssessmentVariables {
   assessment: Assessment
+  userId?: string
 }
 
 export interface UpdateOneOnOneTopicsVariables {
   assessmentId: string
   topics: unknown[]
+}
+
+export interface DeleteAssessmentVariables {
+  assessmentId: string
 }
 
 // ── Query key helpers ──────────────────────────────────────────────────────────
@@ -90,10 +95,24 @@ export function useFinalizeAssessment(userId: string) {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async ({ assessment }: FinalizeAssessmentVariables) => {
+    mutationFn: async ({ assessment, userId: explicitUserId }: FinalizeAssessmentVariables) => {
+      const ownerId = (explicitUserId ?? userId ?? '').trim()
+      if (!ownerId) {
+        throw new Error('Cannot finalize assessment: Unauthenticated user session')
+      }
+      const { data: authData, error: authError } = await supabase.auth.getUser()
+      if (authError) throw authError
+      const sessionUserId = authData.user?.id
+      if (!sessionUserId) {
+        throw new Error('Cannot finalize assessment: Unauthenticated user session')
+      }
+      if (sessionUserId !== ownerId) {
+        throw new Error('Cannot finalize assessment: Authenticated user mismatch')
+      }
+
       const { assessment: assessmentRow, categories, questions } = assessmentToRows(
         assessment,
-        userId
+        ownerId
       )
 
       // Step 1: Upsert the assessments row (ON CONFLICT (id) DO UPDATE)
@@ -107,7 +126,7 @@ export function useFinalizeAssessment(userId: string) {
         .from('assessment_categories')
         .delete()
         .eq('assessment_id', assessment.id)
-        .eq('user_id', userId)
+        .eq('user_id', ownerId)
       if (deleteError) throw deleteError
 
       // Step 3: Bulk insert fresh categories
@@ -152,6 +171,35 @@ export function useUpdateOneOnOneTopics(userId: string) {
       const { error } = await supabase
         .from('assessments')
         .update({ one_on_one_topics: topics as Database['public']['Tables']['assessments']['Update']['one_on_one_topics'] })
+        .eq('id', assessmentId)
+        .eq('user_id', userId)
+      if (error) throw error
+    },
+
+    onError: (error: Error) => {
+      toast.error(error.message)
+    },
+
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: assessmentsKey(userId) })
+    },
+  })
+}
+
+// ── useDeleteAssessment ────────────────────────────────────────────────────────
+
+/**
+ * Deletes an assessment and its nested category/question rows (via DB cascade).
+ * Invalidates ['assessments', userId] on success.
+ */
+export function useDeleteAssessment(userId: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ assessmentId }: DeleteAssessmentVariables) => {
+      const { error } = await supabase
+        .from('assessments')
+        .delete()
         .eq('id', assessmentId)
         .eq('user_id', userId)
       if (error) throw error

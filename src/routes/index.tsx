@@ -22,6 +22,7 @@ import {
 } from "@/lib/api/objectives";
 import {
   useAssessmentsQuery,
+  useDeleteAssessment,
   useFinalizeAssessment,
   useUpdateOneOnOneTopics,
 } from "@/lib/api/assessments";
@@ -30,6 +31,7 @@ import { useFeedbackQuery, useAddFeedback } from "@/lib/api/feedback";
 import { useUploadAvatar } from "@/lib/api/profile";
 import { useSettingsQuery, useSaveNotifications, useSaveIntegrations } from "@/lib/api/settings";
 import { useFrameworkQuery, useUploadFramework } from "@/lib/api/frameworks";
+import { generateSafeId } from "@/lib/utils/generateSafeId";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import {
@@ -246,11 +248,7 @@ const SUBCATEGORIES: Record<string, string[]> = {
   ],
 };
 
-function subRating(cat: string, sub: string): number {
-  // deterministic pseudo-rating for the mock matrix
-  const key = (cat + sub).split("").reduce((a, c) => a + c.charCodeAt(0), 0);
-  return 1 + (key % 5);
-}
+const DEFAULT_EFFECTIVENESS_WEIGHT = 1;
 
 /* ---------- Shared category helpers ---------- */
 const ALL_CATEGORIES = Object.keys(SUBCATEGORIES);
@@ -359,6 +357,115 @@ function formatDisplayDate(input: string | Date): string {
   const date = input instanceof Date ? input : new Date(input);
   if (Number.isNaN(date.getTime())) return String(input);
   return DISPLAY_DATE_FORMATTER.format(date);
+}
+
+function clampEffectivenessWeight(value: number): number {
+  if (!Number.isFinite(value)) return DEFAULT_EFFECTIVENESS_WEIGHT;
+  return Math.max(1, Math.min(5, Math.round(value)));
+}
+
+function averageQuestionWeight(
+  questions: AssessmentQuestion[] | undefined,
+  key: "previousScore" | "currentScore",
+): number {
+  if (!questions || questions.length === 0) return DEFAULT_EFFECTIVENESS_WEIGHT;
+  const total = questions.reduce((sum, question) => sum + clampEffectivenessWeight(question[key]), 0);
+  return +(total / questions.length).toFixed(2);
+}
+
+function findQuestionFromAssessment(
+  assessment: Assessment | undefined,
+  categoryName: string,
+  questionText: string,
+): AssessmentQuestion | undefined {
+  const category = assessment?.categories.find((item) => item.categoryName === categoryName);
+  return category?.questions.find((item) => item.questionText === questionText);
+}
+
+function getHistoricalQuestionScores(
+  assessment: Assessment | undefined,
+  categoryName: string,
+  questionText: string,
+): { previous: number; current: number; target: number; note: string } {
+  const question = findQuestionFromAssessment(assessment, categoryName, questionText);
+  if (!question) {
+    return {
+      previous: DEFAULT_EFFECTIVENESS_WEIGHT,
+      current: DEFAULT_EFFECTIVENESS_WEIGHT,
+      target: 4,
+      note: "",
+    };
+  }
+  return {
+    previous: clampEffectivenessWeight(question.previousScore),
+    current: clampEffectivenessWeight(question.currentScore),
+    target: clampEffectivenessWeight(question.targetScore),
+    note: question.justification ?? "",
+  };
+}
+
+function calculateScoreDelta(previousScore: number, currentScore: number): number {
+  return +(currentScore - previousScore).toFixed(2);
+}
+
+function triggerAssessmentPdfDownload(assessment: Assessment): void {
+  if (typeof window === "undefined") return;
+  const printable = window.open("", "_blank", "noopener,noreferrer,width=1024,height=900");
+  if (!printable) return;
+
+  const rows = assessment.categories
+    .map((category) => {
+      const questions = category.questions
+        .map((question) => {
+          const delta = calculateScoreDelta(question.previousScore, question.currentScore);
+          return `<tr>
+            <td>${question.questionText}</td>
+            <td>${clampEffectivenessWeight(question.previousScore)}</td>
+            <td>${clampEffectivenessWeight(question.currentScore)}</td>
+            <td>${delta > 0 ? "+" : ""}${delta}</td>
+          </tr>`;
+        })
+        .join("");
+      return `<section>
+        <h3>${category.categoryName} (Avg ${averageQuestionWeight(category.questions, "currentScore").toFixed(2)})</h3>
+        <table>
+          <thead><tr><th>Question</th><th>Previous</th><th>Current</th><th>Delta</th></tr></thead>
+          <tbody>${questions}</tbody>
+        </table>
+      </section>`;
+    })
+    .join("");
+
+  printable.document.write(`<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${assessment.reviewPeriod} Assessment Report</title>
+    <style>
+      body { font-family: Inter, Arial, sans-serif; color: #172B4D; margin: 28px; }
+      h1 { margin: 0; font-size: 24px; }
+      h2 { margin: 6px 0 0; font-size: 14px; color: #42526E; font-weight: 500; }
+      h3 { margin: 20px 0 10px; font-size: 16px; }
+      table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+      th, td { border: 1px solid #DFE1E6; padding: 8px; font-size: 12px; vertical-align: top; text-align: left; }
+      th { background: #F4F5F7; color: #42526E; text-transform: uppercase; font-size: 11px; letter-spacing: .03em; }
+      .meta { margin-top: 14px; font-size: 12px; color: #42526E; }
+    </style>
+  </head>
+  <body>
+    <h1>${assessment.reviewPeriod}</h1>
+    <h2>Assessment ${assessment.id}</h2>
+    <div class="meta">
+      Engineer: ${assessment.engineerName} &nbsp;|&nbsp; Manager: ${assessment.managerName}
+      &nbsp;|&nbsp; Finalized: ${formatDisplayDate(assessment.dateCompleted)}
+      &nbsp;|&nbsp; Overall Readiness: ${assessment.overallReadinessScore}%
+    </div>
+    ${rows}
+  </body>
+</html>`);
+  printable.document.close();
+  printable.focus();
+  printable.print();
 }
 
 function formatEvidenceDateParts(input: string | Date): { dayMonth: string; year: string } {
@@ -483,6 +590,23 @@ type ReviewSession = {
   scores: Record<string, Record<string, ReviewQuestion>>;
 };
 
+type AssessmentWizardDraft = {
+  activeIdx: number;
+  scores: Record<string, Record<string, ReviewQuestion>>;
+  savedAt: string;
+};
+
+const ASSESSMENT_WIZARD_DRAFT_KEY_PREFIX = "evitrace_active_assessment_draft";
+const LEGACY_ASSESSMENT_WIZARD_DRAFT_KEY_PREFIX = "evitrace.assessmentWizardDraft";
+
+function getAssessmentWizardDraftStorageKey(userId: string): string {
+  return `${ASSESSMENT_WIZARD_DRAFT_KEY_PREFIX}.${userId}`;
+}
+
+function getLegacyAssessmentWizardDraftStorageKey(userId: string): string {
+  return `${LEGACY_ASSESSMENT_WIZARD_DRAFT_KEY_PREFIX}.${userId}`;
+}
+
 /* ---------- Historical Assessments (strict schema) ----------
  * Category.categoryCurrentAvg MUST equal the arithmetic mean of its questions'
  * currentScore values. Use `withDerivedAverages()` to enforce that invariant.
@@ -514,6 +638,7 @@ export type Assessment = {
   overallReadinessScore: number; // 0-100
   categories: AssessmentCategory[];
   oneOnOneTopics: string[];
+  isSample?: boolean;
 };
 
 function avg(nums: number[]): number {
@@ -790,7 +915,7 @@ const initialAssessments: Assessment[] = [
     },
     topics: ["Set focus areas for Q1 - System Design, Security"],
   }),
-];
+].map((assessment) => ({ ...assessment, isSample: true }));
 
 /* ---------- Primitives ---------- */
 function Card({ children, className = "", ...rest }: React.HTMLAttributes<HTMLDivElement>) {
@@ -1995,7 +2120,7 @@ function SecureField({
 function EvitraceApp() {
   const { user, userId: authUserId } = useAuth();
   const { tab: searchTab } = Route.useSearch();
-  const userId = authUserId!;
+  const userId = authUserId ?? "";
 
   const [tab, setTab] = useState<Tab>("dashboard");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -2028,8 +2153,26 @@ function EvitraceApp() {
   const deleteObjectiveMutation = useDeleteObjective(userId);
   const { data: assessments = [] } = useAssessmentsQuery(userId);
   const finalizeAssessmentMutation = useFinalizeAssessment(userId);
+  const deleteAssessmentMutation = useDeleteAssessment(userId);
   const updateTopicsMutation = useUpdateOneOnOneTopics(userId);
   const addFeedbackMutation = useAddFeedback(userId);
+  const [sampleAssessments, setSampleAssessments] = useState<Assessment[]>(() =>
+    initialAssessments.slice(0, 3),
+  );
+  const [wizardDraft, setWizardDraft] = useState<AssessmentWizardDraft | null>(null);
+
+  const historyAssessments = useMemo(() => {
+    const merged = new Map<string, Assessment>();
+    assessments.forEach((assessment) => {
+      merged.set(assessment.id, assessment);
+    });
+    sampleAssessments.forEach((assessment) => {
+      if (!merged.has(assessment.id)) merged.set(assessment.id, assessment);
+    });
+    return Array.from(merged.values()).sort(
+      (a, b) => new Date(b.dateCompleted).getTime() - new Date(a.dateCompleted).getTime(),
+    );
+  }, [assessments, sampleAssessments]);
 
   const radarData = useMemo(() => deriveRadarData(assessments[0]), [assessments]);
 
@@ -2041,6 +2184,8 @@ function EvitraceApp() {
   const [showWizard, setShowWizard] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [review, setReview] = useState<ReviewSession | null>(null);
+  const [pendingAssessmentDeleteId, setPendingAssessmentDeleteId] = useState<string | null>(null);
+  const [showDiscardDraftConfirm, setShowDiscardDraftConfirm] = useState(false);
   const [dismissedSampleInboxIds, setDismissedSampleInboxIds] = useState<string[]>([]);
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2062,6 +2207,59 @@ function EvitraceApp() {
     if (typeof window === "undefined") return;
     window.localStorage.setItem("evitrace.sampleContentVisibility", JSON.stringify(sampleContent));
   }, [sampleContent]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !userId) return;
+    const key = getAssessmentWizardDraftStorageKey(userId);
+    const legacyKey = getLegacyAssessmentWizardDraftStorageKey(userId);
+    const raw =
+      window.localStorage.getItem(key) ??
+      window.localStorage.getItem(legacyKey);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as AssessmentWizardDraft;
+      if (parsed && parsed.scores && typeof parsed.activeIdx === "number" && parsed.savedAt) {
+        setWizardDraft(parsed);
+        window.localStorage.setItem(key, JSON.stringify(parsed));
+        window.localStorage.removeItem(legacyKey);
+      }
+    } catch {
+      // ignore malformed persisted values
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !userId) return;
+    const key = getAssessmentWizardDraftStorageKey(userId);
+    if (!wizardDraft) {
+      window.localStorage.removeItem(key);
+      return;
+    }
+    window.localStorage.setItem(key, JSON.stringify(wizardDraft));
+  }, [userId, wizardDraft]);
+
+  function requestAssessmentDelete(assessmentId: string) {
+    setPendingAssessmentDeleteId(assessmentId);
+  }
+
+  function executeAssessmentDelete(assessmentId: string) {
+    const target = sampleAssessments.find((assessment) => assessment.id === assessmentId);
+    if (target?.isSample) {
+      setSampleAssessments((prev) => prev.filter((assessment) => assessment.id !== assessmentId));
+      if (review?.id === assessmentId) setReview(null);
+      flash("Sample assessment removed from history");
+      return;
+    }
+    deleteAssessmentMutation.mutate(
+      { assessmentId },
+      {
+        onSuccess: () => {
+          if (review?.id === assessmentId) setReview(null);
+          flash("Assessment deleted from history");
+        },
+      },
+    );
+  }
 
   const visibleEvidence = useMemo(
     () => (sampleContent.evidence ? evidence : evidence.filter((item) => !item.isSample)),
@@ -2098,6 +2296,13 @@ function EvitraceApp() {
 
   function flash(msg: string) {
     toast.success(msg);
+  }
+
+  function clearAssessmentWizardDraft() {
+    setWizardDraft(null);
+    if (typeof window === "undefined" || !userId) return;
+    window.localStorage.removeItem(getAssessmentWizardDraftStorageKey(userId));
+    window.localStorage.removeItem(getLegacyAssessmentWizardDraftStorageKey(userId));
   }
 
   useEffect(() => {
@@ -2217,8 +2422,11 @@ function EvitraceApp() {
                 <RadarView
                   data={radarData}
                   assessments={assessments}
+                  wizardDraft={wizardDraft}
                   onCreateObjective={() => setShowCreateObjective(true)}
                   onStartReview={() => setShowWizard(true)}
+                  onResumeDraft={() => setShowWizard(true)}
+                  onDiscardDraft={() => setShowDiscardDraftConfirm(true)}
                   onOpenHistory={() => setShowHistory(true)}
                 />
               )}
@@ -2282,12 +2490,16 @@ function EvitraceApp() {
                   onFlash={flash}
                   review={review}
                   assessments={assessments}
+                  historyAssessments={historyAssessments}
                   onOpenAssessment={(a) => setReview(assessmentToSession(a))}
                   onSaveTopics={(assessmentId, topics) => {
                     updateTopicsMutation.mutate(
                       { assessmentId, topics },
                       { onSuccess: () => flash("1-on-1 topics saved") },
                     );
+                  }}
+                  onDeleteHistoryAssessment={(assessmentId) => {
+                    requestAssessmentDelete(assessmentId);
                   }}
                   onClearReview={() => setReview(null)}
                   onStartReview={() => setShowWizard(true)}
@@ -2475,13 +2687,27 @@ function EvitraceApp() {
             evidence={visibleEvidence}
             onOpenEvidence={setOpenEvidence}
             onClose={() => setShowWizard(false)}
+            latestAssessment={assessments[0]}
+            initialDraft={wizardDraft}
+            engineerName={user?.fullName?.trim() || user?.email || "Engineer"}
+            managerName={user?.manager?.trim() || "Manager"}
+            onSaveDraft={(draft) => {
+              setWizardDraft(draft);
+              flash("Assessment draft saved");
+            }}
             onFinalize={(session: ReviewSession) => {
+              const finalizedByUserId = authUserId ?? userId;
+              if (!finalizedByUserId) {
+                toast.error("Unable to finalize assessment: no authenticated user session found.");
+                return;
+              }
               const newAssessment = sessionToAssessment(session);
               finalizeAssessmentMutation.mutate(
-                { assessment: newAssessment },
+                { assessment: newAssessment, userId: finalizedByUserId },
                 {
                   onSuccess: () => {
                     setReview(session);
+                    clearAssessmentWizardDraft();
                     setShowWizard(false);
                     setTab("report");
                     flash("Assessment finalized · Report generated");
@@ -2497,13 +2723,49 @@ function EvitraceApp() {
       <AnimatePresence>
         {showHistory && (
           <AssessmentHistoryModal
-            assessments={assessments}
+            assessments={historyAssessments}
             currentId={review?.id ?? null}
+            onDelete={(assessmentId) => {
+              requestAssessmentDelete(assessmentId);
+            }}
             onClose={() => setShowHistory(false)}
             onOpen={(a) => {
               setReview(assessmentToSession(a));
               setShowHistory(false);
               setTab("report");
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showDiscardDraftConfirm && (
+          <ConfirmDialog
+            destructive
+            title="Discard ongoing assessment draft?"
+            description="This permanently removes your saved assessment progress and notes. You cannot undo this action."
+            confirmLabel="Discard draft"
+            onCancel={() => setShowDiscardDraftConfirm(false)}
+            onConfirm={() => {
+              clearAssessmentWizardDraft();
+              setShowDiscardDraftConfirm(false);
+              flash("Assessment draft discarded");
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {pendingAssessmentDeleteId && (
+          <ConfirmDialog
+            destructive
+            title="Delete assessment report?"
+            description="Are you sure you want to delete this assessment report? This action cannot be undone."
+            confirmLabel="Delete report"
+            onCancel={() => setPendingAssessmentDeleteId(null)}
+            onConfirm={() => {
+              executeAssessmentDelete(pendingAssessmentDeleteId);
+              setPendingAssessmentDeleteId(null);
             }}
           />
         )}
@@ -3392,14 +3654,20 @@ function InboxRow({
 function RadarView({
   data,
   assessments,
+  wizardDraft,
   onCreateObjective,
   onStartReview,
+  onResumeDraft,
+  onDiscardDraft,
   onOpenHistory,
 }: {
   data: ReturnType<typeof deriveRadarData>;
   assessments: Assessment[];
+  wizardDraft: AssessmentWizardDraft | null;
   onCreateObjective: () => void;
   onStartReview: () => void;
+  onResumeDraft: () => void;
+  onDiscardDraft: () => void;
   onOpenHistory: () => void;
 }) {
   const current = useMemo(
@@ -3411,8 +3679,6 @@ function RadarView({
   const gap = [...data].sort((a, b) => b.target - b.current - (a.target - a.current))[0];
 
   const [chartMode, setChartMode] = useState<"radar" | "bar">("radar");
-  void onStartReview;
-  void onOpenHistory;
 
   // Latest + previous finalized assessments - used for "previous" series + per-question rows
   const latest = assessments[0];
@@ -3427,7 +3693,7 @@ function RadarView({
       // assessments use 1-5 scale; radar uses 0-4. Map by (x/5)*4.
       const previous = priorCat
         ? +Math.min(4, (priorCat.categoryCurrentAvg / 5) * 4).toFixed(2)
-        : +Math.max(0, r.current - 0.4).toFixed(2);
+        : +((DEFAULT_EFFECTIVENESS_WEIGHT / 5) * 4).toFixed(2);
       return {
         competency: r.competency,
         previous,
@@ -3439,10 +3705,74 @@ function RadarView({
 
   return (
     <div className="space-y-6">
+      <AnimatePresence>
+        {wizardDraft && (
+          <motion.div
+            key="ongoing-assessment-draft-banner"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.18 }}
+          >
+            <Card className="p-5" style={{ background: "#F4F5F7" }}>
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-start gap-2.5">
+                  <Info size={16} className="mt-0.5 shrink-0" style={{ color: C.primary }} />
+                  <div>
+                    <div className="text-sm font-semibold" style={{ color: C.navy }}>
+                      In-Progress Assessment
+                    </div>
+                    <div className="text-sm mt-1" style={{ color: C.slate }}>
+                      You have an ongoing self-assessment draft that was last modified on{" "}
+                      {formatDisplayDate(wizardDraft.savedAt)}.
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <PrimaryBtn onClick={onResumeDraft}>
+                    <ClipboardList size={14} />
+                    Resume Assessment
+                  </PrimaryBtn>
+                  <GhostBtn onClick={onDiscardDraft}>
+                    <Trash2 size={14} />
+                    Discard Draft
+                  </GhostBtn>
+                </div>
+              </div>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Subtitle */}
       <div className="text-sm" style={{ color: C.subtle }}>
         Assessment of current scores vs Level 4 target across the competency framework.
       </div>
+
+      <Card className="p-5">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+              Assessment Wizard
+            </div>
+            <div className="text-sm mt-1" style={{ color: C.navy }}>
+              {wizardDraft
+                ? `Ongoing assessment detected. Draft saved ${formatDisplayDate(wizardDraft.savedAt)}.`
+                : "Start a new assessment or open history from here."}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <GhostBtn onClick={onOpenHistory}>
+              <History size={14} />
+              Assessment History
+            </GhostBtn>
+            <PrimaryBtn onClick={onStartReview}>
+              <ClipboardList size={14} />
+              {wizardDraft ? "Resume Ongoing Assessment" : "Start Assessment Wizard"}
+            </PrimaryBtn>
+          </div>
+        </div>
+      </Card>
 
       {/* Executive Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -3694,11 +4024,11 @@ function HierarchicalMatrix({
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const mapToCanonical = (label: string): string => radarLabelToCategory(label);
 
-  /** Atlassian lozenge utility for change % values. */
-  const changeLozenge = (pct: number) =>
-    pct > 0
+  /** Atlassian lozenge utility for numeric score deltas. */
+  const changeLozenge = (delta: number) =>
+    delta > 0
       ? "bg-green-100 text-green-800"
-      : pct < 0
+      : delta < 0
         ? "bg-red-100 text-red-800"
         : "bg-slate-100 text-slate-800";
 
@@ -3712,11 +4042,6 @@ function HierarchicalMatrix({
           ? "bg-amber-100 text-amber-800"
           : "bg-slate-100 text-slate-800";
 
-  const fmtChange = (prev: number, cur: number) => {
-    if (prev === 0) return cur === 0 ? 0 : 100;
-    return Math.round(((cur - prev) / prev) * 100);
-  };
-
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -3725,7 +4050,7 @@ function HierarchicalMatrix({
             <Th>Competency / Question</Th>
             <Th>Previous</Th>
             <Th>Current</Th>
-            <Th>Change</Th>
+            <Th>Delta</Th>
             <Th>Target</Th>
             <Th>Gap</Th>
             <Th>Notes</Th>
@@ -3738,17 +4063,25 @@ function HierarchicalMatrix({
             const subs = SUBCATEGORIES[canonical] ?? [];
             const latestCat = latest?.categories.find((c) => c.categoryName === canonical);
             const isOpen = !!open[row.competency];
-            // Category-level rollups derived strictly from the most recent assessment
-            const prevAvg = latestCat
-              ? +(
-                  latestCat.questions.reduce((s, q) => s + q.previousScore, 0) /
-                  Math.max(latestCat.questions.length, 1)
-                ).toFixed(2)
-              : +Math.max(0, row.current - 0.4).toFixed(2);
-            const curAvg = latestCat ? latestCat.categoryCurrentAvg : row.current;
-            const targetAvg = latestCat ? latestCat.categoryTarget : row.target;
+            const subScores = subs.map((sub) => getHistoricalQuestionScores(latest, canonical, sub));
+            const prevAvg =
+              subScores.length === 0
+                ? DEFAULT_EFFECTIVENESS_WEIGHT
+                : +(
+                    subScores.reduce((sum, score) => sum + score.previous, 0) / subScores.length
+                  ).toFixed(2);
+            const curAvg =
+              subScores.length === 0
+                ? DEFAULT_EFFECTIVENESS_WEIGHT
+                : +(subScores.reduce((sum, score) => sum + score.current, 0) / subScores.length).toFixed(
+                    2,
+                  );
+            const targetAvg =
+              subScores.length === 0
+                ? 4
+                : +(subScores.reduce((sum, score) => sum + score.target, 0) / subScores.length).toFixed(2);
             const gapAvg = +(curAvg - targetAvg).toFixed(2);
-            const changePct = fmtChange(prevAvg, curAvg);
+            const delta = calculateScoreDelta(prevAvg, curAvg);
             return (
               <React.Fragment key={row.competency}>
                 <tr
@@ -3777,9 +4110,9 @@ function HierarchicalMatrix({
                   <Td style={{ color: C.navy, fontWeight: 600 }}>{curAvg.toFixed(2)}</Td>
                   <Td>
                     <span
-                      className={`px-2 py-0.5 rounded text-xs font-semibold ${changeLozenge(changePct)}`}
+                      className={`px-2 py-0.5 rounded text-xs font-semibold ${changeLozenge(delta)}`}
                     >
-                      {changePct > 0 ? `+${changePct}%` : `${changePct}%`}
+                      {delta > 0 ? `+${delta}` : `${delta}`}
                     </span>
                   </Td>
                   <Td style={{ color: C.slate }}>{targetAvg.toFixed(2)}</Td>
@@ -3791,7 +4124,9 @@ function HierarchicalMatrix({
                     </span>
                   </Td>
                   <Td style={{ color: C.subtle }}>
-                    <span className="text-[11px]">{latestCat ? "Rollup" : "-"}</span>
+                    <span className="text-[11px]">
+                      {latestCat ? "Rollup" : "Defaulted to 1 (pending assessment)"}
+                    </span>
                   </Td>
                   <Td>
                     <button
@@ -3809,15 +4144,14 @@ function HierarchicalMatrix({
                 </tr>
                 {isOpen &&
                   subs.map((sub) => {
-                    // Prefer assessment-backed question data; fall back to mock rating.
-                    const q = latestCat?.questions.find((qq) => qq.questionText === sub);
-                    const prev = q ? q.previousScore : subRating(canonical, sub);
-                    const cur = q ? q.currentScore : subRating(canonical, sub);
-                    const tgt = q ? q.targetScore : 4;
-                    const note = q?.justification ?? "";
+                    const historical = getHistoricalQuestionScores(latest, canonical, sub);
+                    const prev = historical.previous;
+                    const cur = historical.current;
+                    const tgt = historical.target;
+                    const note = historical.note;
                     const scale = EFFECTIVENESS_SCALE[Math.max(0, Math.min(4, cur - 1))];
                     const subGap = +(cur - tgt).toFixed(2);
-                    const subChange = fmtChange(prev, cur);
+                    const subDelta = calculateScoreDelta(prev, cur);
                     return (
                       <tr
                         key={canonical + sub}
@@ -3836,9 +4170,9 @@ function HierarchicalMatrix({
                         <Td style={{ color: C.navy, fontWeight: 600 }}>{cur}</Td>
                         <Td>
                           <span
-                            className={`px-2 py-0.5 rounded text-xs font-semibold ${changeLozenge(subChange)}`}
+                            className={`px-2 py-0.5 rounded text-xs font-semibold ${changeLozenge(subDelta)}`}
                           >
-                            {subChange > 0 ? `+${subChange}%` : `${subChange}%`}
+                            {subDelta > 0 ? `+${subDelta}` : `${subDelta}`}
                           </span>
                         </Td>
                         <Td style={{ color: C.slate }}>{tgt}</Td>
@@ -7589,7 +7923,7 @@ function FrameworkSettings() {
         setMismatch(true);
         return;
       }
-      const frameworkId = crypto.randomUUID();
+      const frameworkId = generateSafeId();
       const frameworkName = file.name.replace(/\.(json|csv|pdf|xlsx)$/i, "");
       uploadFrameworkMutation.mutate(
         {
@@ -7601,7 +7935,7 @@ function FrameworkSettings() {
             is_active: true,
           },
           categories: COMPETENCIES.map((name, idx) => ({
-            id: crypto.randomUUID(),
+            id: generateSafeId(),
             framework_id: frameworkId,
             user_id: frameworkUserId,
             name,
@@ -8140,8 +8474,10 @@ function ReportView({
   onFlash,
   review,
   assessments,
+  historyAssessments,
   onOpenAssessment,
   onSaveTopics,
+  onDeleteHistoryAssessment,
   onClearReview,
   onStartReview,
   onOpenHistory,
@@ -8152,8 +8488,10 @@ function ReportView({
   onFlash: (m: string) => void;
   review: ReviewSession | null;
   assessments: Assessment[];
+  historyAssessments: Assessment[];
   onOpenAssessment: (a: Assessment) => void;
   onSaveTopics: (assessmentId: string, topics: string[]) => void;
+  onDeleteHistoryAssessment: (assessmentId: string) => void;
   onClearReview: () => void;
   onStartReview: () => void;
   onOpenHistory: () => void;
@@ -8224,6 +8562,10 @@ function ReportView({
   const [topics, setTopics] = useState<string[]>([]);
   const [draft, setDraft] = useState("");
   const [topicsDirty, setTopicsDirty] = useState(false);
+  const isPersistedAssessment = useMemo(
+    () => (review ? assessments.some((item) => item.id === review.id) : false),
+    [assessments, review],
+  );
 
   useEffect(() => {
     if (!review) return;
@@ -8287,9 +8629,13 @@ function ReportView({
           </div>
         </div>
 
-        <AssessmentsArchiveTable assessments={assessments} onOpen={onOpenAssessment} />
+        <AssessmentsArchiveTable
+          assessments={historyAssessments}
+          onOpen={onOpenAssessment}
+          onDelete={onDeleteHistoryAssessment}
+        />
 
-        {assessments.length === 0 && (
+        {historyAssessments.length === 0 && (
           <Card className="p-10 text-center max-w-2xl mx-auto">
             <div
               className="w-14 h-14 rounded-full mx-auto flex items-center justify-center mb-4"
@@ -8655,9 +9001,9 @@ function ReportView({
                 Add Topic
               </GhostBtn>
               <PrimaryBtn
-                disabled={!topicsDirty}
+                disabled={!topicsDirty || !isPersistedAssessment}
                 onClick={() => {
-                  if (!review) return;
+                  if (!review || !isPersistedAssessment) return;
                   onSaveTopics(review.id, topics);
                   setTopicsDirty(false);
                 }}
@@ -8666,6 +9012,11 @@ function ReportView({
                 Save Topics
               </PrimaryBtn>
             </div>
+            {!isPersistedAssessment && review && (
+              <div className="mt-2 text-xs" style={{ color: C.subtle }}>
+                Sample assessments are read-only. Finalize a live assessment to persist 1-on-1 topics.
+              </div>
+            )}
           </div>
         </section>
 
@@ -9118,29 +9469,54 @@ function ReviewWizard({
   onClose,
   onFinalize,
   onOpenEvidence,
+  latestAssessment,
+  initialDraft,
+  engineerName,
+  managerName,
+  onSaveDraft,
 }: {
   evidence: EvidenceRecord[];
   onClose: () => void;
   onFinalize: (s: ReviewSession) => void;
   onOpenEvidence: (e: EvidenceRecord) => void;
+  latestAssessment: Assessment | undefined;
+  initialDraft: AssessmentWizardDraft | null;
+  engineerName: string;
+  managerName: string;
+  onSaveDraft: (draft: AssessmentWizardDraft) => void;
 }) {
   const categories = ALL_CATEGORIES;
-  const [activeIdx, setActiveIdx] = useState(0);
+  const [activeIdx, setActiveIdx] = useState(initialDraft?.activeIdx ?? 0);
   const [scores, setScores] = useState<Record<string, Record<string, ReviewQuestion>>>(() => {
+    if (initialDraft?.scores) {
+      return initialDraft.scores;
+    }
     const init: Record<string, Record<string, ReviewQuestion>> = {};
     categories.forEach((cat) => {
       init[cat] = {};
       SUBCATEGORIES[cat].forEach((sub) => {
-        const prev = subRating(cat, sub);
-        init[cat][sub] = { prev, next: prev, notes: "", evidenceIds: [] };
+        const historical = getHistoricalQuestionScores(latestAssessment, cat, sub);
+        const prev = historical.previous;
+        init[cat][sub] = { prev, next: historical.current, notes: historical.note, evidenceIds: [] };
       });
     });
     return init;
   });
   const [attachOpenFor, setAttachOpenFor] = useState<string | null>(null);
+  const [showUnsavedExitDialog, setShowUnsavedExitDialog] = useState(false);
+  const initialScoresSnapshotRef = useRef<string | null>(null);
 
   const activeCat = categories[activeIdx];
   const isLast = activeIdx === categories.length - 1;
+  const isDirty =
+    initialScoresSnapshotRef.current != null &&
+    JSON.stringify(scores) !== initialScoresSnapshotRef.current;
+
+  useEffect(() => {
+    if (initialScoresSnapshotRef.current == null) {
+      initialScoresSnapshotRef.current = JSON.stringify(scores);
+    }
+  }, [scores]);
 
   function updateQ(cat: string, sub: string, patch: Partial<ReviewQuestion>) {
     setScores((s) => ({
@@ -9170,14 +9546,31 @@ function ReviewWizard({
   function finalize() {
     const today = new Date();
     const session: ReviewSession = {
-      id: `REV-${today.getFullYear()}-Q${Math.ceil((today.getMonth() + 1) / 3)}`,
+      id: generateSafeId(),
       date: formatDisplayDate(today),
       period: `${today.toLocaleString("en-US", { month: "long" })} ${today.getFullYear()}`,
-      engineer: "Courage U.",
-      manager: "Alex M.",
+      engineer: engineerName,
+      manager: managerName,
       scores,
     };
     onFinalize(session);
+  }
+
+  function saveDraft() {
+    onSaveDraft({
+      activeIdx,
+      scores,
+      savedAt: new Date().toISOString(),
+    });
+    onClose();
+  }
+
+  function requestClose() {
+    if (isDirty) {
+      setShowUnsavedExitDialog(true);
+      return;
+    }
+    onClose();
   }
 
   return (
@@ -9218,7 +9611,7 @@ function ReviewWizard({
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={requestClose}
             className="w-8 h-8 rounded flex items-center justify-center hover:bg-[#F4F5F7]"
             style={{ color: C.subtle }}
             aria-label="Close wizard"
@@ -9462,14 +9855,12 @@ function ReviewWizard({
               style={{ borderColor: C.border }}
             >
               <div className="flex items-center gap-2">
-                <GhostBtn onClick={onClose}>
+                <GhostBtn onClick={requestClose}>
                   <X size={14} />
                   Cancel
                 </GhostBtn>
                 <GhostBtn
-                  onClick={() => {
-                    /* draft is in-memory */ onClose();
-                  }}
+                  onClick={saveDraft}
                 >
                   <Save size={14} />
                   Save Draft
@@ -9501,6 +9892,64 @@ function ReviewWizard({
             </div>
           </div>
         </div>
+
+        <AnimatePresence>
+          {showUnsavedExitDialog && (
+            <Backdrop onClose={() => setShowUnsavedExitDialog(false)}>
+              <motion.div
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.96 }}
+                transition={{ duration: 0.15 }}
+                className="bg-white rounded-lg shadow-2xl w-full max-w-md border"
+                style={{ borderColor: C.border }}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="p-5">
+                  <div className="flex items-start gap-3">
+                    <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 bg-amber-100">
+                      <AlertCircle size={18} className="text-amber-600" />
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-base font-bold" style={{ color: C.navy }}>
+                        Unsaved changes
+                      </div>
+                      <div className="text-sm mt-1.5 leading-relaxed" style={{ color: C.slate }}>
+                        You have unsaved changes. Closing this without saving your draft will result in
+                        lost data. Are you sure you want to exit?
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div
+                  className="px-5 py-3 border-t flex items-center justify-end gap-2"
+                  style={{ borderColor: C.border, background: C.bg }}
+                >
+                  <GhostBtn onClick={() => setShowUnsavedExitDialog(false)}>Cancel</GhostBtn>
+                  <GhostBtn
+                    onClick={() => {
+                      setShowUnsavedExitDialog(false);
+                      saveDraft();
+                    }}
+                  >
+                    <Save size={14} />
+                    Save Draft
+                  </GhostBtn>
+                  <button
+                    onClick={() => {
+                      setShowUnsavedExitDialog(false);
+                      onClose();
+                    }}
+                    className="px-3 py-1.5 rounded text-sm font-semibold text-white transition-colors"
+                    style={{ background: C.red }}
+                  >
+                    Exit Anyway
+                  </button>
+                </div>
+              </motion.div>
+            </Backdrop>
+          )}
+        </AnimatePresence>
       </motion.div>
     </motion.div>
   );
@@ -9513,9 +9962,11 @@ function ReviewWizard({
 function AssessmentsArchiveTable({
   assessments,
   onOpen,
+  onDelete,
 }: {
   assessments: Assessment[];
   onOpen: (a: Assessment) => void;
+  onDelete: (assessmentId: string) => void;
 }) {
   return (
     <Card className="p-0 overflow-hidden">
@@ -9534,7 +9985,7 @@ function AssessmentsArchiveTable({
               <Th>Manager</Th>
               <Th>Status</Th>
               <Th>Overall Readiness</Th>
-              <Th> </Th>
+              <Th>Actions</Th>
             </tr>
           </thead>
           <tbody>
@@ -9590,13 +10041,42 @@ function AssessmentsArchiveTable({
                     </div>
                   </Td>
                   <Td>
-                    <span
-                      className="inline-flex items-center justify-center w-7 h-7 rounded hover:bg-[#F4F5F7]"
-                      style={{ color: C.subtle }}
-                      aria-label="Open report"
-                    >
-                      <ChevronRight size={16} />
-                    </span>
+                    <div className="flex items-center justify-end gap-1">
+                      {a.status === "Finalized" && (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            triggerAssessmentPdfDownload(a);
+                          }}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold border hover:border-[#0052CC] transition-colors"
+                          style={{ borderColor: C.border, color: C.primary }}
+                          aria-label={`Download ${a.reviewPeriod} PDF`}
+                        >
+                          <Download size={12} />
+                          Download PDF
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onDelete(a.id);
+                        }}
+                        className="inline-flex items-center justify-center w-7 h-7 rounded hover:bg-[#FFEBE6]"
+                        style={{ color: C.red }}
+                        aria-label={`Delete assessment ${a.reviewPeriod}`}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                      <span
+                        className="inline-flex items-center justify-center w-7 h-7 rounded hover:bg-[#F4F5F7]"
+                        style={{ color: C.subtle }}
+                        aria-label="Open report"
+                      >
+                        <ChevronRight size={16} />
+                      </span>
+                    </div>
                   </Td>
                 </tr>
               );
@@ -9611,11 +10091,13 @@ function AssessmentsArchiveTable({
 function AssessmentHistoryModal({
   assessments,
   currentId,
+  onDelete,
   onClose,
   onOpen,
 }: {
   assessments: Assessment[];
   currentId: string | null;
+  onDelete: (assessmentId: string) => void;
   onClose: () => void;
   onOpen: (a: Assessment) => void;
 }) {
@@ -9665,9 +10147,17 @@ function AssessmentHistoryModal({
             const isCurrent = a.id === currentId;
             const date = formatDisplayDate(a.dateCompleted);
             return (
-              <button
+              <div
                 key={a.id}
                 onClick={() => onOpen(a)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onOpen(a);
+                  }
+                }}
+                role="button"
+                tabIndex={0}
                 className="w-full text-left p-3 rounded border hover:border-[#0052CC] hover:bg-[#F4F5F7] transition-colors"
                 style={{
                   borderColor: isCurrent ? C.primary : C.border,
@@ -9683,6 +10173,32 @@ function AssessmentHistoryModal({
                     <Badge tone={a.status === "Finalized" ? "success" : "warning"}>
                       {a.status}
                     </Badge>
+                    {a.status === "Finalized" && (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          triggerAssessmentPdfDownload(a);
+                        }}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold border hover:border-[#0052CC]"
+                        style={{ borderColor: C.border, color: C.primary }}
+                      >
+                        <Download size={11} />
+                        PDF
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDelete(a.id);
+                      }}
+                      className="inline-flex items-center justify-center w-6 h-6 rounded hover:bg-[#FFEBE6]"
+                      style={{ color: C.red }}
+                      aria-label={`Delete assessment ${a.reviewPeriod}`}
+                    >
+                      <Trash2 size={12} />
+                    </button>
                   </div>
                 </div>
                 <div className="flex items-center justify-between mt-1.5">
@@ -9693,7 +10209,7 @@ function AssessmentHistoryModal({
                     {a.overallReadinessScore}% readiness
                   </div>
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>
