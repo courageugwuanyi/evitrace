@@ -1338,7 +1338,7 @@ function SigninForm({ onSwitch }: { onSwitch: () => void }) {
       <div className="text-xs mt-1" style={{ color: C.subtle }}>
         Sign in to track your evidence and competencies.
       </div>
-      <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <div className="mt-5 space-y-2">
         <SsoButton provider="Google" />
         <SsoButton provider="Microsoft" />
       </div>
