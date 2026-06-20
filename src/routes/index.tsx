@@ -1321,14 +1321,18 @@ function SigninForm({ onSwitch }: { onSwitch: () => void }) {
   const { signin } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [err, setErr] = useState<string | null>(null);
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    setErr(null);
     if (!email || !password) {
-      toast.error("Enter your email and password");
+      setErr("Enter your email and password to continue.");
       return;
     }
     const ok = signin(email, password);
-    if (!ok) toast.error("Invalid credentials");
+    if (!ok) {
+      setErr("Invalid email or password. Please try again.");
+    }
   }
   return (
     <Card className="p-7">
@@ -1350,6 +1354,17 @@ function SigninForm({ onSwitch }: { onSwitch: () => void }) {
         <div className="flex-1 h-px" style={{ background: C.border }} />
       </div>
       <form onSubmit={submit} className="space-y-4">
+        {err && (
+          <div
+            role="alert"
+            aria-live="polite"
+            className="flex items-start gap-2 rounded-md border px-3 py-2 text-xs"
+            style={{ borderColor: "#F5BCB1", background: "#FFEBE6", color: "#BF2600" }}
+          >
+            <AlertCircle size={14} className="mt-0.5 shrink-0" />
+            <span>{err}</span>
+          </div>
+        )}
         <Field label="Email" required>
           <Input
             type="email"
@@ -1401,10 +1416,12 @@ function SignupForm({ onSwitch }: { onSwitch: () => void }) {
     managerEmail: "",
     skipLevel: "",
   });
+  const [err, setErr] = useState<string | null>(null);
   const upd = <K extends keyof AuthUser>(k: K, v: AuthUser[K]) =>
     setF((p) => ({ ...p, [k]: v }));
   function submit(e: React.FormEvent) {
     e.preventDefault();
+    setErr(null);
     const required: (keyof AuthUser)[] = [
       "fullName",
       "email",
@@ -1417,7 +1434,7 @@ function SignupForm({ onSwitch }: { onSwitch: () => void }) {
     ];
     for (const k of required) {
       if (!String(f[k]).trim()) {
-        toast.error("Please complete all required fields");
+        setErr("Please complete all required fields marked with *.");
         return;
       }
     }
@@ -1444,6 +1461,17 @@ function SignupForm({ onSwitch }: { onSwitch: () => void }) {
         <div className="flex-1 h-px" style={{ background: C.border }} />
       </div>
       <form onSubmit={submit} className="space-y-6">
+        {err && (
+          <div
+            role="alert"
+            aria-live="polite"
+            className="flex items-start gap-2 rounded-md border px-3 py-2 text-xs"
+            style={{ borderColor: "#F5BCB1", background: "#FFEBE6", color: "#BF2600" }}
+          >
+            <AlertCircle size={14} className="mt-0.5 shrink-0" />
+            <span>{err}</span>
+          </div>
+        )}
         <section>
           <div className="text-[11px] font-bold uppercase tracking-wider mb-3" style={{ color: C.subtle }}>
             Account
