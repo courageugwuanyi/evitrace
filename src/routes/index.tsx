@@ -4347,7 +4347,7 @@ function CreateObjectiveModal({
                 />
               </Field>
               <div className="grid grid-cols-2 gap-4">
-                <Field label="Deadline">
+                <Field label="Start Date">
                   <Input
                     type="date"
                     value={deadline}
