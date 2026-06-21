@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "build:ext": "vite build -c vite.config.ext.ts",
+    "build:ext": "npm run generate:ext-icons && vite build -c vite.config.ext.ts",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
+    "generate:ext-icons": "node scripts/generate-extension-icons.mjs",
     "lint": "eslint .",
     "format": "prettier --write .",
     "test": "vitest run",

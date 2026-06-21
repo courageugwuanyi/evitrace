@@ -48,8 +48,26 @@ export function useAddFeedback(userId: string) {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: async (item: Omit<FeedbackItem, 'id'>) => {
+    mutationFn: async (item: Omit<FeedbackItem, 'id'> & { referenceLinks?: string[] }) => {
       const row: Omit<FeedbackInsert, 'id'> = {
+        user_id: userId,
+        date: item.date,
+        provider: item.provider,
+        type: item.type,
+        notes: item.notes,
+        reference_links: item.referenceLinks ?? [],
+        anonymous: item.anonymous,
+      }
+      const { error } = await supabase.from('feedback').insert(row)
+      if (!error) return
+
+      const missingReferenceLinksColumn =
+        /reference_links/i.test(error.message) &&
+        /(schema cache|column)/i.test(error.message)
+
+      if (!missingReferenceLinksColumn) throw error
+
+      const fallbackRow: Omit<FeedbackInsert, 'id'> = {
         user_id: userId,
         date: item.date,
         provider: item.provider,
@@ -57,8 +75,8 @@ export function useAddFeedback(userId: string) {
         notes: item.notes,
         anonymous: item.anonymous,
       }
-      const { error } = await supabase.from('feedback').insert(row)
-      if (error) throw error
+      const { error: fallbackError } = await supabase.from('feedback').insert(fallbackRow)
+      if (fallbackError) throw fallbackError
     },
 
     onError: (error: Error) => {

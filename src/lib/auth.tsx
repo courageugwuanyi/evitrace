@@ -20,6 +20,13 @@ import type { Database } from './database.types'
 import { profileRowToAuthUser, type AuthUser } from './api/mappers'
 
 type ProfileUpdate = Database['public']['Tables']['profiles']['Update']
+type MirroredSupabaseSession = {
+  accessToken: string
+  refreshToken: string
+  storageKey?: string
+  sourceUrl?: string
+  syncedAt?: number
+}
 
 // ── Public interface ───────────────────────────────────────────────────────────
 
@@ -74,6 +81,48 @@ const DEFAULT_INTEGRATIONS = {
   notion: false,
 }
 
+function readString(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+function getProfileSeedFromMetadata(metadata: Record<string, unknown> | undefined, email: string) {
+  const emailPrefix = (email ?? '').split('@')[0] || 'User'
+  const unifiedCurrentLevel =
+    readString(metadata?.current_level) ||
+    readString(metadata?.currentLevel) ||
+    readString(metadata?.job_title) ||
+    readString(metadata?.jobTitle)
+  const fullName =
+    readString(metadata?.full_name) ||
+    readString(metadata?.fullName) ||
+    emailPrefix ||
+    'Unknown'
+  return {
+    full_name: fullName,
+    current_level: unifiedCurrentLevel,
+    target_level: readString(metadata?.target_level) || readString(metadata?.targetLevel),
+    team: readString(metadata?.team),
+    manager: readString(metadata?.manager),
+    manager_email: readString(metadata?.manager_email) || readString(metadata?.managerEmail),
+    skip_level: readString(metadata?.skip_level) || readString(metadata?.skipLevel) || null,
+    job_title: unifiedCurrentLevel || null,
+  }
+}
+
+function getProfileSeedFromSignupInput(u: AuthUser) {
+  const unifiedCurrentLevel = u.currentLevel.trim()
+  return {
+    full_name: u.fullName.trim(),
+    current_level: unifiedCurrentLevel,
+    target_level: u.targetLevel.trim(),
+    team: u.team.trim(),
+    manager: u.manager.trim(),
+    manager_email: u.managerEmail.trim(),
+    skip_level: u.skipLevel?.trim() ? u.skipLevel.trim() : null,
+    job_title: unifiedCurrentLevel || null,
+  }
+}
+
 // ── Helper: fetch profile row and convert to AuthUser ─────────────────────────
 
 async function fetchProfile(userId: string): Promise<AuthUser | null> {
@@ -85,6 +134,60 @@ async function fetchProfile(userId: string): Promise<AuthUser | null> {
 
   if (error || !data) return null
   return profileRowToAuthUser(data)
+}
+
+function getChromeApi() {
+  return (globalThis as typeof globalThis & { chrome?: any }).chrome
+}
+
+function normalizeMirroredSession(value: unknown): MirroredSupabaseSession | null {
+  if (!value || typeof value !== 'object') return null
+  const session = value as Record<string, unknown>
+
+  const accessToken =
+    typeof session.accessToken === 'string'
+      ? session.accessToken
+      : typeof session.access_token === 'string'
+        ? session.access_token
+        : null
+  const refreshToken =
+    typeof session.refreshToken === 'string'
+      ? session.refreshToken
+      : typeof session.refresh_token === 'string'
+        ? session.refresh_token
+        : null
+
+  if (!accessToken || !refreshToken) return null
+
+  return {
+    accessToken,
+    refreshToken,
+    storageKey: typeof session.storageKey === 'string' ? session.storageKey : undefined,
+    sourceUrl: typeof session.sourceUrl === 'string' ? session.sourceUrl : undefined,
+    syncedAt: typeof session.syncedAt === 'number' ? session.syncedAt : undefined,
+  }
+}
+
+async function readMirroredSessionFromChromeStorage(): Promise<MirroredSupabaseSession | null> {
+  const chromeApi = getChromeApi()
+  if (!chromeApi?.storage?.local) return null
+
+  return await new Promise((resolve) => {
+    chromeApi.storage.local.get(['evitrace_supabase_session'], (stored: Record<string, unknown>) => {
+      resolve(normalizeMirroredSession(stored?.evitrace_supabase_session))
+    })
+  })
+}
+
+async function requestSessionSyncFromWebAppTab(): Promise<void> {
+  const chromeApi = getChromeApi()
+  if (!chromeApi?.runtime?.sendMessage) return
+
+  await new Promise<void>((resolve) => {
+    chromeApi.runtime.sendMessage({ type: 'SYNC_SUPABASE_SESSION', source: 'auth_provider' }, () => {
+      resolve()
+    })
+  })
 }
 
 // ── Provider ──────────────────────────────────────────────────────────────────
@@ -103,13 +206,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // ── Step 1: hydrate from existing session ───────────────────────────────
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (cancelled) return
-      if (session?.user) {
-        const profile = await fetchProfile(session.user.id)
-        if (!cancelled) {
-          setUser(profile)
-          setUserId(session.user.id)
+
+      let activeSession = session
+      if (!activeSession) {
+        await requestSessionSyncFromWebAppTab()
+        const mirrored = await readMirroredSessionFromChromeStorage()
+        if (mirrored) {
+          const { data: hydrated, error } = await supabase.auth.setSession({
+            access_token: mirrored.accessToken,
+            refresh_token: mirrored.refreshToken,
+          })
+          if (!error) {
+            activeSession = hydrated.session
+          }
         }
       }
+
+      if (activeSession?.user) {
+        const profile = await fetchProfile(activeSession.user.id)
+        if (!cancelled) {
+          setUser(profile)
+          setUserId(activeSession.user.id)
+        }
+      }
+
       if (!cancelled) setLoading(false)
     })
 
@@ -122,20 +242,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
           // SSO first-sign-in: auto-create profiles + user_settings if missing
           if (!profile && session.user) {
-            const fullName =
-              (session.user.user_metadata?.full_name as string | undefined) ??
-              session.user.email ??
-              'Unknown'
+            const metadata = (session.user.user_metadata ?? {}) as Record<string, unknown>
+            const seeded = getProfileSeedFromMetadata(metadata, session.user.email ?? '')
 
             await supabase.from('profiles').insert({
               id: session.user.id,
-              full_name: fullName,
+              full_name: seeded.full_name,
               email: session.user.email ?? '',
-              current_level: '',
-              target_level: '',
-              team: '',
-              manager: '',
-              manager_email: '',
+              current_level: seeded.current_level,
+              target_level: seeded.target_level,
+              team: seeded.team,
+              manager: seeded.manager,
+              manager_email: seeded.manager_email,
+              skip_level: seeded.skip_level,
+              job_title: seeded.job_title,
             })
 
             const { data: existingSettings } = await supabase
@@ -197,19 +317,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (!existingProfile) {
-      const metadataName = (data.user.user_metadata?.full_name as string | undefined)?.trim()
-      const emailPrefix = (data.user.email ?? email).split('@')[0] || 'User'
-      const fullName = metadataName && metadataName.length > 0 ? metadataName : emailPrefix
+      const metadata = (data.user.user_metadata ?? {}) as Record<string, unknown>
+      const seeded = getProfileSeedFromMetadata(metadata, data.user.email ?? email)
 
       const { error: insertProfileError } = await supabase.from('profiles').insert({
         id: data.user.id,
-        full_name: fullName,
+        full_name: seeded.full_name,
         email: data.user.email ?? email,
-        current_level: '',
-        target_level: '',
-        team: '',
-        manager: '',
-        manager_email: '',
+        current_level: seeded.current_level,
+        target_level: seeded.target_level,
+        team: seeded.team,
+        manager: seeded.manager,
+        manager_email: seeded.manager_email,
+        skip_level: seeded.skip_level,
+        job_title: seeded.job_title,
       })
       if (insertProfileError) {
         toast.error(insertProfileError.message)
@@ -250,9 +371,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signup = useCallback(
     async (u: AuthUser & { password: string }): Promise<boolean> => {
+      const seededProfile = getProfileSeedFromSignupInput(u)
       const { data, error } = await supabase.auth.signUp({
         email: u.email,
         password: u.password,
+        options: {
+          data: {
+            full_name: seededProfile.full_name,
+            current_level: seededProfile.current_level,
+            target_level: seededProfile.target_level,
+            team: seededProfile.team,
+            manager: seededProfile.manager,
+            manager_email: seededProfile.manager_email,
+            skip_level: seededProfile.skip_level,
+            job_title: seededProfile.job_title,
+          },
+        },
       })
 
       if (error) {
@@ -270,16 +404,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Insert profiles row
         await supabase.from('profiles').insert({
           id: data.user.id,
-          full_name: u.fullName,
+          full_name: seededProfile.full_name,
           email: u.email,
-          current_level: u.currentLevel,
-          target_level: u.targetLevel,
-          team: u.team,
-          manager: u.manager,
-          manager_email: u.managerEmail,
-          skip_level: u.skipLevel ?? null,
+          current_level: seededProfile.current_level,
+          target_level: seededProfile.target_level,
+          team: seededProfile.team,
+          manager: seededProfile.manager,
+          manager_email: seededProfile.manager_email,
+          skip_level: seededProfile.skip_level,
           avatar_url: u.avatarUrl ?? null,
-          job_title: u.jobTitle ?? null,
+          job_title: seededProfile.job_title,
         })
 
         // Insert user_settings row with defaults
@@ -339,14 +473,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const profilePatch: ProfileUpdate = {}
       if (patch.fullName !== undefined) profilePatch.full_name = patch.fullName
       if (patch.email !== undefined) profilePatch.email = patch.email
-      if (patch.currentLevel !== undefined) profilePatch.current_level = patch.currentLevel
+      if (patch.currentLevel !== undefined) {
+        const unifiedCurrentLevel = patch.currentLevel.trim()
+        profilePatch.current_level = unifiedCurrentLevel
+        profilePatch.job_title = unifiedCurrentLevel || null
+      }
       if (patch.targetLevel !== undefined) profilePatch.target_level = patch.targetLevel
       if (patch.team !== undefined) profilePatch.team = patch.team
       if (patch.manager !== undefined) profilePatch.manager = patch.manager
       if (patch.managerEmail !== undefined) profilePatch.manager_email = patch.managerEmail
-      if (patch.skipLevel !== undefined) profilePatch.skip_level = patch.skipLevel ?? null
+      if (patch.skipLevel !== undefined) {
+        profilePatch.skip_level = patch.skipLevel?.trim() ? patch.skipLevel.trim() : null
+      }
       if (patch.avatarUrl !== undefined) profilePatch.avatar_url = patch.avatarUrl ?? null
-      if (patch.jobTitle !== undefined) profilePatch.job_title = patch.jobTitle ?? null
+      if (patch.jobTitle !== undefined && patch.currentLevel === undefined) {
+        const unifiedCurrentLevel = patch.jobTitle.trim()
+        profilePatch.current_level = unifiedCurrentLevel
+        profilePatch.job_title = unifiedCurrentLevel || null
+      }
 
       if (Object.keys(profilePatch).length > 0) {
         const { error: updateError } = await supabase

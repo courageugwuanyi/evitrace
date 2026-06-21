@@ -154,6 +154,7 @@ export type FeedbackItem = {
   provider: string
   type: FeedbackType
   notes: string
+  referenceLinks?: string[]
   anonymous: boolean
 }
 
@@ -499,6 +500,9 @@ export function feedbackRowToItem(row: FeedbackRow): FeedbackItem {
     provider: row.provider,
     type: row.type as FeedbackType,
     notes: row.notes,
+    referenceLinks: Array.isArray(row.reference_links)
+      ? row.reference_links.filter((link): link is string => typeof link === 'string')
+      : [],
     anonymous: row.anonymous,
   }
 }

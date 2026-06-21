@@ -7,21 +7,21 @@
     "default_popup": "popup.html",
     "default_title": "Log Evidence",
     "default_icon": {
-      "16": "icons/evitrace-icon.svg",
-      "32": "icons/evitrace-icon.svg",
-      "48": "icons/evitrace-icon.svg",
-      "128": "icons/evitrace-icon.svg"
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
     }
   },
   "icons": {
-    "16": "icons/evitrace-icon.svg",
-    "32": "icons/evitrace-icon.svg",
-    "48": "icons/evitrace-icon.svg",
-    "128": "icons/evitrace-icon.svg"
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
   },
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["activeTab", "storage", "alarms", "notifications"],
-  "host_permissions": ["http://localhost/*", "https://*.supabase.co/*"]
+  "permissions": ["activeTab", "storage", "alarms", "notifications", "tabs", "scripting"],
+  "host_permissions": ["http://192.168.1.130:8080/*", "https://*.supabase.co/*"]
 }

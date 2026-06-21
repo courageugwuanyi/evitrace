@@ -10,6 +10,9 @@ const STORAGE_KEYS = {
 
 const ALARM_PREFIX = "evitrace-prompt-";
 const SNOOZE_ALARM = "evitrace-snooze";
+const WEB_APP_ORIGIN = "http://192.168.1.130:8080";
+const EXT_SUPABASE_SESSION_KEY = "evitrace_supabase_session";
+const EXT_SUPABASE_SESSION_SYNCED_AT_KEY = "evitrace_supabase_session_synced_at";
 
 function defaultConfig() {
   return {
@@ -79,10 +82,130 @@ function schedulePromptAlarms(times) {
 function showCaptureReminder(promptLabel) {
   chrome.notifications.create({
     type: "basic",
-    iconUrl: "icons/evitrace-icon.svg",
+    iconUrl: "icons/icon128.png",
     title: "Evitrace Reminder",
     message: `Time to log what you learned${promptLabel ? ` (${promptLabel})` : ""}.`,
     priority: 2,
+  });
+}
+
+function parseSupabaseAuthToken(rawValue) {
+  if (!rawValue) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(rawValue);
+  } catch (_error) {
+    return null;
+  }
+
+  const directAccessToken = parsed?.access_token;
+  const directRefreshToken = parsed?.refresh_token;
+  if (typeof directAccessToken === "string" && typeof directRefreshToken === "string") {
+    return { accessToken: directAccessToken, refreshToken: directRefreshToken };
+  }
+
+  const nested = parsed?.currentSession ?? parsed?.session;
+  const nestedAccessToken = nested?.access_token;
+  const nestedRefreshToken = nested?.refresh_token;
+  if (typeof nestedAccessToken === "string" && typeof nestedRefreshToken === "string") {
+    return { accessToken: nestedAccessToken, refreshToken: nestedRefreshToken };
+  }
+
+  return null;
+}
+
+function syncSupabaseSessionFromWebApp(sendResponse) {
+  chrome.tabs.query({ url: [`${WEB_APP_ORIGIN}/*`] }, (tabs) => {
+    if (chrome.runtime.lastError) {
+      sendResponse({ ok: false, reason: chrome.runtime.lastError.message });
+      return;
+    }
+
+    const targetTab =
+      tabs.find((tab) => tab.active && typeof tab.id === "number") ??
+      tabs.find((tab) => typeof tab.id === "number");
+    if (!targetTab?.id) {
+      sendResponse({ ok: false, reason: "No web app tab found" });
+      return;
+    }
+
+    chrome.scripting.executeScript(
+      {
+        target: { tabId: targetTab.id },
+        func: () => {
+          const entries = [];
+          let hasSupabaseAuthKey = false;
+          for (let index = 0; index < localStorage.length; index += 1) {
+            const key = localStorage.key(index);
+            if (!key || !key.startsWith("sb-") || !key.includes("auth-token")) continue;
+            hasSupabaseAuthKey = true;
+            const value = localStorage.getItem(key);
+            if (typeof value !== "string" || value.trim().length === 0) continue;
+            entries.push({ key, value });
+          }
+          return { entries, hasSupabaseAuthKey };
+        },
+      },
+      (results) => {
+        if (chrome.runtime.lastError) {
+          sendResponse({ ok: false, reason: chrome.runtime.lastError.message });
+          return;
+        }
+
+        const scriptResult = results?.[0]?.result ?? {};
+        const entries = Array.isArray(scriptResult.entries) ? scriptResult.entries : [];
+        const hasSupabaseAuthKey = Boolean(scriptResult.hasSupabaseAuthKey);
+
+        if (!hasSupabaseAuthKey || entries.length === 0) {
+          sendResponse({
+            ok: false,
+            status: "NO_SESSION",
+            reason: "No active Supabase session found in web app localStorage",
+          });
+          return;
+        }
+
+        const matchedEntry = entries
+          .map((entry) => {
+            const parsed = parseSupabaseAuthToken(entry.value);
+            if (!parsed) return null;
+            return {
+              ...parsed,
+              storageKey: entry.key,
+              sourceUrl: targetTab.url ?? WEB_APP_ORIGIN,
+              syncedAt: Date.now(),
+            };
+          })
+          .find(Boolean);
+
+        if (!matchedEntry) {
+          sendResponse({
+            ok: false,
+            status: "SYNC_FAILED",
+            reason: "Supabase auth token format invalid",
+          });
+          return;
+        }
+
+        chrome.storage.local.set(
+          {
+            [EXT_SUPABASE_SESSION_KEY]: matchedEntry,
+            [EXT_SUPABASE_SESSION_SYNCED_AT_KEY]: matchedEntry.syncedAt,
+          },
+          () => {
+            if (chrome.runtime.lastError) {
+              sendResponse({ ok: false, reason: chrome.runtime.lastError.message });
+              return;
+            }
+            sendResponse({
+              ok: true,
+              syncedAt: matchedEntry.syncedAt,
+              storageKey: matchedEntry.storageKey,
+            });
+          },
+        );
+      },
+    );
   });
 }
 
@@ -157,6 +280,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       },
       () => sendResponse({ ok: true }),
     );
+    return true;
+  }
+
+  if (message?.type === "SYNC_SUPABASE_SESSION") {
+    syncSupabaseSessionFromWebApp(sendResponse);
+    // Keep the async message channel open until sendResponse is called.
     return true;
   }
 

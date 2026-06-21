@@ -1,11 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Bot, CheckCircle, Clock3, Settings, Sparkles, UserCircle2, X } from "lucide-react";
+import {
+  Bot,
+  CheckCircle,
+  ExternalLink,
+  Link as LinkIcon,
+  Plus,
+  Settings,
+  Sparkles,
+  UserCircle2,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { useInsertEvidence } from "@/lib/api/evidence";
-import { useAddFeedback } from "@/lib/api/feedback";
 import { useSettingsQuery } from "@/lib/api/settings";
+import { supabase } from "@/lib/supabase";
 
 type TabMode = "evidence" | "knowledge";
 
@@ -23,6 +33,7 @@ type KnowledgeEntry = {
   createdAt: string;
   challenge: string;
   lesson: string;
+  referenceLinks: string[];
   userId: string;
 };
 
@@ -50,9 +61,73 @@ const CATEGORY_MAP: Record<string, string[]> = {
 };
 
 const COMPETENCIES = Object.keys(CATEGORY_MAP);
+const WEB_APP_BASE_URL = "http://192.168.1.130:8080";
+const SETTINGS_URL = `${WEB_APP_BASE_URL}/?tab=settings`;
+const PROFILE_SETTINGS_URL = `${WEB_APP_BASE_URL}/?tab=settings&section=profile`;
+const BRAND_ICON_SRC = "/icons/icon128.png?v=20260621";
+const KNOWLEDGE_LOG_STORAGE_KEY_PREFIX = "evitrace.extension.knowledgeLog";
+
+type BrowserTab = { id?: number; url?: string; windowId?: number };
+type ChromeApi = {
+  tabs?: {
+    query: (queryInfo: Record<string, unknown>, callback: (tabs: BrowserTab[]) => void) => void;
+    update: (tabId: number, updateProperties: { active?: boolean; url?: string }) => void;
+    create: (createProperties: { url: string }) => void;
+  };
+  windows?: {
+    update: (windowId: number, updateInfo: { focused?: boolean }) => void;
+  };
+  storage?: {
+    local?: {
+      get: (keys: string[], callback: (stored: Record<string, unknown>) => void) => void;
+    };
+  };
+  runtime?: {
+    sendMessage: (
+      message: Record<string, unknown>,
+      callback?: (response: { ok?: boolean; reason?: string } | undefined) => void,
+    ) => void;
+  };
+};
+
+function BrandMark({ size = 28 }: { size?: number }) {
+  return (
+    <img
+      src={BRAND_ICON_SRC}
+      alt="Evitrace"
+      width={size}
+      height={size}
+      className="rounded object-cover shrink-0"
+    />
+  );
+}
 
 function getChromeApi() {
-  return (globalThis as typeof globalThis & { chrome?: any }).chrome;
+  return (globalThis as typeof globalThis & { chrome?: ChromeApi }).chrome;
+}
+
+function getKnowledgeLogStorageKey(userId: string) {
+  return `${KNOWLEDGE_LOG_STORAGE_KEY_PREFIX}.${userId || "anonymous"}`;
+}
+
+function openOrFocusTab(url: string, chromeApi: ChromeApi | undefined) {
+  if (chromeApi?.tabs?.query && chromeApi?.tabs?.update && chromeApi?.tabs?.create) {
+    chromeApi.tabs.query({}, (tabs: BrowserTab[]) => {
+      const exactMatch = tabs.find((tab) => tab.url === url);
+      const webAppMatch = tabs.find((tab) => tab.url?.startsWith(WEB_APP_BASE_URL));
+      const target = exactMatch ?? webAppMatch;
+      if (target?.id) {
+        chromeApi.tabs.update(target.id, { active: true, url });
+        if (typeof target.windowId === "number" && chromeApi.windows?.update) {
+          chromeApi.windows.update(target.windowId, { focused: true });
+        }
+        return;
+      }
+      chromeApi.tabs.create({ url });
+    });
+    return;
+  }
+  window.open(url, "_blank");
 }
 
 function polishText(text: string) {
@@ -101,13 +176,15 @@ export function ExtensionPopup({
   const safeUserId = userId ?? "";
   const { data: settings } = useSettingsQuery(safeUserId);
   const insertEvidenceMutation = useInsertEvidence(safeUserId);
-  const addFeedbackMutation = useAddFeedback(safeUserId);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
+  const successBannerTimeoutRef = useRef<number | null>(null);
 
   const [tab, setTab] = useState<TabMode>("evidence");
   const [promptState, setPromptState] = useState<PromptState>(defaultPromptState());
   const [knowledgeLog, setKnowledgeLog] = useState<KnowledgeEntry[]>([]);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [successBanner, setSuccessBanner] = useState<string | null>(null);
+  const [isSavingKnowledge, setIsSavingKnowledge] = useState(false);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -118,6 +195,11 @@ export function ExtensionPopup({
 
   const [challenge, setChallenge] = useState("");
   const [lesson, setLesson] = useState("");
+  const [knowledgeReferenceInput, setKnowledgeReferenceInput] = useState("");
+  const [knowledgeReferenceLinks, setKnowledgeReferenceLinks] = useState<string[]>([]);
+
+  const knowledgeReferenceInputValid =
+    !knowledgeReferenceInput || /^https?:\/\/\S+\.\S+/i.test(knowledgeReferenceInput);
 
   useEffect(() => {
     if (!chromeApi?.storage?.local) return;
@@ -135,8 +217,7 @@ export function ExtensionPopup({
           schedule: Array.isArray(stored.evitrace_prompt_schedule)
             ? (stored.evitrace_prompt_schedule as string[])
             : ["16:00"],
-          timezone:
-            typeof stored.evitrace_timezone === "string" ? stored.evitrace_timezone : "GMT",
+          timezone: typeof stored.evitrace_timezone === "string" ? stored.evitrace_timezone : "GMT",
           currentPromptLabel:
             typeof stored.evitrace_current_prompt_label === "string"
               ? stored.evitrace_current_prompt_label
@@ -162,6 +243,14 @@ export function ExtensionPopup({
     };
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (successBannerTimeoutRef.current !== null) {
+        window.clearTimeout(successBannerTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const promptSummary = useMemo(() => {
     if (promptState.currentPromptLabel) return promptState.currentPromptLabel;
     if (settings) {
@@ -175,24 +264,70 @@ export function ExtensionPopup({
   const canSaveEvidence =
     Boolean(userId) &&
     title.trim().length > 0 &&
-    description.trim().length > 0 &&
     category.trim().length > 0 &&
     subcategory.trim().length > 0 &&
     competency.trim().length > 0;
 
-  const canSaveKnowledge = Boolean(userId) && challenge.trim().length > 0 && lesson.trim().length > 0;
+  const canSaveKnowledge =
+    Boolean(userId) &&
+    challenge.trim().length > 0 &&
+    lesson.trim().length > 0 &&
+    knowledgeReferenceInputValid;
 
-  function handleOpenWebAuth(mode: "signin" | "signup") {
-    const url = `http://localhost:3000/?auth=${mode}`;
-    if (chromeApi?.tabs?.create) {
-      chromeApi.tabs.create({ url });
-    } else {
-      window.open(url, "_blank");
+  useEffect(() => {
+    if (!userId || typeof window === "undefined") return;
+    const raw = window.localStorage.getItem(getKnowledgeLogStorageKey(userId));
+    if (!raw) {
+      setKnowledgeLog([]);
+      return;
     }
-  }
+    try {
+      const parsed = JSON.parse(raw) as Array<
+        KnowledgeEntry & {
+          referenceLink?: string;
+        }
+      >;
+      if (!Array.isArray(parsed)) return;
+      const normalized = parsed.map((entry) => ({
+        ...entry,
+        referenceLinks: Array.isArray(entry.referenceLinks)
+          ? entry.referenceLinks.filter((link): link is string => typeof link === "string")
+          : entry.referenceLink
+            ? [entry.referenceLink]
+            : [],
+      }));
+      setKnowledgeLog(normalized.slice(0, 40));
+    } catch {
+      setKnowledgeLog([]);
+    }
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId || typeof window === "undefined") return;
+    window.localStorage.setItem(
+      getKnowledgeLogStorageKey(userId),
+      JSON.stringify(knowledgeLog.slice(0, 40)),
+    );
+  }, [knowledgeLog, userId]);
 
   function handleOpenSettings() {
-    window.open("http://localhost:3000/?tab=settings", "_blank");
+    openOrFocusTab(SETTINGS_URL, chromeApi);
+  }
+
+  function showSuccessBannerMessage(message: string) {
+    setSuccessBanner(message);
+    if (successBannerTimeoutRef.current !== null) {
+      window.clearTimeout(successBannerTimeoutRef.current);
+    }
+    successBannerTimeoutRef.current = window.setTimeout(() => {
+      setSuccessBanner(null);
+      successBannerTimeoutRef.current = null;
+    }, 3000);
+  }
+
+  function handleOpenProfileSettings() {
+    setShowProfileMenu(false);
+    openOrFocusTab(PROFILE_SETTINGS_URL, chromeApi);
   }
 
   function handleAiAssist() {
@@ -235,7 +370,7 @@ export function ExtensionPopup({
           setCategory("");
           setSubcategory("");
           setCompetency("");
-          toast.success("Evidence saved.");
+          showSuccessBannerMessage("Evidence captured successfully!");
         },
         onError: (error) => {
           toast.error(error.message);
@@ -245,34 +380,62 @@ export function ExtensionPopup({
   }
 
   function handleSaveKnowledge() {
-    if (!canSaveKnowledge) return;
-    addFeedbackMutation.mutate(
-      {
-        date: new Date().toISOString().slice(0, 10),
-        provider: "Self reflection",
-        type: "Ad-hoc",
-        notes: `Challenge: ${challenge.trim()}\n\nSolution/Lesson Learned: ${lesson.trim()}`,
-        anonymous: false,
-      },
-      {
-        onSuccess: () => {
-          const entry: KnowledgeEntry = {
-            id: `k-${Date.now()}`,
-            createdAt: new Date().toISOString(),
-            challenge: challenge.trim(),
-            lesson: lesson.trim(),
-            userId: userId ?? "unknown",
-          };
-          setKnowledgeLog((previous) => [entry, ...previous].slice(0, 40));
-          setChallenge("");
-          setLesson("");
-          toast.success("Knowledge entry saved.");
-        },
-        onError: (error) => {
+    if (!canSaveKnowledge || !userId || isSavingKnowledge) return;
+    const referencesSummary =
+      knowledgeReferenceLinks.length > 0
+        ? `\n\nReference Links:\n${knowledgeReferenceLinks.map((link) => `- ${link}`).join("\n")}`
+        : "";
+    const payload = {
+      user_id: userId,
+      title: challenge.trim(),
+      description: `${lesson.trim()}${referencesSummary}`,
+      reference_links: knowledgeReferenceLinks,
+    };
+    setIsSavingKnowledge(true);
+    void supabase
+      .from("knowledge_items")
+      .insert(payload as never)
+      .then(({ error }) => {
+        if (error) {
           toast.error(error.message);
-        },
-      },
-    );
+          return;
+        }
+        const entry: KnowledgeEntry = {
+          id: `k-${Date.now()}`,
+          createdAt: new Date().toISOString(),
+          challenge: challenge.trim(),
+          lesson: lesson.trim(),
+          referenceLinks: knowledgeReferenceLinks,
+          userId,
+        };
+        setKnowledgeLog((previous) => [entry, ...previous].slice(0, 40));
+        setChallenge("");
+        setLesson("");
+        setKnowledgeReferenceInput("");
+        setKnowledgeReferenceLinks([]);
+        showSuccessBannerMessage("Knowledge log saved!");
+      })
+      .finally(() => {
+        setIsSavingKnowledge(false);
+      });
+  }
+
+  function handleAddKnowledgeReference() {
+    const trimmed = knowledgeReferenceInput.trim();
+    if (!trimmed) return;
+    if (!/^https?:\/\/\S+\.\S+/i.test(trimmed)) {
+      toast.error("Enter a valid URL starting with http:// or https://");
+      return;
+    }
+    setKnowledgeReferenceLinks((previous) => {
+      if (previous.some((link) => link.toLowerCase() === trimmed.toLowerCase())) return previous;
+      return [...previous, trimmed];
+    });
+    setKnowledgeReferenceInput("");
+  }
+
+  function handleRemoveKnowledgeReference(linkToRemove: string) {
+    setKnowledgeReferenceLinks((previous) => previous.filter((link) => link !== linkToRemove));
   }
 
   function handleSnooze() {
@@ -308,41 +471,36 @@ export function ExtensionPopup({
 
   if (!user) {
     return (
-      <div className="w-full h-full bg-white border rounded-lg p-4" style={{ borderColor: "#DFE1E6" }}>
+      <div
+        className="w-full h-full bg-white border rounded-lg p-4"
+        style={{ borderColor: "#DFE1E6" }}
+      >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded flex items-center justify-center bg-[#0052CC] text-white">
-              <Clock3 size={14} />
-            </div>
+            <BrandMark size={28} />
             <span className="text-sm font-bold text-[#172B4D]">Evitrace</span>
           </div>
           <button onClick={onDismiss} className="p-1 rounded hover:bg-[#F4F5F7] text-[#42526E]">
             <X size={14} />
           </button>
         </div>
-        <div className="mt-4 rounded border p-3 bg-[#FAFBFC]" style={{ borderColor: "#DFE1E6" }}>
-          <div className="text-sm font-semibold text-[#172B4D]">Session expired</div>
-          <div className="mt-1 text-xs text-[#6B778C]">
-            Sign in from the web app. Evitrace uses the web app as the single source of authentication.
+        <div
+          className="mt-4 rounded-md border p-4 bg-linear-to-b from-[#F7FAFF] to-[#FFFFFF]"
+          style={{ borderColor: "#C7D7FE" }}
+        >
+          <div className="text-sm font-semibold text-[#172B4D]">Welcome to Evitrace!</div>
+          <div className="mt-2 text-xs leading-relaxed text-[#42526E]">
+            Please sign in or create an account on the web platform to start capturing your career
+            evidence.
           </div>
-          <div className="mt-3 flex gap-2">
-            <button
-              type="button"
-              onClick={() => handleOpenWebAuth("signin")}
-              className="h-9 px-3 rounded text-sm font-semibold text-white"
-              style={{ background: "#0052CC" }}
-            >
-              Open Sign In
-            </button>
-            <button
-              type="button"
-              onClick={() => handleOpenWebAuth("signup")}
-              className="h-9 px-3 rounded text-sm font-semibold border"
-              style={{ borderColor: "#DFE1E6", color: "#42526E" }}
-            >
-              Open Sign Up
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => openOrFocusTab(`${WEB_APP_BASE_URL}/`, chromeApi)}
+            className="mt-4 h-10 w-full rounded text-sm font-semibold text-white"
+            style={{ background: "#0052CC" }}
+          >
+            Open Web App
+          </button>
         </div>
       </div>
     );
@@ -363,9 +521,7 @@ export function ExtensionPopup({
       <div className="px-4 py-3 border-b" style={{ borderColor: "#DFE1E6" }}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded flex items-center justify-center bg-[#0052CC] text-white">
-              <Clock3 size={14} />
-            </div>
+            <BrandMark size={28} />
             <span className="text-sm font-bold text-[#172B4D]">Evitrace</span>
           </div>
           <div className="flex items-center gap-1">
@@ -391,11 +547,24 @@ export function ExtensionPopup({
                   className="absolute right-0 mt-1.5 w-56 rounded-md border bg-white shadow-lg p-2 z-10"
                   style={{ borderColor: "#DFE1E6" }}
                 >
-                  <div className="text-[11px] font-semibold text-[#172B4D]">
+                  <button
+                    type="button"
+                    onClick={handleOpenProfileSettings}
+                    className="w-full text-left text-[11px] font-semibold text-[#172B4D] hover:text-[#0052CC]"
+                  >
                     {user.fullName || "Unnamed user"}
-                  </div>
-                  <div className="mt-0.5 text-[11px] text-[#6B778C] break-all">{user.email}</div>
-                  <div className="mt-1.5 pt-1.5 border-t text-[11px] text-[#42526E]" style={{ borderColor: "#DFE1E6" }}>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleOpenProfileSettings}
+                    className="mt-0.5 w-full text-left text-[11px] text-[#6B778C] break-all hover:text-[#0052CC]"
+                  >
+                    {user.email}
+                  </button>
+                  <div
+                    className="mt-1.5 pt-1.5 border-t text-[11px] text-[#42526E]"
+                    style={{ borderColor: "#DFE1E6" }}
+                  >
                     Seniority:{" "}
                     <span className="font-semibold text-[#172B4D]">
                       {user.currentLevel || "Not set"}
@@ -420,6 +589,14 @@ export function ExtensionPopup({
       </div>
 
       <div className="px-4 pt-3">
+        {successBanner ? (
+          <div
+            className="mb-3 rounded border px-3 py-2 bg-[#E3FCEF]"
+            style={{ borderColor: "#57D9A3" }}
+          >
+            <div className="text-xs font-semibold text-[#006644]">{successBanner}</div>
+          </div>
+        ) : null}
         <div className="inline-flex rounded-md border p-0.5" style={{ borderColor: "#DFE1E6" }}>
           <button
             type="button"
@@ -447,7 +624,7 @@ export function ExtensionPopup({
           <>
             <div>
               <label className="text-[10px] font-bold uppercase tracking-wider mb-1 block text-[#6B778C]">
-                Title
+                Title <span className="text-[#DE350B]">*</span>
               </label>
               <input
                 value={title}
@@ -459,7 +636,7 @@ export function ExtensionPopup({
             </div>
             <div>
               <label className="text-[10px] font-bold uppercase tracking-wider mb-1 block text-[#6B778C]">
-                Description / Context
+                Description / Context <span className="normal-case font-medium">(optional)</span>
               </label>
               <textarea
                 rows={4}
@@ -472,7 +649,7 @@ export function ExtensionPopup({
             </div>
             <div>
               <label className="text-[10px] font-bold uppercase tracking-wider mb-1 block text-[#6B778C]">
-                Source Link
+                Source Link <span className="normal-case font-medium">(optional)</span>
               </label>
               <input
                 value={sourceLink}
@@ -484,7 +661,7 @@ export function ExtensionPopup({
             </div>
             <div>
               <label className="text-[10px] font-bold uppercase tracking-wider mb-1 block text-[#6B778C]">
-                Competency Category
+                Competency Category <span className="text-[#DE350B]">*</span>
               </label>
               <select
                 value={category}
@@ -505,7 +682,7 @@ export function ExtensionPopup({
             </div>
             <div>
               <label className="text-[10px] font-bold uppercase tracking-wider mb-1 block text-[#6B778C]">
-                Subcategory
+                Subcategory <span className="text-[#DE350B]">*</span>
               </label>
               <select
                 value={subcategory}
@@ -515,7 +692,9 @@ export function ExtensionPopup({
                 title={subcategory}
                 disabled={!category}
               >
-                <option value="">{category ? "Select subcategory" : "Select category first"}</option>
+                <option value="">
+                  {category ? "Select subcategory" : "Select category first"}
+                </option>
                 {category
                   ? CATEGORY_MAP[category].map((item) => (
                       <option key={item} value={item}>
@@ -560,7 +739,7 @@ export function ExtensionPopup({
           <>
             <div>
               <label className="text-[10px] font-bold uppercase tracking-wider mb-1 block text-[#6B778C]">
-                Challenge Encountered
+                Core Activity / Challenge <span className="text-[#DE350B]">*</span>
               </label>
               <textarea
                 rows={4}
@@ -573,7 +752,7 @@ export function ExtensionPopup({
             </div>
             <div>
               <label className="text-[10px] font-bold uppercase tracking-wider mb-1 block text-[#6B778C]">
-                Solution / Lesson Learned
+                Solution / Lesson Learned <span className="text-[#DE350B]">*</span>
               </label>
               <textarea
                 rows={5}
@@ -584,8 +763,79 @@ export function ExtensionPopup({
                 style={{ borderColor: "#DFE1E6" }}
               />
             </div>
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wider mb-1 block text-[#6B778C]">
+                External Reference Links <span className="normal-case font-medium">(optional)</span>
+              </label>
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <LinkIcon
+                    size={13}
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[#6B778C]"
+                  />
+                  <input
+                    value={knowledgeReferenceInput}
+                    onChange={(event) => setKnowledgeReferenceInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        handleAddKnowledgeReference();
+                      }
+                    }}
+                    placeholder="https://www.youtube.com/watch?v=..."
+                    className="w-full h-9 rounded border pl-8 pr-3 text-sm text-[#172B4D] bg-[#F4F5F7] focus:bg-white outline-none"
+                    style={{ borderColor: "#DFE1E6" }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddKnowledgeReference}
+                  className="h-9 px-2.5 rounded border text-[11px] font-semibold text-[#0052CC] inline-flex items-center gap-1"
+                  style={{ borderColor: "#DFE1E6" }}
+                >
+                  <Plus size={12} />
+                  Add Reference Link
+                </button>
+              </div>
+              {!knowledgeReferenceInputValid ? (
+                <div className="mt-1 text-[11px] text-[#DE350B]">
+                  Enter a valid URL starting with http:// or https://
+                </div>
+              ) : null}
+              {knowledgeReferenceLinks.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {knowledgeReferenceLinks.map((link) => (
+                    <span
+                      key={link}
+                      className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] text-[#0052CC] bg-[#DEEBFF]"
+                      style={{ borderColor: "#B3D4FF" }}
+                    >
+                      <a
+                        href={link}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 hover:underline"
+                      >
+                        Link
+                        <ExternalLink size={11} />
+                      </a>
+                      <button
+                        type="button"
+                        aria-label={`Remove reference link ${link}`}
+                        onClick={() => handleRemoveKnowledgeReference(link)}
+                        className="rounded-full p-0.5 hover:bg-[#B3D4FF]"
+                      >
+                        <X size={10} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
             <div className="rounded border p-2.5 bg-[#FAFBFC]" style={{ borderColor: "#DFE1E6" }}>
-              <div className="text-[11px] font-semibold text-[#42526E] mb-1">Recent Knowledge Logs</div>
+              <div className="text-[11px] font-semibold text-[#42526E] mb-1">
+                Recent Knowledge Logs
+              </div>
               {knowledgeLog.length === 0 ? (
                 <div className="text-[11px] text-[#6B778C]">No entries yet.</div>
               ) : (
@@ -594,6 +844,23 @@ export function ExtensionPopup({
                     <div key={entry.id} className="text-[11px] text-[#42526E]">
                       <span className="font-semibold">{entry.challenge}</span>
                       <div className="text-[#6B778C]">{entry.lesson}</div>
+                      {entry.referenceLinks?.length ? (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {entry.referenceLinks.map((link) => (
+                            <a
+                              key={link}
+                              href={link}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] text-[#0052CC] hover:underline"
+                              style={{ borderColor: "#B3D4FF", background: "#DEEBFF" }}
+                            >
+                              External reference
+                              <ExternalLink size={10} />
+                            </a>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   ))}
                 </div>
@@ -640,7 +907,7 @@ export function ExtensionPopup({
         ) : (
           <button
             type="button"
-            disabled={!canSaveKnowledge || addFeedbackMutation.isPending}
+            disabled={!canSaveKnowledge || isSavingKnowledge}
             onClick={handleSaveKnowledge}
             className="px-3 py-1.5 rounded text-sm font-semibold text-white inline-flex items-center gap-1.5 disabled:opacity-50"
             style={{ background: "#0052CC" }}

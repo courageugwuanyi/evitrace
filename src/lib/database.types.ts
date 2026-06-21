@@ -445,6 +445,7 @@ export type Database = {
           provider: string
           type: string
           notes: string
+          reference_links: Json | null
           anonymous: boolean
           created_at: string
           updated_at: string
@@ -456,6 +457,7 @@ export type Database = {
           provider: string
           type: string
           notes?: string
+          reference_links?: Json | null
           anonymous?: boolean
           created_at?: string
           updated_at?: string
@@ -467,6 +469,7 @@ export type Database = {
           provider?: string
           type?: string
           notes?: string
+          reference_links?: Json | null
           anonymous?: boolean
           created_at?: string
           updated_at?: string

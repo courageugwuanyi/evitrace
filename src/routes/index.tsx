@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import type { AuthUser, InboxItem, NotificationPrefs, IntegrationPrefs } from "@/lib/api/mappers";
 import {
@@ -31,6 +32,7 @@ import { useFeedbackQuery, useAddFeedback } from "@/lib/api/feedback";
 import { useUploadAvatar } from "@/lib/api/profile";
 import { useSettingsQuery, useSaveNotifications, useSaveIntegrations } from "@/lib/api/settings";
 import { useFrameworkQuery, useUploadFramework } from "@/lib/api/frameworks";
+import { supabase } from "@/lib/supabase";
 import { generateSafeId } from "@/lib/utils/generateSafeId";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -127,6 +129,7 @@ import {
 export const Route = createFileRoute("/")({
   validateSearch: (search: Record<string, unknown>) => ({
     tab: typeof search.tab === "string" ? search.tab : undefined,
+    section: typeof search.section === "string" ? search.section : undefined,
   }),
   head: () => ({
     meta: [
@@ -165,6 +168,20 @@ const C = {
   amberSoft: "#FFFAE6",
   red: "#DE350B",
 };
+
+const BRAND_ICON_SRC = "/icons/icon128.png?v=20260621";
+
+function BrandMark({ size = 32 }: { size?: number }) {
+  return (
+    <img
+      src={BRAND_ICON_SRC}
+      alt="Evitrace"
+      width={size}
+      height={size}
+      className="rounded object-cover shrink-0"
+    />
+  );
+}
 
 const COMPETENCIES = [
   "Analytical Thinking",
@@ -1572,11 +1589,39 @@ const initialObjectives: Objective[] = [
 /*                        APP ROOT                              */
 /* ============================================================ */
 
-type Tab = "dashboard" | "radar" | "evidence" | "objectives" | "feedback" | "report" | "settings";
+type Tab =
+  | "dashboard"
+  | "radar"
+  | "evidence"
+  | "objectives"
+  | "knowledge"
+  | "feedback"
+  | "report"
+  | "settings";
+const NAV_TABS: Tab[] = [
+  "dashboard",
+  "radar",
+  "evidence",
+  "objectives",
+  "knowledge",
+  "feedback",
+  "report",
+  "settings",
+];
+function isTab(value: string | undefined): value is Tab {
+  return Boolean(value && NAV_TABS.includes(value as Tab));
+}
 type SampleContentVisibility = {
   dashboard: boolean;
   objectives: boolean;
   evidence: boolean;
+};
+type GlobalSearchSection = "objectives" | "evidence" | "knowledge";
+type GlobalSearchResultItem = {
+  id: string;
+  title: string;
+  description: string;
+  section: GlobalSearchSection;
 };
 
 type InboxViewItem = InboxItem & { isSample?: boolean };
@@ -1586,6 +1631,88 @@ type InboxConfirmPayload = {
   category: string;
   subcategory: string;
 };
+
+type KnowledgeHubItem = {
+  id: string;
+  createdAt: string;
+  challenge: string;
+  lesson: string;
+  referenceLinks: string[];
+};
+
+type KnowledgeItemRow = {
+  id: string;
+  user_id: string;
+  title: string;
+  description: string;
+  reference_links: unknown;
+  created_at?: string;
+};
+
+function extractYouTubeVideoId(input: string): string | null {
+  if (!input.trim()) return null;
+  try {
+    const parsed = new URL(input.trim());
+    const host = parsed.hostname.replace(/^www\./i, "").toLowerCase();
+    if (host === "youtu.be") {
+      const id = parsed.pathname.split("/").filter(Boolean)[0];
+      return id && /^[A-Za-z0-9_-]{6,}$/.test(id) ? id : null;
+    }
+    if (host === "youtube.com" || host === "m.youtube.com") {
+      if (parsed.pathname === "/watch") {
+        const v = parsed.searchParams.get("v");
+        return v && /^[A-Za-z0-9_-]{6,}$/.test(v) ? v : null;
+      }
+      const parts = parsed.pathname.split("/").filter(Boolean);
+      if (parts[0] === "embed" || parts[0] === "shorts") {
+        const candidate = parts[1];
+        return candidate && /^[A-Za-z0-9_-]{6,}$/.test(candidate) ? candidate : null;
+      }
+    }
+  } catch {
+    // ignore malformed URL values
+  }
+  return null;
+}
+
+function firstUrlInText(text: string): string | null {
+  const match = text.match(/https?:\/\/[^\s)]+/i);
+  return match ? match[0] : null;
+}
+
+function urlsInText(text: string): string[] {
+  const matches = text.match(/https?:\/\/[^\s)]+/gi) ?? [];
+  const normalized = matches.map((url) => url.trim());
+  return Array.from(new Set(normalized));
+}
+
+function normalizeReferenceLinks(links: string[]): string[] {
+  return Array.from(
+    new Set(
+      links
+        .map((link) => link.trim())
+        .filter((link) => /^https?:\/\/\S+\.\S+/i.test(link)),
+    ),
+  );
+}
+
+function parseKnowledgeItemRow(item: KnowledgeItemRow): KnowledgeHubItem | null {
+  const challenge = (item.title ?? "").trim();
+  const lesson = (item.description ?? "").trim();
+  const linkedReferences = Array.isArray(item.reference_links)
+    ? item.reference_links.filter((link): link is string => typeof link === "string")
+    : [];
+  const referenceMatches = urlsInText(lesson);
+  const mergedReferenceLinks = normalizeReferenceLinks([...linkedReferences, ...referenceMatches]);
+  if (!challenge && !lesson) return null;
+  return {
+    id: item.id,
+    createdAt: item.created_at ?? new Date().toISOString(),
+    challenge,
+    lesson,
+    referenceLinks: mergedReferenceLinks,
+  };
+}
 
 /* ============================================================ */
 /*        AUTH: context, gate, signup / signin screens          */
@@ -1617,12 +1744,7 @@ function AuthScreens() {
     >
       <div className={`w-full ${mode === "signup" ? "max-w-2xl" : "max-w-md"}`}>
         <div className="flex items-center justify-center gap-2 mb-6">
-          <div
-            className="w-9 h-9 rounded flex items-center justify-center"
-            style={{ background: C.primary }}
-          >
-            <RadarIcon size={20} color="#fff" />
-          </div>
+          <BrandMark size={36} />
           <div className="leading-tight">
             <div className="text-base font-bold tracking-tight" style={{ color: C.navy }}>
               Evitrace
@@ -1807,7 +1929,12 @@ function SignupForm({ onSwitch }: { onSwitch: (notice?: string) => void }) {
       }
     }
     try {
-      const ok = await signup(f);
+      const unifiedCurrentLevel = f.currentLevel.trim();
+      const ok = await signup({
+        ...f,
+        currentLevel: unifiedCurrentLevel,
+        jobTitle: unifiedCurrentLevel,
+      });
       if (ok) {
         onSwitch("Account created. Please verify your email, then sign in.");
       }
@@ -1894,12 +2021,22 @@ function SignupForm({ onSwitch }: { onSwitch: (notice?: string) => void }) {
             Role & Levels
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Current level" required hint="e.g. L3, SDE II, Senior Engineer.">
-              <Input
+            <Field
+              label="Current Job Title / Level"
+              required
+              hint="Your current role/title in your organization (e.g. Senior Engineer, L3)."
+            >
+              <Select
                 value={f.currentLevel}
                 onChange={(e) => upd("currentLevel", e.target.value)}
-                placeholder="Senior Engineer"
-              />
+              >
+                <option value="">Select your current level</option>
+                {LEVEL_OPTIONS.map((level) => (
+                  <option key={level} value={level}>
+                    {level}
+                  </option>
+                ))}
+              </Select>
             </Field>
             <Field label="Target level" required hint="The next level you're aiming for.">
               <Input
@@ -1948,9 +2085,9 @@ function SignupForm({ onSwitch }: { onSwitch: (notice?: string) => void }) {
             </Field>
             <div className="sm:col-span-2">
               <Field
-                label="Skip-level reviewer"
+                label="Manager's Manager (Skip-Level)"
                 optional
-                hint="You can add this later in Settings."
+                hint="The engineering leader or executive your direct manager reports to."
               >
                 <Input
                   value={f.skipLevel}
@@ -2119,12 +2256,17 @@ function SecureField({
 
 function EvitraceApp() {
   const { user, userId: authUserId } = useAuth();
-  const { tab: searchTab } = Route.useSearch();
+  const { tab: searchTab, section: searchSection } = Route.useSearch();
+  const navigate = Route.useNavigate();
   const userId = authUserId ?? "";
 
-  const [tab, setTab] = useState<Tab>("dashboard");
+  const [tab, setTab] = useState<Tab>(() => (isTab(searchTab) ? searchTab : "dashboard"));
+  const [settingsSection, setSettingsSection] = useState<SettingsSection>(() =>
+    isSettingsSection(searchSection) ? searchSection : "profile",
+  );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [globalSearchQuery, setGlobalSearchQuery] = useState("");
   const [sampleContent, setSampleContent] = useState<SampleContentVisibility>({
     dashboard: true,
     objectives: true,
@@ -2155,7 +2297,35 @@ function EvitraceApp() {
   const finalizeAssessmentMutation = useFinalizeAssessment(userId);
   const deleteAssessmentMutation = useDeleteAssessment(userId);
   const updateTopicsMutation = useUpdateOneOnOneTopics(userId);
-  const addFeedbackMutation = useAddFeedback(userId);
+  const queryClient = useQueryClient();
+  const { data: knowledgeRows = [] } = useQuery({
+    queryKey: ["knowledge_items", userId],
+    queryFn: async () => {
+      if (!userId) return [];
+      const { data, error } = await (supabase as any)
+        .from("knowledge_items")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as KnowledgeItemRow[];
+    },
+    enabled: Boolean(userId),
+  });
+  const addKnowledgeMutation = useMutation({
+    mutationFn: async (payload: {
+      user_id: string;
+      title: string;
+      description: string;
+      reference_links: string[];
+    }) => {
+      const { error } = await (supabase as any).from("knowledge_items").insert(payload);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["knowledge_items", userId] });
+    },
+  });
   const [sampleAssessments, setSampleAssessments] = useState<Assessment[]>(() =>
     initialAssessments.slice(0, 3),
   );
@@ -2283,12 +2453,66 @@ function EvitraceApp() {
         : archivedObjectives.filter((item) => !item.isSample),
     [archivedObjectives, sampleContent.objectives],
   );
+  const knowledgeItems = useMemo(
+    () =>
+      knowledgeRows
+        .map(parseKnowledgeItemRow)
+        .filter((item): item is KnowledgeHubItem => Boolean(item))
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [knowledgeRows],
+  );
+  const globalSearchResults = useMemo(() => {
+    const query = globalSearchQuery.trim().toLowerCase();
+    if (!query) {
+      return {
+        objectives: [] as GlobalSearchResultItem[],
+        evidence: [] as GlobalSearchResultItem[],
+        knowledge: [] as GlobalSearchResultItem[],
+      };
+    }
+    const matches = (title: string, description: string) =>
+      `${title} ${description}`.toLowerCase().includes(query);
+    const objectives = visibleObjectives
+      .filter((item) =>
+        matches(
+          item.title,
+          item.statement ?? item.notes ?? item.specific ?? item.measurable ?? "",
+        ),
+      )
+      .slice(0, 6)
+      .map((item) => ({
+        id: item.id,
+        title: item.title,
+        description: item.statement ?? item.notes ?? "Objective match",
+        section: "objectives" as const,
+      }));
+    const evidence = visibleEvidence
+      .filter((item) => matches(item.title, item.description))
+      .slice(0, 6)
+      .map((item) => ({
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        section: "evidence" as const,
+      }));
+    const knowledge = knowledgeItems
+      .filter((item) => matches(item.challenge, item.lesson))
+      .slice(0, 6)
+      .map((item) => ({
+        id: item.id,
+        title: item.challenge,
+        description: item.lesson,
+        section: "knowledge" as const,
+      }));
+    return { objectives, evidence, knowledge };
+  }, [globalSearchQuery, knowledgeItems, visibleEvidence, visibleObjectives]);
 
   const pageTitle: Record<Tab, string> = {
     dashboard: "Dashboard",
     radar: "Promotion Readiness",
     evidence: "Evidence Log",
     objectives: "Objectives",
+    knowledge: "Knowledge Hub",
     feedback: "360 Feedback",
     report: "Reviews & Reports",
     settings: "Settings",
@@ -2306,15 +2530,57 @@ function EvitraceApp() {
   }
 
   useEffect(() => {
-    if (
-      searchTab &&
-      ["dashboard", "radar", "evidence", "objectives", "feedback", "report", "settings"].includes(
-        searchTab,
-      )
-    ) {
-      setTab(searchTab as Tab);
-    }
+    if (!isTab(searchTab)) return;
+    setTab((prev) => (prev === searchTab ? prev : searchTab));
   }, [searchTab]);
+
+  useEffect(() => {
+    if (!isSettingsSection(searchSection)) return;
+    setSettingsSection((prev) => (prev === searchSection ? prev : searchSection));
+  }, [searchSection]);
+
+  function navigateWithState(nextTab: Tab, nextSection?: SettingsSection) {
+    void navigate({
+      search: (prev) => {
+        const sectionFromSearch = prev.section;
+        const resolvedSection = nextSection
+          ?? (isSettingsSection(sectionFromSearch) ? sectionFromSearch : settingsSection);
+        if (nextTab === "settings") {
+          return {
+            ...prev,
+            tab: nextTab,
+            section: resolvedSection,
+          };
+        }
+        const { section: _section, ...rest } = prev;
+        return {
+          ...rest,
+          tab: nextTab,
+        };
+      },
+      replace: true,
+    });
+  }
+
+  function handleTabChange(nextTab: Tab) {
+    setTab(nextTab);
+    setMobileSidebarOpen(false);
+    navigateWithState(nextTab);
+  }
+
+  function handleSettingsSectionChange(nextSection: SettingsSection) {
+    setSettingsSection(nextSection);
+    if (tab !== "settings") {
+      setTab("settings");
+      navigateWithState("settings", nextSection);
+      return;
+    }
+    navigateWithState("settings", nextSection);
+  }
+  function handleGlobalSearchSelect(result: GlobalSearchResultItem) {
+    setGlobalSearchQuery("");
+    handleTabChange(result.section);
+  }
 
   function approveInbox(item: InboxViewItem, payload: InboxConfirmPayload) {
     const title = payload.title.trim() || item.title;
@@ -2380,10 +2646,7 @@ function EvitraceApp() {
     >
       <Sidebar
         tab={tab}
-        setTab={(t) => {
-          setTab(t);
-          setMobileSidebarOpen(false);
-        }}
+        setTab={handleTabChange}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
         mobileOpen={mobileSidebarOpen}
@@ -2397,6 +2660,10 @@ function EvitraceApp() {
           title={pageTitle[tab]}
           onCapture={() => setShowCapture(true)}
           onMenuClick={() => setMobileSidebarOpen(true)}
+          globalSearchQuery={globalSearchQuery}
+          onGlobalSearchQueryChange={setGlobalSearchQuery}
+          globalSearchResults={globalSearchResults}
+          onGlobalSearchSelect={handleGlobalSearchSelect}
         />
 
         <main className="flex-1 px-4 py-4 md:px-8 md:py-6 print-main">
@@ -2482,6 +2749,7 @@ function EvitraceApp() {
                   }}
                 />
               )}
+              {tab === "knowledge" && <KnowledgeHubView items={knowledgeItems} />}
               {tab === "report" && (
                 <ReportView
                   evidence={visibleEvidence}
@@ -2511,6 +2779,8 @@ function EvitraceApp() {
                 <SettingsView
                   sampleContent={sampleContent}
                   onSampleContentChange={setSampleContent}
+                  section={settingsSection}
+                  onSectionChange={handleSettingsSectionChange}
                 />
               )}
             </motion.div>
@@ -2548,14 +2818,17 @@ function EvitraceApp() {
                 },
               );
             }}
-            onSaveKnowledge={({ challenge, lesson, reset }) => {
-              addFeedbackMutation.mutate(
+            onSaveKnowledge={({ challenge, lesson, referenceLinks, reset }) => {
+              if (!userId) {
+                toast.error("Please sign in before saving knowledge.");
+                return;
+              }
+              addKnowledgeMutation.mutate(
                 {
-                  date: new Date().toISOString().slice(0, 10),
-                  provider: "Self reflection",
-                  type: "Ad-hoc",
-                  notes: `Challenge: ${challenge.trim()}\n\nSolution/Lesson Learned: ${lesson.trim()}`,
-                  anonymous: false,
+                  user_id: userId,
+                  title: challenge.trim(),
+                  description: lesson.trim(),
+                  reference_links: referenceLinks,
                 },
                 {
                   onSuccess: () => {
@@ -2806,7 +3079,7 @@ function Sidebar({
       .join("")
       .toUpperCase() || "US";
   const displayRole = user
-    ? `${user.jobTitle || user.currentLevel || "Engineer"}${user.team ? ` · ${user.team}` : ""}`
+    ? `${user.currentLevel || "Engineer"}${user.team ? ` · ${user.team}` : ""}`
     : "Senior Engineer L3";
   function handleSignout() {
     void signout();
@@ -2822,6 +3095,7 @@ function Sidebar({
     { id: "dashboard", label: "Dashboard", sub: "Daily Actions", icon: LayoutDashboard },
     { id: "evidence", label: "Evidence Log", sub: "Data Table", icon: TableProperties },
     { id: "objectives", label: "Objectives", sub: "Skill Gap Planning", icon: Target },
+    { id: "knowledge", label: "Knowledge Hub", sub: "Learned Insights", icon: BookOpen },
     {
       id: "feedback",
       label: "360 Feedback",
@@ -2884,12 +3158,7 @@ function Sidebar({
         style={{ borderColor: C.border }}
       >
         <div className={`flex items-center min-w-0 ${collapsed ? "justify-center flex-1" : "gap-2"}`}>
-          <div
-            className="w-8 h-8 rounded flex items-center justify-center shrink-0"
-            style={{ background: C.primary }}
-          >
-            <RadarIcon size={18} color="#fff" />
-          </div>
+          <BrandMark size={32} />
           {!collapsed && (
             <div className="leading-tight">
               <div className="text-[15px] font-bold tracking-tight" style={{ color: C.navy }}>
@@ -3007,12 +3276,7 @@ function Sidebar({
                 style={{ borderColor: C.border }}
               >
                 <div className="flex items-center gap-2">
-                  <div
-                    className="w-8 h-8 rounded flex items-center justify-center"
-                    style={{ background: C.primary }}
-                  >
-                    <RadarIcon size={18} color="#fff" />
-                  </div>
+                  <BrandMark size={32} />
                   <div className="text-[15px] font-bold tracking-tight" style={{ color: C.navy }}>
                     Evitrace
                   </div>
@@ -3053,10 +3317,22 @@ function TopHeader({
   title,
   onCapture,
   onMenuClick,
+  globalSearchQuery,
+  onGlobalSearchQueryChange,
+  globalSearchResults,
+  onGlobalSearchSelect,
 }: {
   title: string;
   onCapture: () => void;
   onMenuClick: () => void;
+  globalSearchQuery: string;
+  onGlobalSearchQueryChange: (next: string) => void;
+  globalSearchResults: {
+    objectives: GlobalSearchResultItem[];
+    evidence: GlobalSearchResultItem[];
+    knowledge: GlobalSearchResultItem[];
+  };
+  onGlobalSearchSelect: (item: GlobalSearchResultItem) => void;
 }) {
   const [notifs, setNotifs] = useState<
     {
@@ -3103,6 +3379,20 @@ function TopHeader({
   ]);
   const [open, setOpen] = useState(false);
   const unread = notifs.filter((n) => !n.read).length;
+  const hasSearchQuery = globalSearchQuery.length > 0;
+  const hasGlobalResults =
+    globalSearchResults.objectives.length > 0 ||
+    globalSearchResults.evidence.length > 0 ||
+    globalSearchResults.knowledge.length > 0;
+  const groupedSearchResults: Array<{
+    key: GlobalSearchSection;
+    label: string;
+    items: GlobalSearchResultItem[];
+  }> = [
+    { key: "objectives", label: "Objectives", items: globalSearchResults.objectives },
+    { key: "evidence", label: "Evidence", items: globalSearchResults.evidence },
+    { key: "knowledge", label: "Knowledge", items: globalSearchResults.knowledge },
+  ];
   function toggle() {
     setOpen((o) => {
       if (!o && unread > 0) setNotifs((ns) => ns.map((n) => ({ ...n, read: true })));
@@ -3131,8 +3421,51 @@ function TopHeader({
         </h1>
       </div>
       <div className="flex items-center gap-2 md:gap-3 shrink-0">
-        <div className="hidden md:block w-72">
-          <Input placeholder="Search evidence, objectives, people…" icon={<Search size={14} />} />
+        <div className="hidden md:block w-72 relative">
+          <Input
+            value={globalSearchQuery}
+            onChange={(e) => onGlobalSearchQueryChange(e.target.value)}
+            placeholder="Search evidence, objectives, knowledge…"
+            icon={<Search size={14} />}
+          />
+          {hasSearchQuery && (
+            <div
+              className="absolute left-0 right-0 top-full mt-2 z-40 rounded-lg border bg-white shadow-xl max-h-[420px] overflow-y-auto"
+              style={{ borderColor: C.border }}
+            >
+              {groupedSearchResults.map((group) =>
+                group.items.length > 0 ? (
+                  <div key={group.key} className="px-3 py-2 border-b last:border-b-0" style={{ borderColor: C.border }}>
+                    <div className="text-[11px] font-semibold uppercase tracking-wide mb-2" style={{ color: C.subtle }}>
+                      {group.label}
+                    </div>
+                    <div className="space-y-1">
+                      {group.items.map((item) => (
+                        <button
+                          key={item.id}
+                          onClick={() => onGlobalSearchSelect(item)}
+                          className="w-full rounded-md border px-2.5 py-2 text-left hover:bg-[#F8FAFF] transition-colors"
+                          style={{ borderColor: C.border }}
+                        >
+                          <div className="text-sm font-semibold truncate" style={{ color: C.navy }}>
+                            {item.title}
+                          </div>
+                          <div className="text-xs mt-0.5 line-clamp-2 break-words" style={{ color: C.slate }}>
+                            {item.description}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null,
+              )}
+              {!hasGlobalResults && (
+                <div className="px-4 py-6 text-center text-xs" style={{ color: C.subtle }}>
+                  No matches found in objectives, evidence, or knowledge.
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div className="relative shrink-0">
           <button
@@ -5087,6 +5420,109 @@ function ArchivedObjectivesTable({
   );
 }
 
+function KnowledgeHubView({ items }: { items: KnowledgeHubItem[] }) {
+  return (
+    <Card className="p-5">
+      <SectionHeader
+        title="Knowledge Hub"
+        sub="Capture and revisit technical insights, architecture notes, and personal engineering learnings."
+      />
+      {items.length === 0 ? (
+        <div
+          className="mt-4 rounded-lg border border-dashed px-4 py-6 text-sm"
+          style={{ borderColor: C.border, color: C.subtle }}
+        >
+          No knowledge entries yet. Use <span className="font-semibold">Log Knowledge</span> from
+          Manual Capture or the Extension popup to populate this hub.
+        </div>
+      ) : (
+        <div className="mt-4 grid grid-cols-1 xl:grid-cols-2 gap-4 items-stretch">
+          {items.map((item) => {
+            const fallbackUrl = firstUrlInText(`${item.challenge} ${item.lesson}`);
+            const allReferenceLinks = normalizeReferenceLinks([
+              ...(item.referenceLinks ?? []),
+              ...(fallbackUrl ? [fallbackUrl] : []),
+            ]);
+            const youtubeIds = allReferenceLinks
+              .map((link) => extractYouTubeVideoId(link))
+              .filter((id): id is string => Boolean(id));
+            const uniqueYoutubeIds = Array.from(new Set(youtubeIds));
+            return (
+              <div
+                key={item.id}
+                className="min-w-0 rounded-xl border p-4 space-y-3 flex flex-col overflow-hidden"
+                style={{ borderColor: C.border, background: "#FFFFFF" }}
+              >
+                <div className="flex items-start justify-between gap-2 min-w-0">
+                  <div className="min-w-0 flex-1">
+                    <div
+                      className="text-sm font-semibold break-words whitespace-pre-wrap [overflow-wrap:break-word]"
+                      style={{ color: C.navy }}
+                    >
+                      {item.challenge || "Knowledge log"}
+                    </div>
+                    <div className="text-[11px] mt-1" style={{ color: C.subtle }}>
+                      Logged on {new Date(item.createdAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <span
+                    className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold border"
+                    style={{ background: "#EAE6FF", color: "#403294", borderColor: "#C5B8FF" }}
+                  >
+                    Knowledge
+                  </span>
+                </div>
+                <div
+                  className="min-w-0 text-sm leading-relaxed break-words whitespace-pre-wrap [overflow-wrap:break-word]"
+                  style={{ color: C.slate }}
+                >
+                  {item.lesson || "No lesson text provided."}
+                </div>
+                {allReferenceLinks.length > 0 && (
+                  <div className="flex flex-wrap gap-2 min-w-0">
+                    {allReferenceLinks.map((link) => (
+                      <a
+                        key={`${item.id}-${link}`}
+                        href={link}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex min-w-0 items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-semibold break-words whitespace-pre-wrap [overflow-wrap:break-word]"
+                        style={{ color: "#006644", borderColor: "#79F2C0", background: "#E3FCEF" }}
+                      >
+                        Reference
+                        <ExternalLink size={12} />
+                      </a>
+                    ))}
+                  </div>
+                )}
+                {uniqueYoutubeIds.length > 0 && (
+                  <div className="space-y-2">
+                    {uniqueYoutubeIds.map((youtubeId) => (
+                      <div
+                        key={`${item.id}-${youtubeId}`}
+                        className="rounded-lg overflow-hidden border"
+                        style={{ borderColor: C.border, background: "#F4F5F7" }}
+                      >
+                        <iframe
+                          title={`Knowledge video ${item.id}-${youtubeId}`}
+                          src={`https://www.youtube.com/embed/${youtubeId}`}
+                          className="w-full aspect-video"
+                          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                          allowFullScreen
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
 /* ============================================================ */
 /*               OVERLAY: CAPTURE MODAL                         */
 /* ============================================================ */
@@ -5107,6 +5543,7 @@ function CaptureModal({
   onSaveKnowledge: (payload: {
     challenge: string;
     lesson: string;
+    referenceLinks: string[];
     reset: () => void;
   }) => void;
 }) {
@@ -5119,7 +5556,11 @@ function CaptureModal({
   const [subcategory, setSubcategory] = useState(SUBCATEGORIES[categories[2]][0]);
   const [challenge, setChallenge] = useState("");
   const [lesson, setLesson] = useState("");
+  const [knowledgeReferenceInput, setKnowledgeReferenceInput] = useState("");
+  const [knowledgeReferenceLinks, setKnowledgeReferenceLinks] = useState<string[]>([]);
   const linkValid = !sourceLink || /^https?:\/\/\S+\.\S+/i.test(sourceLink);
+  const knowledgeInputValid =
+    !knowledgeReferenceInput || /^https?:\/\/\S+\.\S+/i.test(knowledgeReferenceInput);
 
   function onCategoryChange(v: string) {
     setCategory(v);
@@ -5146,6 +5587,26 @@ function CaptureModal({
   function resetKnowledgeFields() {
     setChallenge("");
     setLesson("");
+    setKnowledgeReferenceInput("");
+    setKnowledgeReferenceLinks([]);
+  }
+
+  function addKnowledgeReferenceLink() {
+    const trimmed = knowledgeReferenceInput.trim();
+    if (!trimmed) return;
+    if (!/^https?:\/\/\S+\.\S+/i.test(trimmed)) {
+      toast.error("Enter a valid URL starting with http:// or https://");
+      return;
+    }
+    setKnowledgeReferenceLinks((previous) => {
+      if (previous.some((link) => link.toLowerCase() === trimmed.toLowerCase())) return previous;
+      return [...previous, trimmed];
+    });
+    setKnowledgeReferenceInput("");
+  }
+
+  function removeKnowledgeReferenceLink(linkToRemove: string) {
+    setKnowledgeReferenceLinks((previous) => previous.filter((link) => link !== linkToRemove));
   }
 
   return (
@@ -5221,7 +5682,7 @@ function CaptureModal({
 
           {tab === "evidence" ? (
             <>
-              <Field label="Evidence Title">
+              <Field label="Evidence Title" required>
                 <Input
                   autoFocus
                   value={title}
@@ -5229,7 +5690,7 @@ function CaptureModal({
                   placeholder="e.g. Led RFC review for payments cutover"
                 />
               </Field>
-              <Field label="Description / Context">
+              <Field label="Description / Context" optional>
                 <Textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
@@ -5263,7 +5724,7 @@ function CaptureModal({
                   matching competency options.
                 </div>
               </div>
-              <Field label="Source Link">
+              <Field label="Source Link" optional>
                 <div className="relative">
                   <LinkIcon
                     size={14}
@@ -5283,7 +5744,7 @@ function CaptureModal({
                     : "Enter a valid URL starting with http:// or https://"}
                 </div>
               </Field>
-              <Field label="Competency Category">
+              <Field label="Competency Category" required>
                 <Select value={category} onChange={(e) => onCategoryChange(e.target.value)}>
                   {categories.map((c) => (
                     <option key={c}>{c}</option>
@@ -5293,7 +5754,7 @@ function CaptureModal({
                   {COMPETENCY_DESC[category]}
                 </div>
               </Field>
-              <Field label="Subcategory / Question">
+              <Field label="Subcategory / Question" required>
                 <Select value={subcategory} onChange={(e) => setSubcategory(e.target.value)}>
                   {SUBCATEGORIES[category].map((s) => (
                     <option key={s}>{s}</option>
@@ -5303,7 +5764,7 @@ function CaptureModal({
             </>
           ) : (
             <>
-              <Field label="Challenge Encountered">
+              <Field label="Core Activity / Challenge" required>
                 <Textarea
                   value={challenge}
                   onChange={(e) => setChallenge(e.target.value)}
@@ -5311,13 +5772,78 @@ function CaptureModal({
                   rows={4}
                 />
               </Field>
-              <Field label="Solution / Lesson Learned">
+              <Field label="Solution / Lesson Learned" required>
                 <Textarea
                   value={lesson}
                   onChange={(e) => setLesson(e.target.value)}
                   placeholder="What did you learn that you'll reuse?"
                   rows={5}
                 />
+              </Field>
+              <Field label="External Reference Links" optional>
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <LinkIcon
+                      size={14}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                      style={{ color: C.subtle }}
+                    />
+                    <Input
+                      value={knowledgeReferenceInput}
+                      onChange={(e) => setKnowledgeReferenceInput(e.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          addKnowledgeReferenceLink();
+                        }
+                      }}
+                      placeholder="https://www.youtube.com/watch?v=..."
+                      className="pl-8"
+                    />
+                  </div>
+                  <GhostBtn
+                    type="button"
+                    className="border h-9 px-2.5 whitespace-nowrap"
+                    onClick={addKnowledgeReferenceLink}
+                  >
+                    <Plus size={13} />
+                    Add Reference Link
+                  </GhostBtn>
+                </div>
+                {!knowledgeInputValid && (
+                  <div className="text-[11px] mt-1" style={{ color: C.red }}>
+                    Enter a valid URL starting with http:// or https://
+                  </div>
+                )}
+                {knowledgeReferenceLinks.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {knowledgeReferenceLinks.map((link) => (
+                      <span
+                        key={link}
+                        className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]"
+                        style={{ borderColor: "#B3D4FF", background: "#DEEBFF", color: C.primary }}
+                      >
+                        <a
+                          href={link}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 hover:underline"
+                        >
+                          Link
+                          <ExternalLink size={11} />
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => removeKnowledgeReferenceLink(link)}
+                          className="rounded-full p-0.5 hover:bg-[#B3D4FF]"
+                          aria-label={`Remove reference link ${link}`}
+                        >
+                          <X size={10} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </Field>
             </>
           )}
@@ -5329,7 +5855,9 @@ function CaptureModal({
           <GhostBtn onClick={onClose}>Cancel</GhostBtn>
           {tab === "evidence" ? (
             <PrimaryBtn
-              disabled={!title.trim() || !description.trim() || !linkValid}
+              disabled={
+                !title.trim() || !category.trim() || !subcategory.trim() || !linkValid
+              }
               onClick={() =>
                 onSaveEvidence({
                   title,
@@ -5344,11 +5872,12 @@ function CaptureModal({
             </PrimaryBtn>
           ) : (
             <PrimaryBtn
-              disabled={!challenge.trim() || !lesson.trim()}
+              disabled={!challenge.trim() || !lesson.trim() || !knowledgeInputValid}
               onClick={() =>
                 onSaveKnowledge({
                   challenge,
                   lesson,
+                  referenceLinks: knowledgeReferenceLinks,
                   reset: resetKnowledgeFields,
                 })
               }
@@ -5403,8 +5932,8 @@ function Field({
           )}
         </div>
         {optional && (
-          <span className="text-[10px] uppercase tracking-wide" style={{ color: C.subtle }}>
-            Optional
+          <span className="text-[10px] tracking-wide" style={{ color: C.subtle }}>
+            (optional)
           </span>
         )}
       </div>
@@ -6538,6 +7067,18 @@ type SettingsSection =
   | "framework"
   | "dashboard";
 
+const SETTINGS_SECTIONS: SettingsSection[] = [
+  "profile",
+  "team",
+  "notifications",
+  "extension",
+  "framework",
+  "dashboard",
+];
+function isSettingsSection(value: string | undefined): value is SettingsSection {
+  return Boolean(value && SETTINGS_SECTIONS.includes(value as SettingsSection));
+}
+
 /* ============================================================ */
 /*               TAB: 360 FEEDBACK                              */
 /* ============================================================ */
@@ -6558,18 +7099,236 @@ function FeedbackTypeBadge({ type }: { type: FeedbackType }) {
   return <Badge tone={tone}>{type}</Badge>;
 }
 
+type SeniorityBand = "Junior / Associate" | "Mid-Level" | "Senior / Lead / Staff";
+type CapabilityKey = "technicalExecution" | "collaboration" | "deliveryReliability";
+
+const SENIORITY_TEMPLATE: Record<
+  SeniorityBand,
+  {
+    prompt: string;
+    focusAreas: string[];
+    requestFocusSeed: string;
+  }
+> = {
+  "Junior / Associate": {
+    prompt: "Template tuned for early-career growth and execution consistency.",
+    focusAreas: [
+      "Learning acceleration and speed of skill acquisition.",
+      "Executing assigned ticket mechanics with clarity and quality.",
+      "Applying pull request code review notes in follow-up work.",
+    ],
+    requestFocusSeed:
+      "How effectively am I applying code review feedback and accelerating my learning on assigned tickets?",
+  },
+  "Mid-Level": {
+    prompt: "Template tuned for independent delivery and broader team contribution.",
+    focusAreas: [
+      "Feature branch ownership from planning through merge readiness.",
+      "Prompt pull request testing and issue resolution.",
+      "Self-sufficient debugging and active cross-functional participation.",
+    ],
+    requestFocusSeed:
+      "How effectively am I owning features end-to-end, testing PRs promptly, and collaborating across functions?",
+  },
+  "Senior / Lead / Staff": {
+    prompt: "Template tuned for technical leadership and organizational impact.",
+    focusAreas: [
+      "Scalable systems architecture and long-term maintainability.",
+      "Technical mentorship and raising engineering standards.",
+      "Risk mitigation, trade-off decisions, and product alignment.",
+    ],
+    requestFocusSeed:
+      "How effectively am I driving scalable architecture, mentoring others, and balancing engineering risk with product goals?",
+  },
+};
+
+const CAPABILITY_MATRIX: Array<{ key: CapabilityKey; label: string; focus: string }> = [
+  {
+    key: "technicalExecution",
+    label: "Technical Execution",
+    focus: "Code Quality, Architectural Soundness, and Code Review Contributions",
+  },
+  {
+    key: "collaboration",
+    label: "Collaboration",
+    focus: "Team Communication and Cross-functional Interacting",
+  },
+  {
+    key: "deliveryReliability",
+    label: "Delivery Reliability",
+    focus: "Execution Ownership and Scope Management",
+  },
+];
+
+function resolveSeniorityBand(level: string | undefined): SeniorityBand {
+  const value = (level ?? "").trim().toLowerCase();
+  if (value.includes("junior") || value.includes("associate")) return "Junior / Associate";
+  if (value.includes("senior") || value.includes("lead") || value.includes("staff")) {
+    return "Senior / Lead / Staff";
+  }
+  return "Mid-Level";
+}
+
+function normalizeExternalUrl(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    const parsed = new URL(withProtocol);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
 function FeedbackView() {
-  const { userId } = useAuth();
+  const { userId, user } = useAuth();
   const feedbackUserId = userId ?? "";
   const { data: items = [] } = useFeedbackQuery(feedbackUserId);
   const addFeedbackMutation = useAddFeedback(feedbackUserId);
   const [filter, setFilter] = useState<"All" | FeedbackType>("All");
   const [asking, setAsking] = useState(false);
+  const [seniorityBand, setSeniorityBand] = useState<SeniorityBand>(() =>
+    resolveSeniorityBand(user?.currentLevel),
+  );
+  const [seniorityOverridden, setSeniorityOverridden] = useState(false);
+  const [scores, setScores] = useState<Record<CapabilityKey, number>>({
+    technicalExecution: 3,
+    collaboration: 3,
+    deliveryReliability: 3,
+  });
+  const [strengthNarrative, setStrengthNarrative] = useState("");
+  const [improvementNarrative, setImprovementNarrative] = useState("");
+  const [nextSkillNarrative, setNextSkillNarrative] = useState("");
+  const [externalSurveyDraft, setExternalSurveyDraft] = useState("");
+  const [externalSurveyUrl, setExternalSurveyUrl] = useState("");
+  const [requestLink, setRequestLink] = useState("");
 
   const filtered = useMemo(
     () => (filter === "All" ? items : items.filter((i) => i.type === filter)),
     [items, filter],
   );
+  const activeTemplate = SENIORITY_TEMPLATE[seniorityBand];
+  const avgScore = useMemo(
+    () =>
+      Number(
+        (
+          CAPABILITY_MATRIX.reduce((sum, item) => sum + (scores[item.key] ?? 0), 0) /
+          CAPABILITY_MATRIX.length
+        ).toFixed(2),
+      ),
+    [scores],
+  );
+
+  const canSubmitEvaluation =
+    strengthNarrative.trim().length > 0 &&
+    improvementNarrative.trim().length > 0 &&
+    nextSkillNarrative.trim().length > 0;
+
+  useEffect(() => {
+    if (!seniorityOverridden) {
+      setSeniorityBand(resolveSeniorityBand(user?.currentLevel));
+    }
+  }, [user?.currentLevel, seniorityOverridden]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !feedbackUserId) return;
+    const saved = window.localStorage.getItem(`evitrace.external-feedback-url.${feedbackUserId}`);
+    if (!saved) return;
+    setExternalSurveyUrl(saved);
+    setExternalSurveyDraft(saved);
+  }, [feedbackUserId]);
+
+  function updateCapabilityScore(key: CapabilityKey, value: number) {
+    setScores((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function saveExternalSurveyUrl() {
+    if (!feedbackUserId) {
+      toast.error("Please sign in before saving external survey links.");
+      return;
+    }
+    if (!externalSurveyDraft.trim()) {
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem(`evitrace.external-feedback-url.${feedbackUserId}`);
+      }
+      setExternalSurveyUrl("");
+      toast.success("External survey link removed");
+      return;
+    }
+    const normalized = normalizeExternalUrl(externalSurveyDraft);
+    if (!normalized) {
+      toast.error("Please provide a valid HTTP(S) URL.");
+      return;
+    }
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(`evitrace.external-feedback-url.${feedbackUserId}`, normalized);
+    }
+    setExternalSurveyUrl(normalized);
+    setExternalSurveyDraft(normalized);
+    toast.success("External survey link saved");
+  }
+
+  function buildRequestLink() {
+    if (typeof window === "undefined") return "";
+    const params = new URLSearchParams();
+    params.set("tab", "feedback");
+    params.set("request", "1");
+    if (feedbackUserId) params.set("profile", feedbackUserId);
+    if (user?.fullName) params.set("engineer", user.fullName);
+    if (user?.team) params.set("team", user.team);
+    params.set("seniority", seniorityBand);
+    const base = `${window.location.origin}${window.location.pathname}`;
+    return `${base}?${params.toString()}`;
+  }
+
+  function handleRequestFeedbackLink() {
+    const nextLink = buildRequestLink();
+    if (!nextLink) {
+      toast.error("Unable to generate feedback request link.");
+      return;
+    }
+    setRequestLink(nextLink);
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard
+        .writeText(nextLink)
+        .then(() => toast.success("Request feedback link copied"))
+        .catch(() => toast.success("Request feedback link generated"));
+      return;
+    }
+    toast.success("Request feedback link generated");
+  }
+
+  function submitQualitativeEvaluation() {
+    if (!canSubmitEvaluation) {
+      toast.error("Please complete all mandatory qualitative prompts.");
+      return;
+    }
+    const payload =
+      `Seniority Template: ${seniorityBand}\n` +
+      `Capability Matrix (1-5): Technical Execution ${scores.technicalExecution}, ` +
+      `Collaboration ${scores.collaboration}, Delivery Reliability ${scores.deliveryReliability} ` +
+      `(Avg ${avgScore})\n` +
+      `Strength: ${strengthNarrative.trim()}\n` +
+      `Improvement Example: ${improvementNarrative.trim()}\n` +
+      `Next Skill: ${nextSkillNarrative.trim()}`;
+
+    addFeedbackMutation.mutate(
+      {
+        date: new Date().toISOString().slice(0, 10),
+        provider: "Self 360 Evaluation",
+        type: "Ad-hoc",
+        notes: payload,
+        anonymous: false,
+      },
+      {
+        onSuccess: () => {
+          toast.success("360 evaluation saved");
+        },
+      },
+    );
+  }
 
   function addRequest(reviewer: string, focus: string) {
     addFeedbackMutation.mutate(
@@ -6591,36 +7350,73 @@ function FeedbackView() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <div className="text-sm" style={{ color: C.subtle }}>
-            Peer and manager-requested feedback collected over time.
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <Card className="xl:col-span-2 px-6 py-8 md:px-8">
+          <div className="flex flex-col gap-5">
+            <div>
+              <div className="text-lg font-semibold" style={{ color: C.navy }}>
+                360-Degree Feedback
+              </div>
+              <div className="text-sm mt-1" style={{ color: C.subtle }}>
+                Seniority-tailored 360 survey, qualitative coaching inputs, and historical feedback in one workspace.
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Pill active={filter === "All"} onClick={() => setFilter("All")}>
+                All
+              </Pill>
+              <Pill
+                active={filter === "Manager Requested"}
+                onClick={() => setFilter("Manager Requested")}
+              >
+                Manager Requested
+              </Pill>
+              <Pill active={filter === "Peer Review"} onClick={() => setFilter("Peer Review")}>
+                Peer
+              </Pill>
+              <Pill active={filter === "Ad-hoc"} onClick={() => setFilter("Ad-hoc")}>
+                Ad-hoc
+              </Pill>
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Pill active={filter === "All"} onClick={() => setFilter("All")}>
-            All
-          </Pill>
-          <Pill
-            active={filter === "Manager Requested"}
-            onClick={() => setFilter("Manager Requested")}
-          >
-            Manager Requested
-          </Pill>
-          <Pill active={filter === "Peer Review"} onClick={() => setFilter("Peer Review")}>
-            Peer
-          </Pill>
-          <Pill active={filter === "Ad-hoc"} onClick={() => setFilter("Ad-hoc")}>
-            Ad-hoc
-          </Pill>
-          <PrimaryBtn onClick={() => setAsking(true)}>
-            <Send size={14} />
-            Ask for Feedback
-          </PrimaryBtn>
-        </div>
+        </Card>
+        <Card className="p-6 md:p-7 min-h-[220px] h-auto flex flex-col gap-4 justify-between">
+          <div>
+            <div className="text-sm font-semibold" style={{ color: C.navy }}>
+              Ask for feedback
+            </div>
+            <div className="text-xs mt-1" style={{ color: C.subtle }}>
+              Generate a shareable request link or log a direct feedback request with full-text prompts.
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-2">
+            <GhostBtn
+              onClick={handleRequestFeedbackLink}
+              className="w-full h-auto min-h-[2.75rem] px-4 py-2.5 justify-center whitespace-normal break-words leading-snug"
+            >
+              <Share2 size={14} />
+              Request Feedback Link
+            </GhostBtn>
+            <PrimaryBtn
+              onClick={() => setAsking(true)}
+              className="w-full h-auto min-h-[2.75rem] px-4 py-2.5 justify-center whitespace-normal break-words leading-snug"
+            >
+              <Send size={14} />
+              Log Feedback Request
+            </PrimaryBtn>
+          </div>
+        </Card>
       </div>
 
       <Card className="p-0 overflow-hidden">
+        <div className="px-5 py-4 border-b" style={{ borderColor: C.border }}>
+          <div className="text-sm font-semibold" style={{ color: C.navy }}>
+            Historical Feedback
+          </div>
+          <div className="text-xs mt-1" style={{ color: C.subtle }}>
+            Received and requested feedback entries, ordered by date.
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -6683,22 +7479,206 @@ function FeedbackView() {
         </div>
       </Card>
 
+      <Card className="p-5 space-y-5">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-4 lg:items-end">
+          <Field
+            label="Feedback Template Seniority Tier"
+            hint="Defaults to your profile level, but you can override it for a custom review context."
+          >
+            <Select
+              value={seniorityBand}
+              onChange={(e) => {
+                setSeniorityOverridden(true);
+                setSeniorityBand(e.target.value as SeniorityBand);
+              }}
+            >
+              <option value="Junior / Associate">Junior / Associate</option>
+              <option value="Mid-Level">Mid-Level</option>
+              <option value="Senior / Lead / Staff">Senior / Lead / Staff</option>
+            </Select>
+          </Field>
+          <div className="text-xs rounded border px-3 py-2" style={{ borderColor: C.border, color: C.slate }}>
+            Active profile: <span className="font-semibold" style={{ color: C.navy }}>{user?.currentLevel || "Not set"}</span>
+          </div>
+        </div>
+        <div className="rounded-lg border p-4" style={{ borderColor: C.border, background: "#F8FAFF" }}>
+          <div className="text-sm font-semibold" style={{ color: C.navy }}>
+            {activeTemplate.prompt}
+          </div>
+          <ul className="mt-2 space-y-1 text-sm list-disc pl-5" style={{ color: C.slate }}>
+            {activeTemplate.focusAreas.map((focus) => (
+              <li key={focus}>{focus}</li>
+            ))}
+          </ul>
+        </div>
+      </Card>
+
+      <Card className="p-5 space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-semibold" style={{ color: C.navy }}>
+              Core Capability Scalar Matrix (1-5)
+            </div>
+            <div className="text-xs mt-0.5" style={{ color: C.subtle }}>
+              1 = emerging, 3 = meeting expectations, 5 = exemplary and consistently scalable.
+            </div>
+          </div>
+          <Badge tone="info">Average Score: {avgScore.toFixed(2)} / 5</Badge>
+        </div>
+        <div className="space-y-3">
+          {CAPABILITY_MATRIX.map((row) => (
+            <div
+              key={row.key}
+              className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-3 border rounded-lg px-3 py-3"
+              style={{ borderColor: C.border }}
+            >
+              <div>
+                <div className="text-sm font-semibold" style={{ color: C.navy }}>
+                  {row.label}
+                </div>
+                <div className="text-xs mt-0.5" style={{ color: C.subtle }}>
+                  {row.focus}
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {[1, 2, 3, 4, 5].map((point) => {
+                  const active = scores[row.key] === point;
+                  return (
+                    <button
+                      key={`${row.key}-${point}`}
+                      type="button"
+                      onClick={() => updateCapabilityScore(row.key, point)}
+                      className="w-8 h-8 rounded border text-xs font-semibold transition-colors"
+                      style={{
+                        borderColor: active ? C.primary : C.border,
+                        color: active ? C.primary : C.slate,
+                        background: active ? C.primarySoft : "#fff",
+                      }}
+                    >
+                      {point}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="space-y-4 pt-1">
+          <Field
+            label="What specific technical or collaborative strength does this engineer demonstrate that significantly impacts the team's success?"
+            required
+          >
+            <Textarea
+              value={strengthNarrative}
+              onChange={(e) => setStrengthNarrative(e.target.value)}
+              rows={4}
+              placeholder="Describe the strongest recurring contribution and why it matters."
+            />
+          </Field>
+          <Field
+            label="Can you share an example of a recent project or pull request (PR) where this engineer could have improved their approach, code quality, or communication?"
+            required
+          >
+            <Textarea
+              value={improvementNarrative}
+              onChange={(e) => setImprovementNarrative(e.target.value)}
+              rows={4}
+              placeholder="Reference a concrete project, pull request, or communication moment."
+            />
+          </Field>
+          <Field
+            label="What is the single most important skill this engineer should focus on next to advance to the next level?"
+            required
+          >
+            <Textarea
+              value={nextSkillNarrative}
+              onChange={(e) => setNextSkillNarrative(e.target.value)}
+              rows={4}
+              placeholder="Identify one high-leverage skill and the expected impact."
+            />
+          </Field>
+        </div>
+        <div className="flex justify-end">
+          <PrimaryBtn onClick={submitQualitativeEvaluation} disabled={!canSubmitEvaluation}>
+            <Save size={14} />
+            Save 360 Evaluation
+          </PrimaryBtn>
+        </div>
+      </Card>
+
+      <Card className="p-5 space-y-4">
+        <div>
+          <div className="text-sm font-semibold" style={{ color: C.navy }}>
+            Share Links & External Platform Configuration
+          </div>
+          <div className="text-xs mt-1" style={{ color: C.subtle }}>
+            Add one central survey URL (Google Forms, Typeform, Confluence Forms, etc.) and share a profile-aware request link.
+          </div>
+        </div>
+        <Field label="External Survey URL" optional>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Input
+              value={externalSurveyDraft}
+              onChange={(e) => setExternalSurveyDraft(e.target.value)}
+              placeholder="https://forms.gle/... or https://typeform.com/..."
+            />
+            <GhostBtn onClick={saveExternalSurveyUrl} className="sm:whitespace-nowrap">
+              <Save size={14} />
+              Save Anchor
+            </GhostBtn>
+          </div>
+        </Field>
+        {externalSurveyUrl && (
+          <a
+            href={externalSurveyUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold"
+            style={{ color: C.primary }}
+          >
+            <ExternalLink size={12} />
+            Open external survey anchor
+          </a>
+        )}
+        <Field label="Request Feedback Link" optional>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Input
+              value={requestLink}
+              readOnly
+              placeholder="Click 'Request Feedback' above to generate a profile-aware link."
+            />
+            <GhostBtn onClick={handleRequestFeedbackLink} className="sm:whitespace-nowrap">
+              <LinkIcon size={14} />
+              Generate
+            </GhostBtn>
+          </div>
+        </Field>
+      </Card>
+
       <AnimatePresence>
-        {asking && <AskFeedbackModal onClose={() => setAsking(false)} onSubmit={addRequest} />}
+        {asking && (
+          <AskFeedbackModal
+            initialFocus={activeTemplate.requestFocusSeed}
+            onClose={() => setAsking(false)}
+            onSubmit={addRequest}
+          />
+        )}
       </AnimatePresence>
     </div>
   );
 }
 
 function AskFeedbackModal({
+  initialFocus,
   onClose,
   onSubmit,
 }: {
+  initialFocus: string;
   onClose: () => void;
   onSubmit: (reviewer: string, focus: string) => void;
 }) {
   const [reviewer, setReviewer] = useState("");
-  const [focus, setFocus] = useState("");
+  const [focus, setFocus] = useState(initialFocus);
   const canSend = reviewer.trim().length > 0 && focus.trim().length > 0;
   return (
     <Backdrop onClose={onClose}>
@@ -6774,11 +7754,14 @@ function AskFeedbackModal({
 function SettingsView({
   sampleContent,
   onSampleContentChange,
+  section,
+  onSectionChange,
 }: {
   sampleContent: SampleContentVisibility;
   onSampleContentChange: (next: SampleContentVisibility) => void;
+  section: SettingsSection;
+  onSectionChange: (next: SettingsSection) => void;
 }) {
-  const [section, setSection] = useState<SettingsSection>("profile");
   const items: {
     id: SettingsSection;
     label: string;
@@ -6801,7 +7784,7 @@ function SettingsView({
             return (
               <button
                 key={it.id}
-                onClick={() => setSection(it.id)}
+                onClick={() => onSectionChange(it.id)}
                 className="w-full flex items-center gap-2.5 px-3 py-2 rounded text-left text-sm font-medium transition-colors"
                 style={{
                   background: active ? C.primarySoft : "transparent",
@@ -6936,7 +7919,8 @@ function ProfileSettings() {
   const [photo, setPhoto] = useState<string | null>(null);
   const { user, updateUser } = useAuth();
   const displayName = getDisplayName(user?.fullName, user?.email);
-  const firstName = displayName.split(" ")[0] || "Engineer";
+  const displayTitle = user?.currentLevel?.trim() || "Engineer";
+  const displaySubtitle = user?.team ? `${displayTitle} · ${user.team}` : displayTitle;
   const profileInitials =
     displayName
       .split(" ")
@@ -6944,22 +7928,17 @@ function ProfileSettings() {
       .slice(0, 2)
       .join("")
       .toUpperCase() || "US";
-  const [title, setTitle] = useState(
-    user ? `${firstName} - ${user.team}` : "Senior Engineer",
-  );
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<{
     fullName: string;
     email: string;
     currentLevel: string;
     targetLevel: string;
-    title: string;
   }>({
     fullName: user?.fullName ?? "",
     email: user?.email ?? "",
     currentLevel: user?.currentLevel ?? "",
     targetLevel: user?.targetLevel ?? "",
-    title,
   });
   const [confirming, setConfirming] = useState(false);
   const [pwd, setPwd] = useState("");
@@ -6983,9 +7962,8 @@ function ProfileSettings() {
     setDraft({
       fullName: user!.fullName,
       email: user!.email,
-      currentLevel: user!.currentLevel,
+      currentLevel: user!.currentLevel ?? "",
       targetLevel: user!.targetLevel,
-      title,
     });
     setEditing(true);
   }
@@ -6997,11 +7975,13 @@ function ProfileSettings() {
   }
 
   async function saveAll() {
+    const unifiedCurrentLevel = draft.currentLevel.trim();
     const ok = await updateUser(
       {
         fullName: draft.fullName.trim(),
         email: draft.email.trim(),
-        currentLevel: draft.currentLevel.trim(),
+        currentLevel: unifiedCurrentLevel,
+        jobTitle: unifiedCurrentLevel,
         targetLevel: draft.targetLevel.trim(),
       },
       pwd,
@@ -7010,7 +7990,6 @@ function ProfileSettings() {
       toast.error("Incorrect password");
       return;
     }
-    setTitle(draft.title.trim());
     toast.success("Profile updated");
     cancelEdit();
   }
@@ -7068,7 +8047,7 @@ function ProfileSettings() {
             {displayName}
           </div>
           <div className="text-sm" style={{ color: C.subtle }}>
-            {title}
+            {displaySubtitle}
           </div>
         </div>
       </div>
@@ -7092,17 +8071,9 @@ function ProfileSettings() {
             onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))}
           />
         </Field>
-        <Field label="Job title">
+        <Field label="Current Job Title / Level">
           <Input
-            value={editing ? draft.title : title}
-            readOnly={!editing}
-            onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
-          />
-        </Field>
-        <div className="hidden md:block" />
-        <Field label="Current level">
-          <Input
-            value={editing ? draft.currentLevel : user.currentLevel}
+            value={editing ? draft.currentLevel : user.currentLevel || ""}
             readOnly={!editing}
             onChange={(e) => setDraft((d) => ({ ...d, currentLevel: e.target.value }))}
           />
@@ -7181,86 +8152,6 @@ function ProfileSettings() {
         )}
       </AnimatePresence>
     </Card>
-  );
-}
-
-function EditTitleModal({
-  current,
-  onClose,
-  onSave,
-}: {
-  current: string;
-  onClose: () => void;
-  onSave: (next: string) => void;
-}) {
-  const [next, setNext] = useState(current);
-  const [pwd, setPwd] = useState("");
-  const canSave = pwd.trim().length > 0 && next.trim().length > 0;
-  return (
-    <Backdrop onClose={onClose}>
-      <motion.div
-        initial={{ opacity: 0, scale: 0.97, y: 8 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.97, y: 8 }}
-        transition={{ duration: 0.2 }}
-        className="bg-white rounded-lg shadow-2xl w-full max-w-md border"
-        style={{ borderColor: C.border }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div
-          className="p-5 border-b flex items-center justify-between"
-          style={{ borderColor: C.border }}
-        >
-          <div className="flex items-center gap-2">
-            <div
-              className="w-8 h-8 rounded flex items-center justify-center"
-              style={{ background: C.primarySoft, color: C.primary }}
-            >
-              <Lock size={16} />
-            </div>
-            <div>
-              <div className="text-sm font-bold" style={{ color: C.navy }}>
-                Edit Job Title
-              </div>
-              <div className="text-xs" style={{ color: C.subtle }}>
-                Confirm your password to save changes.
-              </div>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded hover:bg-[#F4F5F7]"
-            style={{ color: C.slate }}
-          >
-            <X size={16} />
-          </button>
-        </div>
-        <div className="p-5 space-y-4">
-          <Field label="New Job Title">
-            <Input
-              value={next}
-              onChange={(e) => setNext(e.target.value)}
-              placeholder="e.g. Senior Software Engineer"
-            />
-          </Field>
-          <Field label="Confirm Password">
-            <Input
-              type="password"
-              value={pwd}
-              onChange={(e) => setPwd(e.target.value)}
-              placeholder="Enter your password"
-              icon={<KeyRound size={14} />}
-            />
-          </Field>
-        </div>
-        <div className="p-4 border-t flex justify-end gap-2" style={{ borderColor: C.border }}>
-          <GhostBtn onClick={onClose}>Cancel</GhostBtn>
-          <PrimaryBtn onClick={() => canSave && onSave(next.trim())} disabled={!canSave}>
-            Save Changes
-          </PrimaryBtn>
-        </div>
-      </motion.div>
-    </Backdrop>
   );
 }
 
@@ -7355,16 +8246,17 @@ function TeamSettings() {
             onChange={(e) => setDraft((d) => ({ ...d, team: e.target.value }))}
           />
         </Field>
-        <Field label="Skip-level reviewer" optional>
+        <Field
+          label="Manager's Manager (Skip-Level)"
+          optional
+          hint="The engineering leader or executive your direct manager reports to."
+        >
           <Input
             value={editing ? draft.skipLevel : user.skipLevel}
             readOnly={!editing}
             onChange={(e) => setDraft((d) => ({ ...d, skipLevel: e.target.value }))}
           />
         </Field>
-      </div>
-      <div className="mt-6 flex justify-end gap-2">
-        <PrimaryBtn>Request sync</PrimaryBtn>
       </div>
 
       <AnimatePresence>
