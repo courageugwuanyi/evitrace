@@ -33,11 +33,13 @@ type KnowledgeEntry = {
   createdAt: string;
   challenge: string;
   lesson: string;
+  category?: string;
+  capability?: string;
   referenceLinks: string[];
   userId: string;
 };
 
-const CATEGORY_MAP: Record<string, string[]> = {
+const DEFAULT_CATEGORY_MAP: Record<string, string[]> = {
   Delivery: [
     "Executes predictably and hits commitments",
     "Plans and scopes work with low churn",
@@ -59,8 +61,6 @@ const CATEGORY_MAP: Record<string, string[]> = {
     "Identifies systemic root causes",
   ],
 };
-
-const COMPETENCIES = Object.keys(CATEGORY_MAP);
 const WEB_APP_BASE_URL = "http://192.168.1.130:8080";
 const SETTINGS_URL = `${WEB_APP_BASE_URL}/?tab=settings`;
 const PROFILE_SETTINGS_URL = `${WEB_APP_BASE_URL}/?tab=settings&section=profile`;
@@ -137,24 +137,40 @@ function polishText(text: string) {
   return /[.!?]$/.test(normalized) ? normalized : `${normalized}.`;
 }
 
-function inferCompetency(title: string, description: string) {
+function inferCompetency(title: string, description: string, categories: string[]) {
+  const resolveCategory = (candidate: string): string | null => {
+    const normalizedCandidate = candidate.trim().toLowerCase();
+    return (
+      categories.find((category) => category.trim().toLowerCase() === normalizedCandidate) ??
+      categories.find(
+        (category) =>
+          category.trim().toLowerCase().includes(normalizedCandidate) ||
+          normalizedCandidate.includes(category.trim().toLowerCase()),
+      ) ??
+      null
+    );
+  };
   const raw = `${title} ${description}`.toLowerCase();
   if (/(design|architecture|scal|resilien|trade[- ]?off)/.test(raw)) {
-    return { competency: "System Design", category: "System Design" };
+    const mapped = resolveCategory("System Design");
+    if (mapped) return { competency: mapped, category: mapped };
   }
   if (/(incident|rca|debug|root cause|metric|analysis)/.test(raw)) {
-    return { competency: "Analytical Thinking", category: "Analytical Thinking" };
+    const mapped = resolveCategory("Analytical Thinking");
+    if (mapped) return { competency: mapped, category: mapped };
   }
   if (/(stakeholder|present|communicat|rfc|align)/.test(raw)) {
-    return { competency: "Communication", category: "Communication" };
+    const mapped = resolveCategory("Communication");
+    if (mapped) return { competency: mapped, category: mapped };
   }
-  return { competency: "Delivery", category: "Delivery" };
+  const fallback = resolveCategory("Delivery") ?? categories[0] ?? "Delivery";
+  return { competency: fallback, category: fallback };
 }
 
 function defaultPromptState(): PromptState {
   return {
     schedule: ["16:00"],
-    timezone: "GMT",
+    timezone: "UTC+00:00 (GMT/UTC Standard)",
     currentPromptLabel: "",
     promptActive: false,
     snoozeCount: 0,
@@ -192,14 +208,136 @@ export function ExtensionPopup({
   const [category, setCategory] = useState("");
   const [subcategory, setSubcategory] = useState("");
   const [competency, setCompetency] = useState("");
+  const [activeFrameworkMatrix, setActiveFrameworkMatrix] = useState<unknown | null>(null);
 
   const [challenge, setChallenge] = useState("");
   const [lesson, setLesson] = useState("");
+  const [knowledgeCategory, setKnowledgeCategory] = useState("");
+  const [knowledgeCapability, setKnowledgeCapability] = useState("");
   const [knowledgeReferenceInput, setKnowledgeReferenceInput] = useState("");
   const [knowledgeReferenceLinks, setKnowledgeReferenceLinks] = useState<string[]>([]);
 
+  const categoryMap = useMemo(() => {
+    const rawCategories =
+      (activeFrameworkMatrix &&
+      typeof activeFrameworkMatrix === "object" &&
+      !Array.isArray(activeFrameworkMatrix)
+        ? (activeFrameworkMatrix as Record<string, unknown>).categories
+        : null) ?? null;
+    if (!rawCategories || typeof rawCategories !== "object" || Array.isArray(rawCategories)) {
+      return DEFAULT_CATEGORY_MAP;
+    }
+    const parsed = Object.entries(rawCategories as Record<string, unknown>).reduce<
+      Record<string, string[]>
+    >((acc, [categoryName, payload]) => {
+      if (!payload || typeof payload !== "object") return acc;
+      const items = Array.isArray((payload as Record<string, unknown>).items)
+        ? ((payload as Record<string, unknown>).items as unknown[])
+            .map((item) => (typeof item === "string" ? item.trim() : ""))
+            .filter((item) => item.length > 0)
+        : [];
+      if (items.length > 0) acc[categoryName] = items;
+      return acc;
+    }, {});
+    return Object.keys(parsed).length > 0 ? parsed : DEFAULT_CATEGORY_MAP;
+  }, [activeFrameworkMatrix]);
+  const competencies = useMemo(() => Object.keys(categoryMap), [categoryMap]);
+
   const knowledgeReferenceInputValid =
     !knowledgeReferenceInput || /^https?:\/\/\S+\.\S+/i.test(knowledgeReferenceInput);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!userId) {
+      setActiveFrameworkMatrix(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+    const loadFramework = async () => {
+      try {
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .select("active_framework_id")
+          .eq("id", userId)
+          .maybeSingle();
+        if (profileError) throw profileError;
+
+        const activeFrameworkId = (profile?.active_framework_id as string | null) ?? null;
+        if (activeFrameworkId) {
+          const { data: activeFramework, error: frameworkError } = await supabase
+            .from("competency_frameworks")
+            .select("matrix")
+            .eq("id", activeFrameworkId)
+            .maybeSingle();
+          if (frameworkError) throw frameworkError;
+          if (activeFramework?.matrix && !cancelled) {
+            setActiveFrameworkMatrix(activeFramework.matrix as unknown);
+            return;
+          }
+        }
+
+        const { data: fallbackFramework, error: fallbackError } = await supabase
+          .from("competency_frameworks")
+          .select("matrix")
+          .or(`is_system_default.eq.true,user_id.eq.${userId}`)
+          .order("is_system_default", { ascending: false })
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (fallbackError) throw fallbackError;
+        if (!cancelled) {
+          setActiveFrameworkMatrix((fallbackFramework?.matrix as unknown) ?? null);
+        }
+      } catch {
+        if (!cancelled) {
+          setActiveFrameworkMatrix(null);
+        }
+      }
+    };
+    void loadFramework();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    const categoryOptions = competencies;
+    if (categoryOptions.length === 0) return;
+    if (!categoryOptions.includes(category)) {
+      const nextCategory = categoryOptions[0];
+      setCategory(nextCategory);
+      setCompetency(nextCategory);
+      setSubcategory(categoryMap[nextCategory]?.[0] ?? "");
+    } else {
+      const subOptions = categoryMap[category] ?? [];
+      if (!subOptions.includes(subcategory)) {
+        setSubcategory(subOptions[0] ?? "");
+      }
+      if (competency !== category) {
+        setCompetency(category);
+      }
+    }
+
+    if (!categoryOptions.includes(knowledgeCategory)) {
+      const nextCategory = categoryOptions[0];
+      setKnowledgeCategory(nextCategory);
+      setKnowledgeCapability(categoryMap[nextCategory]?.[0] ?? "");
+    } else {
+      const knowledgeOptions = categoryMap[knowledgeCategory] ?? [];
+      if (!knowledgeOptions.includes(knowledgeCapability)) {
+        setKnowledgeCapability(knowledgeOptions[0] ?? "");
+      }
+    }
+  }, [
+    category,
+    categoryMap,
+    competencies,
+    competency,
+    knowledgeCapability,
+    knowledgeCategory,
+    subcategory,
+  ]);
 
   useEffect(() => {
     if (!chromeApi?.storage?.local) return;
@@ -217,7 +355,10 @@ export function ExtensionPopup({
           schedule: Array.isArray(stored.evitrace_prompt_schedule)
             ? (stored.evitrace_prompt_schedule as string[])
             : ["16:00"],
-          timezone: typeof stored.evitrace_timezone === "string" ? stored.evitrace_timezone : "GMT",
+          timezone:
+            typeof stored.evitrace_timezone === "string"
+              ? stored.evitrace_timezone
+              : "UTC+00:00 (GMT/UTC Standard)",
           currentPromptLabel:
             typeof stored.evitrace_current_prompt_label === "string"
               ? stored.evitrace_current_prompt_label
@@ -229,6 +370,18 @@ export function ExtensionPopup({
       },
     );
   }, [chromeApi?.storage?.local]);
+
+  useEffect(() => {
+    if (!chromeApi?.runtime?.sendMessage || !settings) return;
+    const notifications = settings.notifications;
+    chromeApi.runtime.sendMessage({
+      type: "UPDATE_PROMPT_CONFIG",
+      scheduleTimes: notifications.dailyReminder ? notifications.extensionPromptTimes : [],
+      snoozeMinutes: notifications.extensionSnoozeMinutes,
+      weekdaysOnly: notifications.extensionWeekdaysOnly,
+      timezone: notifications.extensionTimezone || "UTC+00:00 (GMT/UTC Standard)",
+    });
+  }, [chromeApi?.runtime?.sendMessage, settings]);
 
   useEffect(() => {
     function handleOutsideClick(event: MouseEvent) {
@@ -272,6 +425,8 @@ export function ExtensionPopup({
     Boolean(userId) &&
     challenge.trim().length > 0 &&
     lesson.trim().length > 0 &&
+    knowledgeCategory.trim().length > 0 &&
+    knowledgeCapability.trim().length > 0 &&
     knowledgeReferenceInputValid;
 
   useEffect(() => {
@@ -335,10 +490,10 @@ export function ExtensionPopup({
       toast.info("Enter title or description first.");
       return;
     }
-    const mapped = inferCompetency(title, description);
+    const mapped = inferCompetency(title, description, competencies);
     setCategory(mapped.category);
     setCompetency(mapped.competency);
-    setSubcategory(CATEGORY_MAP[mapped.category][0] ?? "");
+    setSubcategory(categoryMap[mapped.category]?.[0] ?? "");
     if (title.trim()) setTitle(polishText(title));
     if (description.trim()) setDescription(polishText(description));
     toast.success("AI assist applied: polished text + mapped competency.");
@@ -351,10 +506,10 @@ export function ExtensionPopup({
         id: "",
         date: new Date().toISOString().slice(0, 10),
         source: promptState.promptActive ? "Extension Prompt" : "Extension Manual",
-        category,
-        competency,
+        category: category.trim(),
+        competency: competency.trim(),
         title: title.trim(),
-        description: `${description.trim()}\n\nSubcategory: ${subcategory}`,
+        description: `${description.trim()}\n\nSubcategory: ${subcategory.trim()}`,
         link: sourceLink.trim(),
         status: "Pending Review",
         matchState: "Unset",
@@ -385,10 +540,11 @@ export function ExtensionPopup({
       knowledgeReferenceLinks.length > 0
         ? `\n\nReference Links:\n${knowledgeReferenceLinks.map((link) => `- ${link}`).join("\n")}`
         : "";
+    const categorySummary = `\n\nCategory: ${knowledgeCategory.trim()}\nCapability Item: ${knowledgeCapability.trim()}`;
     const payload = {
       user_id: userId,
       title: challenge.trim(),
-      description: `${lesson.trim()}${referencesSummary}`,
+      description: `${lesson.trim()}${categorySummary}${referencesSummary}`,
       reference_links: knowledgeReferenceLinks,
     };
     setIsSavingKnowledge(true);
@@ -405,12 +561,16 @@ export function ExtensionPopup({
           createdAt: new Date().toISOString(),
           challenge: challenge.trim(),
           lesson: lesson.trim(),
+          category: knowledgeCategory.trim(),
+          capability: knowledgeCapability.trim(),
           referenceLinks: knowledgeReferenceLinks,
           userId,
         };
         setKnowledgeLog((previous) => [entry, ...previous].slice(0, 40));
         setChallenge("");
         setLesson("");
+        setKnowledgeCategory(competencies[0] ?? "");
+        setKnowledgeCapability(categoryMap[competencies[0] ?? ""]?.[0] ?? "");
         setKnowledgeReferenceInput("");
         setKnowledgeReferenceLinks([]);
         showSuccessBannerMessage("Knowledge log saved!");
@@ -440,18 +600,23 @@ export function ExtensionPopup({
 
   function handleSnooze() {
     if (!chromeApi?.runtime?.sendMessage) return;
-    chromeApi.runtime.sendMessage({ type: "SNOOZE_PROMPT" }, (response: { ok?: boolean }) => {
+    chromeApi.runtime.sendMessage(
+      { type: "SNOOZE_PROMPT" },
+      (response: { ok?: boolean; snoozeMinutes?: number }) => {
       if (response?.ok) {
         setPromptState((state) => ({ ...state, snoozeCount: 1 }));
         toast.success(
           `Snoozed for ${
-            settings?.notifications.extensionSnoozeMinutes ?? promptState.snoozeMinutes
+            response.snoozeMinutes ??
+            settings?.notifications.extensionSnoozeMinutes ??
+            promptState.snoozeMinutes
           } minutes`,
         );
       } else {
         toast.info("Snooze already used for this prompt.");
       }
-    });
+      },
+    );
   }
 
   function handleCloseForNow() {
@@ -675,7 +840,7 @@ export function ExtensionPopup({
                 style={{ borderColor: "#DFE1E6" }}
               >
                 <option value="">Select category</option>
-                {COMPETENCIES.map((key) => (
+                {competencies.map((key) => (
                   <option key={key}>{key}</option>
                 ))}
               </select>
@@ -696,7 +861,7 @@ export function ExtensionPopup({
                   {category ? "Select subcategory" : "Select category first"}
                 </option>
                 {category
-                  ? CATEGORY_MAP[category].map((item) => (
+                  ? (categoryMap[category] ?? []).map((item) => (
                       <option key={item} value={item}>
                         {item}
                       </option>
@@ -762,6 +927,47 @@ export function ExtensionPopup({
                 className="w-full px-3 py-2 text-sm rounded border bg-[#F4F5F7] focus:bg-white outline-none resize-none text-[#172B4D]"
                 style={{ borderColor: "#DFE1E6" }}
               />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wider mb-1 block text-[#6B778C]">
+                Competency Category <span className="text-[#DE350B]">*</span>
+              </label>
+              <select
+                value={knowledgeCategory}
+                onChange={(event) => {
+                  const nextCategory = event.target.value;
+                  setKnowledgeCategory(nextCategory);
+                  setKnowledgeCapability(categoryMap[nextCategory]?.[0] ?? "");
+                }}
+                className="w-full h-10 rounded border px-3 text-sm text-[#172B4D] bg-[#F4F5F7] focus:bg-white outline-none"
+                style={{ borderColor: "#DFE1E6" }}
+              >
+                <option value="">Select category</option>
+                {competencies.map((key) => (
+                  <option key={key}>{key}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-wider mb-1 block text-[#6B778C]">
+                Capability Item <span className="text-[#DE350B]">*</span>
+              </label>
+              <select
+                value={knowledgeCapability}
+                onChange={(event) => setKnowledgeCapability(event.target.value)}
+                className="w-full h-10 rounded border px-3 text-sm text-[#172B4D] bg-[#F4F5F7] focus:bg-white outline-none truncate"
+                style={{ borderColor: "#DFE1E6" }}
+                disabled={!knowledgeCategory}
+              >
+                <option value="">
+                  {knowledgeCategory ? "Select capability item" : "Select category first"}
+                </option>
+                {(categoryMap[knowledgeCategory] ?? []).map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="text-[10px] font-bold uppercase tracking-wider mb-1 block text-[#6B778C]">

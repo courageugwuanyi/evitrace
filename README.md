@@ -104,7 +104,7 @@ Full control over your profile and the app's behaviour:
 - **Profile** — name, email, current level, target level, job title
 - **Team** — manager, manager email, skip-level contact
 - **Avatar** — upload a profile photo (stored in Supabase Storage)
-- **Notifications** — configure daily reminders, manager approval alerts, weekly digest, and browser push
+- **Notifications** — configure daily reminders, manager approval alerts, weekly digest, browser push, and IANA-based reminder timezone
 - **Integrations** — toggle per-source auto-capture (Jira, GitHub, Bitbucket, Slack, Teams, Confluence, Notion)
 - **Framework** — upload a custom competency framework CSV/JSON to personalise the radar dimensions
 
@@ -114,6 +114,16 @@ A floating panel inside the web app that simulates the Chrome extension capture 
 - Select a trigger source (based on your enabled integrations)
 - Pick one or more competency tags
 - Save directly to your Evidence Log without leaving your current context
+
+### Reminder Scheduling Engine (Extension)
+The extension service worker includes a live reminder engine that:
+
+- Syncs reminder preferences from Supabase profile data (`timezone`, `prompt_times`, `weekdays_only`, `snooze_duration_minutes`)
+- Uses IANA timezone identifiers (for example `Europe/London`, `America/New_York`) and resolves current offsets dynamically
+- Schedules daily primary reminder alarms plus a pre-warning alarm exactly 5 minutes earlier
+- Applies weekend suppression when `weekdays_only` is enabled
+- Supports reminder snooze cycles and click-through to the evidence workspace
+- Uses an offscreen document to play reminder audio before the primary prompt card
 
 ---
 
@@ -199,6 +209,8 @@ The app will be available at `http://localhost:3000`.
 
 ```bash
 bun run build        # Production build
+bun run build:ext    # Build Chrome extension bundle into dist-ext/
+bun run generate:ext-icons
 bun run preview      # Preview production build locally
 bun run lint         # ESLint
 bun run format       # Prettier
@@ -232,9 +244,14 @@ src/
 ├── routes/
 │   ├── __root.tsx           # App shell, QueryClientProvider
 │   └── index.tsx            # Main application (auth gate + all views)
+├── background.ts            # Extension background worker source (TS)
+public/
+├── manifest.json            # Extension Manifest V3 definition
+├── background.js            # Built/served extension service worker entry
+├── offscreen.html           # Offscreen audio document host
+└── offscreen.js             # Offscreen audio playback runtime listener
 supabase/
 └── migrations/              # Numbered SQL migration files
-extension/                   # Chrome extension scaffold (Phase 5)
 ```
 
 ---
@@ -261,14 +278,28 @@ The schema mirrors the app's domain model exactly. Every table is user-scoped vi
 
 ## Chrome Extension (Preview)
 
-The floating **Extension Preview** panel in the web app simulates the future Chrome extension experience. The real extension scaffold lives in `extension/` and targets Manifest V3.
+The floating **Extension Preview** panel in the web app simulates the extension capture UX. A local Manifest V3 extension is also available for development.
 
-When built (`bun run build:extension`), it will:
+Build and load flow:
+
+1. Run:
+
+   ```bash
+   bun run build:ext
+   ```
+
+2. Open `chrome://extensions`
+3. Enable **Developer mode**
+4. Click **Load unpacked** and select `dist-ext/`
+
+Current extension capabilities include:
 
 - Share authentication with the web app via `chrome.storage.local`
-- Inject content scripts into Jira, GitHub, Bitbucket, and Slack to detect completable events
-- Write captured events to `inbox_events` via the same Supabase backend
-- Fire daily reminder notifications based on your notification preferences
+- Poll and sync reminder preferences from Supabase profile/session context
+- IANA-timezone-aware daily scheduling with 5-minute warning notifications
+- Primary reminder cards with action buttons (**Log Evidence Now** / **Snooze**)
+- Offscreen audio ping before primary reminder delivery
+- Direct click-through to the Evitrace evidence workspace tab
 
 The extension is not yet published — it is available for local unpacked loading during development.
 

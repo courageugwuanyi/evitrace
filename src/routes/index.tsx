@@ -31,7 +31,6 @@ import { useDashboardStats } from "@/lib/api/dashboard";
 import { useFeedbackQuery, useAddFeedback } from "@/lib/api/feedback";
 import { useUploadAvatar } from "@/lib/api/profile";
 import { useSettingsQuery, useSaveNotifications, useSaveIntegrations } from "@/lib/api/settings";
-import { useFrameworkQuery, useUploadFramework } from "@/lib/api/frameworks";
 import { supabase } from "@/lib/supabase";
 import { generateSafeId } from "@/lib/utils/generateSafeId";
 import { motion, AnimatePresence } from "framer-motion";
@@ -266,9 +265,149 @@ const SUBCATEGORIES: Record<string, string[]> = {
 };
 
 const DEFAULT_EFFECTIVENESS_WEIGHT = 1;
+type FrameworkCategoryDefinition = {
+  summary: string;
+  items: string[];
+};
+type FrameworkCategoryMap = Record<string, FrameworkCategoryDefinition>;
+type EffectivenessScaleOption = {
+  value: number;
+  label: string;
+  tone: "danger" | "warning" | "info" | "success";
+};
 
 /* ---------- Shared category helpers ---------- */
 const ALL_CATEGORIES = Object.keys(SUBCATEGORIES);
+
+function effectivenessToneForValue(value: number): EffectivenessScaleOption["tone"] {
+  if (value <= 1) return "danger";
+  if (value === 2) return "warning";
+  if (value === 3) return "info";
+  return "success";
+}
+
+function buildFallbackCategoryMap(): FrameworkCategoryMap {
+  return Object.fromEntries(
+    Object.entries(SUBCATEGORIES).map(([categoryName, items]) => [
+      categoryName,
+      {
+        summary: COMPETENCY_DESC[categoryName] ?? "",
+        items,
+      },
+    ]),
+  );
+}
+
+function parseFrameworkCategoryMap(matrix: unknown): FrameworkCategoryMap | null {
+  if (!matrix || typeof matrix !== "object") return null;
+  const rawCategories = (matrix as Record<string, unknown>).categories;
+  if (!rawCategories || typeof rawCategories !== "object" || Array.isArray(rawCategories)) return null;
+
+  const parsed = Object.entries(rawCategories as Record<string, unknown>).reduce<FrameworkCategoryMap>(
+    (acc, [categoryName, rawCategory]) => {
+      if (!rawCategory || typeof rawCategory !== "object") return acc;
+      const candidate = rawCategory as Record<string, unknown>;
+      const summary = typeof candidate.summary === "string" ? candidate.summary.trim() : "";
+      const items = Array.isArray(candidate.items)
+        ? candidate.items
+            .map((item) => (typeof item === "string" ? item.trim() : ""))
+            .filter((item) => item.length > 0)
+        : [];
+      if (items.length === 0) return acc;
+      acc[categoryName] = { summary, items };
+      return acc;
+    },
+    {},
+  );
+
+  return Object.keys(parsed).length > 0 ? parsed : null;
+}
+
+function resolveFrameworkCategoryMap(matrix: unknown): FrameworkCategoryMap {
+  return parseFrameworkCategoryMap(matrix) ?? buildFallbackCategoryMap();
+}
+
+function resolveFrameworkCategoryEntries(
+  matrix: unknown,
+): Array<[string, FrameworkCategoryDefinition]> {
+  return Object.entries(resolveFrameworkCategoryMap(matrix));
+}
+
+function normalizeCategoryName(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function resolveCategoryFromFramework(value: string, frameworkCategories: string[]): string | null {
+  const normalized = normalizeCategoryName(value);
+  const direct = frameworkCategories.find((category) => normalizeCategoryName(category) === normalized);
+  if (direct) return direct;
+  return (
+    frameworkCategories.find(
+      (category) =>
+        normalizeCategoryName(category).includes(normalized) ||
+        normalized.includes(normalizeCategoryName(category)),
+    ) ?? null
+  );
+}
+
+function resolveFrameworkEffectivenessScale(matrix: unknown): EffectivenessScaleOption[] {
+  if (matrix && typeof matrix === "object") {
+    const rawScale = (matrix as Record<string, unknown>).effectiveness_scale;
+    if (rawScale && typeof rawScale === "object") {
+      if (Array.isArray(rawScale)) {
+        const arrayScale = rawScale
+          .map((entry) => {
+            if (!entry || typeof entry !== "object") return null;
+            const candidate = entry as Record<string, unknown>;
+            const value = Number(candidate.value);
+            const label = typeof candidate.label === "string" ? candidate.label.trim() : "";
+            if (!Number.isFinite(value) || value < 1 || label.length === 0) return null;
+            return {
+              value: Math.round(value),
+              label,
+              tone: effectivenessToneForValue(Math.round(value)),
+            } satisfies EffectivenessScaleOption;
+          })
+          .filter((entry): entry is EffectivenessScaleOption => Boolean(entry))
+          .sort((a, b) => a.value - b.value);
+        if (arrayScale.length > 0) return arrayScale;
+      } else {
+        const objectScale = Object.entries(rawScale as Record<string, unknown>)
+          .map(([rawValue, rawLabel]) => {
+            const value = Number(rawValue);
+            const label = typeof rawLabel === "string" ? rawLabel.trim() : "";
+            if (!Number.isFinite(value) || value < 1 || label.length === 0) return null;
+            return {
+              value: Math.round(value),
+              label,
+              tone: effectivenessToneForValue(Math.round(value)),
+            } satisfies EffectivenessScaleOption;
+          })
+          .filter((entry): entry is EffectivenessScaleOption => Boolean(entry))
+          .sort((a, b) => a.value - b.value);
+        if (objectScale.length > 0) return objectScale;
+      }
+    }
+  }
+  return EFFECTIVENESS_SCALE;
+}
+
+function buildFeedbackScoreMap(
+  categoryEntries: Array<[string, FrameworkCategoryDefinition]>,
+  defaultScore: number,
+): Record<string, Record<string, number>> {
+  return categoryEntries.reduce<Record<string, Record<string, number>>>((acc, [category, details]) => {
+    acc[category] = details.items.reduce<Record<string, number>>((itemAcc, item) => {
+      itemAcc[item] = defaultScore;
+      return itemAcc;
+    }, {});
+    return acc;
+  }, {});
+}
 
 /**
  * Official Associate Software Engineer competency framework (per Atlassian-style
@@ -572,22 +711,26 @@ function inferCompetencyFromText(title: string, description: string) {
  *  Falls back to the static initialRadar shape when no assessment is available. */
 function deriveRadarData(
   assessment: Assessment | undefined,
+  frameworkMatrix: unknown,
 ): { competency: string; current: number; target: number }[] {
-  const RADAR_COMPETENCIES = [
-    "Analytical",
-    "System Design",
-    "Code Quality",
-    "Communication",
-    "Leadership",
-    "UX Eng",
-    "Security",
-    "Delivery",
-  ];
-  return RADAR_COMPETENCIES.map((label) => {
-    const cat = radarLabelToCategory(label);
-    const found = assessment?.categories.find((c) => c.categoryName === cat);
+  const frameworkCategories = Object.keys(
+    ((frameworkMatrix as { categories?: Record<string, unknown> } | null)?.categories ?? {}) as Record<
+      string,
+      unknown
+    >,
+  );
+  const orderedCategories =
+    frameworkCategories.length > 0
+      ? frameworkCategories
+      : resolveFrameworkCategoryEntries(frameworkMatrix).map(([category]) => category);
+  return orderedCategories.map((categoryName) => {
+    const found = assessment?.categories.find(
+      (c) =>
+        c.categoryName === categoryName ||
+        normalizeCategoryName(c.categoryName) === normalizeCategoryName(categoryName),
+    );
     const current = found ? +Math.min(4, (found.categoryCurrentAvg / 5) * 4).toFixed(2) : 0;
-    return { competency: label, current, target: 4 };
+    return { competency: categoryName, current, target: 4 };
   });
 }
 
@@ -2312,6 +2455,43 @@ function EvitraceApp() {
     },
     enabled: Boolean(userId),
   });
+  const { data: activeFrameworkMatrix = null } = useQuery({
+    queryKey: ["active-framework-matrix", userId],
+    enabled: Boolean(userId),
+    queryFn: async (): Promise<unknown | null> => {
+      if (!userId) return null;
+
+      const { data: profile, error: profileError } = await (supabase.from("profiles") as any)
+        .select("active_framework_id")
+        .eq("id", userId)
+        .maybeSingle();
+      if (profileError) throw profileError;
+
+      const activeFrameworkId = (profile?.active_framework_id as string | null) ?? null;
+      if (activeFrameworkId) {
+        const { data: activeFramework, error: activeFrameworkError } = await (
+          supabase.from("competency_frameworks") as any
+        )
+          .select("matrix")
+          .eq("id", activeFrameworkId)
+          .maybeSingle();
+        if (activeFrameworkError) throw activeFrameworkError;
+        if (activeFramework?.matrix) return activeFramework.matrix as unknown;
+      }
+
+      const { data: fallbackFramework, error: fallbackError } = await (
+        supabase.from("competency_frameworks") as any
+      )
+        .select("matrix")
+        .or(`is_system_default.eq.true,user_id.eq.${userId}`)
+        .order("is_system_default", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (fallbackError) throw fallbackError;
+      return (fallbackFramework?.matrix as unknown) ?? null;
+    },
+  });
   const addKnowledgeMutation = useMutation({
     mutationFn: async (payload: {
       user_id: string;
@@ -2344,7 +2524,10 @@ function EvitraceApp() {
     );
   }, [assessments, sampleAssessments]);
 
-  const radarData = useMemo(() => deriveRadarData(assessments[0]), [assessments]);
+  const radarData = useMemo(
+    () => deriveRadarData(assessments[0], activeFrameworkMatrix),
+    [assessments, activeFrameworkMatrix],
+  );
 
   const [showCapture, setShowCapture] = useState(false);
   const [showCreateObjective, setShowCreateObjective] = useState(false);
@@ -2689,6 +2872,8 @@ function EvitraceApp() {
                 <RadarView
                   data={radarData}
                   assessments={assessments}
+                  evidence={visibleEvidence}
+                  frameworkMatrix={activeFrameworkMatrix}
                   wizardDraft={wizardDraft}
                   onCreateObjective={() => setShowCreateObjective(true)}
                   onStartReview={() => setShowWizard(true)}
@@ -2755,6 +2940,7 @@ function EvitraceApp() {
                   evidence={visibleEvidence}
                   objectives={visibleObjectives}
                   radarData={radarData}
+                  frameworkMatrix={activeFrameworkMatrix}
                   onFlash={flash}
                   review={review}
                   assessments={assessments}
@@ -2774,7 +2960,7 @@ function EvitraceApp() {
                   onOpenHistory={() => setShowHistory(true)}
                 />
               )}
-              {tab === "feedback" && <FeedbackView />}
+              {tab === "feedback" && <FeedbackView frameworkMatrix={activeFrameworkMatrix} />}
               {tab === "settings" && (
                 <SettingsView
                   sampleContent={sampleContent}
@@ -2793,6 +2979,7 @@ function EvitraceApp() {
         {showCapture && (
           <CaptureModal
             onClose={() => setShowCapture(false)}
+            frameworkMatrix={activeFrameworkMatrix}
             onSaveEvidence={({ title, description, sourceLink, category, subcategory }) => {
               insertEvidenceMutation.mutate(
                 {
@@ -2800,9 +2987,9 @@ function EvitraceApp() {
                   date: new Date().toISOString().slice(0, 10),
                   source: "Manual",
                   category,
-                  competency: category,
+                  competency: subcategory,
                   title: title.trim(),
-                  description: `${description.trim()}\n\nSubcategory: ${subcategory}`,
+                  description: description.trim(),
                   link: sourceLink.trim(),
                   status: "Pending Review",
                   matchState: "Unset",
@@ -2846,6 +3033,7 @@ function EvitraceApp() {
       <AnimatePresence>
         {showCreateObjective && (
           <CreateObjectiveModal
+            frameworkMatrix={activeFrameworkMatrix}
             onClose={() => setShowCreateObjective(false)}
             onSubmit={(o) => {
               createObjectiveMutation.mutate(
@@ -2905,6 +3093,7 @@ function EvitraceApp() {
         {openEvidence && (
           <EvidenceSlideover
             item={openEvidence}
+            frameworkMatrix={activeFrameworkMatrix}
             onClose={() => setOpenEvidence(null)}
             onSave={(updated) => {
               saveEvidenceMutation.mutate(updated, {
@@ -2931,6 +3120,7 @@ function EvitraceApp() {
         {openInbox && (
           <InboxReviewSlideover
             item={openInbox}
+            frameworkMatrix={activeFrameworkMatrix}
             onClose={() => setOpenInbox(null)}
             onConfirm={(comps) => {
               approveInbox(openInbox, comps);
@@ -2958,6 +3148,7 @@ function EvitraceApp() {
         {showWizard && (
           <ReviewWizard
             evidence={visibleEvidence}
+            frameworkMatrix={activeFrameworkMatrix}
             onOpenEvidence={setOpenEvidence}
             onClose={() => setShowWizard(false)}
             latestAssessment={assessments[0]}
@@ -3568,6 +3759,37 @@ function TopHeader({
 /*                  TAB 1: DASHBOARD                            */
 /* ============================================================ */
 
+const CustomRadarTick = (props: any) => {
+  const { x, y, payload, cx, cy } = props;
+  const value = payload?.value ?? "";
+
+  let textAnchor: "start" | "middle" | "end" = "middle";
+  if (x > cx + 10) textAnchor = "start";
+  if (x < cx - 10) textAnchor = "end";
+
+  const words = String(value).split(" ");
+  const lines: string[] = [];
+  if (words.length > 2) {
+    const mid = Math.ceil(words.length / 2);
+    lines.push(words.slice(0, mid).join(" "));
+    lines.push(words.slice(mid).join(" "));
+  } else {
+    lines.push(String(value));
+  }
+
+  return (
+    <g transform={`translate(${x}, ${y})`}>
+      <text textAnchor={textAnchor} fill="#4b5563" fontSize={11} className="font-medium">
+        {lines.map((line, i) => (
+          <tspan x={0} dy={i === 0 ? 0 : 13} key={i}>
+            {line}
+          </tspan>
+        ))}
+      </text>
+    </g>
+  );
+};
+
 function DashboardView({
   inbox,
   showSampleData,
@@ -3987,6 +4209,8 @@ function InboxRow({
 function RadarView({
   data,
   assessments,
+  evidence,
+  frameworkMatrix,
   wizardDraft,
   onCreateObjective,
   onStartReview,
@@ -3996,6 +4220,8 @@ function RadarView({
 }: {
   data: ReturnType<typeof deriveRadarData>;
   assessments: Assessment[];
+  evidence: EvidenceRecord[];
+  frameworkMatrix: unknown;
   wizardDraft: AssessmentWizardDraft | null;
   onCreateObjective: () => void;
   onStartReview: () => void;
@@ -4016,13 +4242,36 @@ function RadarView({
   // Latest + previous finalized assessments - used for "previous" series + per-question rows
   const latest = assessments[0];
   const prior = assessments[1];
+  const categoryEntries = useMemo(
+    () => resolveFrameworkCategoryEntries(frameworkMatrix),
+    [frameworkMatrix],
+  );
+  const categoryMap = useMemo(
+    () => Object.fromEntries(categoryEntries) as FrameworkCategoryMap,
+    [categoryEntries],
+  );
+  const frameworkCategoryNames = useMemo(
+    () => categoryEntries.map(([categoryName]) => categoryName),
+    [categoryEntries],
+  );
 
   // Build a unified per-category dataset that combines the radar/data ordering
   // with previous-cycle averages drawn from prior assessment.
   const chartData = useMemo(() => {
+    const evidenceCounts = evidence.reduce<Record<string, number>>((acc, record) => {
+      const matchedCategory =
+        resolveCategoryFromFramework(record.category ?? "", frameworkCategoryNames) ??
+        resolveCategoryFromFramework(record.competency ?? "", frameworkCategoryNames);
+      if (!matchedCategory) return acc;
+      acc[matchedCategory] = (acc[matchedCategory] ?? 0) + 1;
+      return acc;
+    }, {});
     return data.map((r) => {
-      const cat = radarLabelToCategory(r.competency);
-      const priorCat = prior?.categories.find((c) => c.categoryName === cat);
+      const priorCat = prior?.categories.find(
+        (c) =>
+          c.categoryName === r.competency ||
+          normalizeCategoryName(c.categoryName) === normalizeCategoryName(r.competency),
+      );
       // assessments use 1-5 scale; radar uses 0-4. Map by (x/5)*4.
       const previous = priorCat
         ? +Math.min(4, (priorCat.categoryCurrentAvg / 5) * 4).toFixed(2)
@@ -4032,9 +4281,10 @@ function RadarView({
         previous,
         current: r.current,
         target: r.target,
+        evidenceCount: evidenceCounts[r.competency] ?? 0,
       };
     });
-  }, [data, prior]);
+  }, [data, evidence, frameworkCategoryNames, prior]);
 
   return (
     <div className="space-y-6">
@@ -4247,54 +4497,57 @@ function RadarView({
               Target L4
             </span>
           </div>
-          <div className="h-[420px] mt-4">
+          <div className={`mt-4 ${chartMode === "bar" ? "h-[650px]" : ""}`}>
             {chartMode === "radar" ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <RadarChart data={data} outerRadius="78%">
-                  <PolarGrid stroke={C.border} />
-                  <PolarAngleAxis
-                    dataKey="competency"
-                    tick={{ fill: C.navy, fontSize: 11, fontWeight: 600 }}
-                  />
-                  <PolarRadiusAxis
-                    angle={90}
-                    domain={[0, 4]}
-                    tick={{ fill: C.subtle, fontSize: 10 }}
-                  />
-                  <Radar
-                    name="Target L4"
-                    dataKey="target"
-                    stroke="#00B8D9"
-                    fill="#00B8D9"
-                    fillOpacity={0.08}
-                    strokeWidth={2}
-                  />
-                  <Radar
-                    name="Current"
-                    dataKey="current"
-                    stroke="#0052CC"
-                    fill="#0052CC"
-                    fillOpacity={0.2}
-                    strokeWidth={2}
-                  />
-                  <RTooltip
-                    contentStyle={{
-                      background: "#fff",
-                      border: `1px solid ${C.border}`,
-                      borderRadius: 6,
-                      fontSize: 12,
-                    }}
-                    formatter={(v) => `${Number(v).toFixed(2)} / 4`}
-                  />
-                  <Legend wrapperStyle={{ display: "none" }} />
-                </RadarChart>
-              </ResponsiveContainer>
+              <div className="w-full h-[400px] overflow-visible">
+                <ResponsiveContainer width="100%" height="100%">
+                  <RadarChart
+                    data={data}
+                    outerRadius="80%"
+                    margin={{ top: 15, right: 20, bottom: 15, left: 20 }}
+                  >
+                    <PolarGrid stroke={C.border} />
+                    <PolarAngleAxis dataKey="competency" tick={<CustomRadarTick />} />
+                    <PolarRadiusAxis
+                      angle={90}
+                      domain={[0, 4]}
+                      tick={{ fill: C.subtle, fontSize: 10 }}
+                    />
+                    <Radar
+                      name="Target L4"
+                      dataKey="target"
+                      stroke="#00B8D9"
+                      fill="#00B8D9"
+                      fillOpacity={0.08}
+                      strokeWidth={2}
+                    />
+                    <Radar
+                      name="Current"
+                      dataKey="current"
+                      stroke="#0052CC"
+                      fill="#0052CC"
+                      fillOpacity={0.2}
+                      strokeWidth={2}
+                    />
+                    <RTooltip
+                      contentStyle={{
+                        background: "#fff",
+                        border: `1px solid ${C.border}`,
+                        borderRadius: 6,
+                        fontSize: 12,
+                      }}
+                      formatter={(v) => `${Number(v).toFixed(2)} / 4`}
+                    />
+                    <Legend wrapperStyle={{ display: "none" }} />
+                  </RadarChart>
+                </ResponsiveContainer>
+              </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={chartData}
                   layout="vertical"
-                  margin={{ top: 8, right: 24, bottom: 8, left: 16 }}
+                  margin={{ top: 20, right: 15, left: 10, bottom: 20 }}
                   barCategoryGap="22%"
                 >
                   <CartesianGrid horizontal={false} stroke={C.border} />
@@ -4307,8 +4560,9 @@ function RadarView({
                   <YAxis
                     type="category"
                     dataKey="competency"
-                    width={110}
-                    tick={{ fill: C.navy, fontSize: 11, fontWeight: 600 }}
+                    width={165}
+                    dx={-5}
+                    tick={{ fill: C.navy, fontSize: 11, fontWeight: 600, textAnchor: "end" }}
                     stroke={C.border}
                   />
                   <RTooltip
@@ -4321,9 +4575,27 @@ function RadarView({
                     formatter={(v) => `${Number(v).toFixed(2)} / 4`}
                   />
                   <Legend wrapperStyle={{ display: "none" }} />
-                  <Bar dataKey="previous" name="Previous" fill={C.slate} radius={[0, 2, 2, 0]} />
-                  <Bar dataKey="current" name="Current" fill="#0052CC" radius={[0, 2, 2, 0]} />
-                  <Bar dataKey="target" name="Target L4" fill="#00B8D9" radius={[0, 2, 2, 0]} />
+                  <Bar
+                    dataKey="previous"
+                    name="Previous"
+                    fill={C.slate}
+                    radius={[0, 2, 2, 0]}
+                    barSize={6}
+                  />
+                  <Bar
+                    dataKey="current"
+                    name="Current"
+                    fill="#0052CC"
+                    radius={[0, 2, 2, 0]}
+                    barSize={6}
+                  />
+                  <Bar
+                    dataKey="target"
+                    name="Target L4"
+                    fill="#00B8D9"
+                    radius={[0, 2, 2, 0]}
+                    barSize={6}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -4338,7 +4610,13 @@ function RadarView({
               sub="Expand a category to see specific competency questions and their 1-5 effectiveness rating"
             />
           </div>
-          <HierarchicalMatrix data={data} latest={latest} onCreateObjective={onCreateObjective} />
+          <HierarchicalMatrix
+            data={data}
+            latest={latest}
+            evidence={evidence}
+            categoryMap={categoryMap}
+            onCreateObjective={onCreateObjective}
+          />
         </Card>
       </div>
     </div>
@@ -4348,14 +4626,19 @@ function RadarView({
 function HierarchicalMatrix({
   data,
   latest,
+  evidence,
+  categoryMap,
   onCreateObjective,
 }: {
   data: ReturnType<typeof deriveRadarData>;
   latest: Assessment | undefined;
+  evidence: EvidenceRecord[];
+  categoryMap: FrameworkCategoryMap;
   onCreateObjective: () => void;
 }) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
-  const mapToCanonical = (label: string): string => radarLabelToCategory(label);
+  const categoryEntries = useMemo(() => Object.entries(categoryMap), [categoryMap]);
+  const categoryNames = useMemo(() => categoryEntries.map(([category]) => category), [categoryEntries]);
 
   /** Atlassian lozenge utility for numeric score deltas. */
   const changeLozenge = (delta: number) =>
@@ -4386,17 +4669,29 @@ function HierarchicalMatrix({
             <Th>Delta</Th>
             <Th>Target</Th>
             <Th>Gap</Th>
+            <Th>Evidence Logged</Th>
+            <Th>Rubric Expected</Th>
+            <Th>Evidence Delta</Th>
             <Th>Notes</Th>
             <Th>Action</Th>
           </tr>
         </thead>
         <tbody>
-          {data.map((row) => {
-            const canonical = mapToCanonical(row.competency);
-            const subs = SUBCATEGORIES[canonical] ?? [];
-            const latestCat = latest?.categories.find((c) => c.categoryName === canonical);
-            const isOpen = !!open[row.competency];
-            const subScores = subs.map((sub) => getHistoricalQuestionScores(latest, canonical, sub));
+          {categoryEntries.map(([categoryName, details]) => {
+            const row =
+              data.find(
+                (entry) =>
+                  entry.competency === categoryName ||
+                  normalizeCategoryName(entry.competency) === normalizeCategoryName(categoryName),
+              ) ?? data.find((entry) => resolveCategoryFromFramework(entry.competency, [categoryName]));
+            const subs = details.items ?? [];
+            const latestCat = latest?.categories.find(
+              (c) =>
+                c.categoryName === categoryName ||
+                normalizeCategoryName(c.categoryName) === normalizeCategoryName(categoryName),
+            );
+            const isOpen = !!open[categoryName];
+            const subScores = subs.map((sub) => getHistoricalQuestionScores(latest, categoryName, sub));
             const prevAvg =
               subScores.length === 0
                 ? DEFAULT_EFFECTIVENESS_WEIGHT
@@ -4411,16 +4706,24 @@ function HierarchicalMatrix({
                   );
             const targetAvg =
               subScores.length === 0
-                ? 4
+                ? row?.target ?? 4
                 : +(subScores.reduce((sum, score) => sum + score.target, 0) / subScores.length).toFixed(2);
             const gapAvg = +(curAvg - targetAvg).toFixed(2);
             const delta = calculateScoreDelta(prevAvg, curAvg);
+            const evidenceCount = evidence.filter((record) => {
+              const matchedCategory =
+                resolveCategoryFromFramework(record.category ?? "", categoryNames) ??
+                resolveCategoryFromFramework(record.competency ?? "", categoryNames);
+              return matchedCategory === categoryName;
+            }).length;
+            const expectedEvidenceCount = subs.length;
+            const evidenceDelta = evidenceCount - expectedEvidenceCount;
             return (
-              <React.Fragment key={row.competency}>
+              <React.Fragment key={categoryName}>
                 <tr
                   className="border-t hover:bg-[#FAFBFC] transition-colors cursor-pointer"
                   style={{ borderColor: C.border }}
-                  onClick={() => setOpen((s) => ({ ...s, [row.competency]: !s[row.competency] }))}
+                  onClick={() => setOpen((s) => ({ ...s, [categoryName]: !s[categoryName] }))}
                 >
                   <Td className="font-semibold" style={{ color: C.navy }}>
                     <span className="inline-flex items-center gap-2">
@@ -4430,7 +4733,7 @@ function HierarchicalMatrix({
                       >
                         <ChevronDown size={14} style={{ color: C.subtle }} />
                       </motion.span>
-                      {canonical}
+                      {categoryName}
                       <span
                         className="text-[10px] font-normal px-1.5 py-0.5 rounded"
                         style={{ background: "#F4F5F7", color: C.subtle }}
@@ -4456,6 +4759,17 @@ function HierarchicalMatrix({
                       {gapAvg > 0 ? `+${gapAvg}` : gapAvg}
                     </span>
                   </Td>
+                  <Td style={{ color: C.navy, fontWeight: 600 }}>{evidenceCount}</Td>
+                  <Td style={{ color: C.slate }}>{expectedEvidenceCount}</Td>
+                  <Td>
+                    <span
+                      className={`px-2 py-0.5 rounded text-xs font-semibold ${changeLozenge(
+                        evidenceDelta,
+                      )}`}
+                    >
+                      {evidenceDelta > 0 ? `+${evidenceDelta}` : evidenceDelta}
+                    </span>
+                  </Td>
                   <Td style={{ color: C.subtle }}>
                     <span className="text-[11px]">
                       {latestCat ? "Rollup" : "Defaulted to 1 (pending assessment)"}
@@ -4477,7 +4791,7 @@ function HierarchicalMatrix({
                 </tr>
                 {isOpen &&
                   subs.map((sub) => {
-                    const historical = getHistoricalQuestionScores(latest, canonical, sub);
+                    const historical = getHistoricalQuestionScores(latest, categoryName, sub);
                     const prev = historical.previous;
                     const cur = historical.current;
                     const tgt = historical.target;
@@ -4487,7 +4801,7 @@ function HierarchicalMatrix({
                     const subDelta = calculateScoreDelta(prev, cur);
                     return (
                       <tr
-                        key={canonical + sub}
+                        key={categoryName + sub}
                         className="border-t bg-[#FAFBFC] hover:bg-[#F4F5F7] transition-colors"
                         style={{ borderColor: C.border }}
                       >
@@ -4516,6 +4830,9 @@ function HierarchicalMatrix({
                             {subGap > 0 ? `+${subGap}` : subGap}
                           </span>
                         </Td>
+                        <Td style={{ color: C.subtle }}>-</Td>
+                        <Td style={{ color: C.subtle }}>-</Td>
+                        <Td style={{ color: C.subtle }}>-</Td>
                         <Td>
                           {note ? (
                             <span
@@ -5531,8 +5848,10 @@ function CaptureModal({
   onClose,
   onSaveEvidence,
   onSaveKnowledge,
+  frameworkMatrix,
 }: {
   onClose: () => void;
+  frameworkMatrix: unknown;
   onSaveEvidence: (payload: {
     title: string;
     description: string;
@@ -5548,12 +5867,22 @@ function CaptureModal({
   }) => void;
 }) {
   const [tab, setTab] = useState<"evidence" | "knowledge">("evidence");
-  const categories = Object.keys(SUBCATEGORIES);
+  const categoryEntries = useMemo(
+    () => resolveFrameworkCategoryEntries(frameworkMatrix),
+    [frameworkMatrix],
+  );
+  const categoryMap = useMemo(
+    () => Object.fromEntries(categoryEntries) as FrameworkCategoryMap,
+    [categoryEntries],
+  );
+  const categories = categoryEntries.map(([categoryName]) => categoryName);
+  const initialCategory = categories[0] ?? "";
+  const initialSubcategory = categoryMap[initialCategory]?.items[0] ?? "";
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [sourceLink, setSourceLink] = useState("");
-  const [category, setCategory] = useState(categories[2]); // Code Quality
-  const [subcategory, setSubcategory] = useState(SUBCATEGORIES[categories[2]][0]);
+  const [category, setCategory] = useState(initialCategory);
+  const [subcategory, setSubcategory] = useState(initialSubcategory);
   const [challenge, setChallenge] = useState("");
   const [lesson, setLesson] = useState("");
   const [knowledgeReferenceInput, setKnowledgeReferenceInput] = useState("");
@@ -5564,15 +5893,39 @@ function CaptureModal({
 
   function onCategoryChange(v: string) {
     setCategory(v);
-    setSubcategory(SUBCATEGORIES[v][0]);
+    setSubcategory(categoryMap[v]?.items[0] ?? "");
   }
 
   function handleAutoMapCompetency() {
     const inferred = inferCompetencyFromText(title, description);
-    setCategory(inferred);
-    setSubcategory(SUBCATEGORIES[inferred][0]);
+    const mappedCategory = categories.includes(inferred)
+      ? inferred
+      : categories.find((candidate) => candidate.toLowerCase().includes(inferred.toLowerCase()))
+        ?? categories[0]
+        ?? "";
+    setCategory(mappedCategory);
+    setSubcategory(categoryMap[mappedCategory]?.items[0] ?? "");
     toast.success("Competency auto-mapped.");
   }
+
+  useEffect(() => {
+    if (!categories.includes(category)) {
+      setCategory(initialCategory);
+      setSubcategory(initialSubcategory);
+      return;
+    }
+    const selectedItems = categoryMap[category]?.items ?? [];
+    if (!selectedItems.includes(subcategory)) {
+      setSubcategory(selectedItems[0] ?? "");
+    }
+  }, [
+    categories,
+    category,
+    subcategory,
+    categoryMap,
+    initialCategory,
+    initialSubcategory,
+  ]);
 
   function handlePolishContent() {
     if (!title.trim() && !description.trim()) {
@@ -5751,12 +6104,12 @@ function CaptureModal({
                   ))}
                 </Select>
                 <div className="text-[11px] mt-1.5 leading-relaxed" style={{ color: C.subtle }}>
-                  {COMPETENCY_DESC[category]}
+                  {categoryMap[category]?.summary || COMPETENCY_DESC[category] || "No summary provided."}
                 </div>
               </Field>
               <Field label="Subcategory / Question" required>
                 <Select value={subcategory} onChange={(e) => setSubcategory(e.target.value)}>
-                  {SUBCATEGORIES[category].map((s) => (
+                  {(categoryMap[category]?.items ?? []).map((s) => (
                     <option key={s}>{s}</option>
                   ))}
                 </Select>
@@ -5972,15 +6325,25 @@ function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
 /* ============================================================ */
 
 function CreateObjectiveModal({
+  frameworkMatrix,
   onClose,
   onSubmit,
 }: {
+  frameworkMatrix: unknown;
   onClose: () => void;
   onSubmit: (o: Omit<Objective, "id" | "status">) => void;
 }) {
-  const objCategories = Object.keys(SUBCATEGORIES);
-  const [competency, setCompetency] = useState(objCategories[0]);
-  const [subcategory, setSubcategory] = useState(SUBCATEGORIES[objCategories[0]][0]);
+  const categoryMap = useMemo(() => resolveFrameworkCategoryMap(frameworkMatrix), [frameworkMatrix]);
+  const objCategories = useMemo(() => {
+    const matrixCategories = (
+      (frameworkMatrix as { categories?: Record<string, unknown> } | null)?.categories ?? {}
+    ) as Record<string, unknown>;
+    const dynamicKeys = Object.keys(matrixCategories || {});
+    if (dynamicKeys.length > 0) return dynamicKeys;
+    return Object.keys(categoryMap);
+  }, [categoryMap, frameworkMatrix]);
+  const [competency, setCompetency] = useState(objCategories[0] ?? "");
+  const [subcategory, setSubcategory] = useState(categoryMap[objCategories[0] ?? ""]?.items[0] ?? "");
   const [title, setTitle] = useState("");
   const [statement, setStatement] = useState("");
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
@@ -6001,8 +6364,21 @@ function CreateObjectiveModal({
 
   function onCatChange(v: string) {
     setCompetency(v);
-    setSubcategory(SUBCATEGORIES[v][0]);
+    setSubcategory(categoryMap[v]?.items[0] ?? "");
   }
+
+  useEffect(() => {
+    if (!objCategories.includes(competency)) {
+      const fallbackCategory = objCategories[0] ?? "";
+      setCompetency(fallbackCategory);
+      setSubcategory(categoryMap[fallbackCategory]?.items[0] ?? "");
+      return;
+    }
+    const options = categoryMap[competency]?.items ?? [];
+    if (!options.includes(subcategory)) {
+      setSubcategory(options[0] ?? "");
+    }
+  }, [categoryMap, competency, objCategories, subcategory]);
 
   useEffect(() => {
     if (!startDate || !timeboundDate) return;
@@ -6091,12 +6467,12 @@ function CreateObjectiveModal({
               </div>
               <Field label="Target Subcategory / Question" required>
                 <Select value={subcategory} onChange={(e) => setSubcategory(e.target.value)}>
-                  {SUBCATEGORIES[competency].map((sc) => (
+                  {(categoryMap[competency]?.items ?? []).map((sc) => (
                     <option key={sc}>{sc}</option>
                   ))}
                 </Select>
                 <div className="text-[11px] mt-1.5 leading-relaxed" style={{ color: C.subtle }}>
-                  {COMPETENCY_DESC[competency]}
+                  {categoryMap[competency]?.summary || COMPETENCY_DESC[competency] || ""}
                 </div>
               </Field>
             </div>
@@ -6274,8 +6650,8 @@ function CreateObjectiveModal({
             onClick={() =>
               onSubmit({
                 title: title.trim(),
-                competency,
-                targetSubcategory: subcategory,
+                competency: competency.trim(),
+                targetSubcategory: subcategory.trim(),
                 due: timeboundDate,
                 statement: statement.trim(),
                 dateAuthored: startDate,
@@ -7100,7 +7476,6 @@ function FeedbackTypeBadge({ type }: { type: FeedbackType }) {
 }
 
 type SeniorityBand = "Junior / Associate" | "Mid-Level" | "Senior / Lead / Staff";
-type CapabilityKey = "technicalExecution" | "collaboration" | "deliveryReliability";
 
 const SENIORITY_TEMPLATE: Record<
   SeniorityBand,
@@ -7142,24 +7517,6 @@ const SENIORITY_TEMPLATE: Record<
   },
 };
 
-const CAPABILITY_MATRIX: Array<{ key: CapabilityKey; label: string; focus: string }> = [
-  {
-    key: "technicalExecution",
-    label: "Technical Execution",
-    focus: "Code Quality, Architectural Soundness, and Code Review Contributions",
-  },
-  {
-    key: "collaboration",
-    label: "Collaboration",
-    focus: "Team Communication and Cross-functional Interacting",
-  },
-  {
-    key: "deliveryReliability",
-    label: "Delivery Reliability",
-    focus: "Execution Ownership and Scope Management",
-  },
-];
-
 function resolveSeniorityBand(level: string | undefined): SeniorityBand {
   const value = (level ?? "").trim().toLowerCase();
   if (value.includes("junior") || value.includes("associate")) return "Junior / Associate";
@@ -7182,7 +7539,7 @@ function normalizeExternalUrl(raw: string): string | null {
   }
 }
 
-function FeedbackView() {
+function FeedbackView({ frameworkMatrix }: { frameworkMatrix: unknown }) {
   const { userId, user } = useAuth();
   const feedbackUserId = userId ?? "";
   const { data: items = [] } = useFeedbackQuery(feedbackUserId);
@@ -7193,11 +7550,19 @@ function FeedbackView() {
     resolveSeniorityBand(user?.currentLevel),
   );
   const [seniorityOverridden, setSeniorityOverridden] = useState(false);
-  const [scores, setScores] = useState<Record<CapabilityKey, number>>({
-    technicalExecution: 3,
-    collaboration: 3,
-    deliveryReliability: 3,
-  });
+  const categoryEntries = useMemo(
+    () => resolveFrameworkCategoryEntries(frameworkMatrix),
+    [frameworkMatrix],
+  );
+  const effectivenessScale = useMemo(
+    () => resolveFrameworkEffectivenessScale(frameworkMatrix),
+    [frameworkMatrix],
+  );
+  const defaultScaleValue =
+    effectivenessScale.find((point) => point.value === 3)?.value ?? effectivenessScale[0]?.value ?? 1;
+  const [scores, setScores] = useState<Record<string, Record<string, number>>>(() =>
+    buildFeedbackScoreMap(categoryEntries, defaultScaleValue),
+  );
   const [strengthNarrative, setStrengthNarrative] = useState("");
   const [improvementNarrative, setImprovementNarrative] = useState("");
   const [nextSkillNarrative, setNextSkillNarrative] = useState("");
@@ -7210,15 +7575,21 @@ function FeedbackView() {
     [items, filter],
   );
   const activeTemplate = SENIORITY_TEMPLATE[seniorityBand];
+  const ratedItemsCount = useMemo(
+    () => categoryEntries.reduce((sum, [, details]) => sum + details.items.length, 0),
+    [categoryEntries],
+  );
   const avgScore = useMemo(
     () =>
       Number(
         (
-          CAPABILITY_MATRIX.reduce((sum, item) => sum + (scores[item.key] ?? 0), 0) /
-          CAPABILITY_MATRIX.length
+          Object.values(scores)
+            .flatMap((itemScores) => Object.values(itemScores))
+            .reduce((sum, score) => sum + score, 0) /
+          Math.max(ratedItemsCount, 1)
         ).toFixed(2),
       ),
-    [scores],
+    [ratedItemsCount, scores],
   );
 
   const canSubmitEvaluation =
@@ -7240,8 +7611,29 @@ function FeedbackView() {
     setExternalSurveyDraft(saved);
   }, [feedbackUserId]);
 
-  function updateCapabilityScore(key: CapabilityKey, value: number) {
-    setScores((prev) => ({ ...prev, [key]: value }));
+  useEffect(() => {
+    setScores((previous) => {
+      const next = buildFeedbackScoreMap(categoryEntries, defaultScaleValue);
+      categoryEntries.forEach(([category, details]) => {
+        details.items.forEach((item) => {
+          const previousValue = previous[category]?.[item];
+          if (typeof previousValue === "number") {
+            next[category][item] = previousValue;
+          }
+        });
+      });
+      return next;
+    });
+  }, [categoryEntries, defaultScaleValue]);
+
+  function updateCapabilityScore(category: string, item: string, value: number) {
+    setScores((previous) => ({
+      ...previous,
+      [category]: {
+        ...(previous[category] ?? {}),
+        [item]: value,
+      },
+    }));
   }
 
   function saveExternalSurveyUrl() {
@@ -7305,11 +7697,17 @@ function FeedbackView() {
       toast.error("Please complete all mandatory qualitative prompts.");
       return;
     }
+    const scoreRows = categoryEntries.flatMap(([categoryName, details]) =>
+      details.items.map((item) => {
+        const currentScore = scores[categoryName]?.[item] ?? defaultScaleValue;
+        const scoreLabel = effectivenessScale.find((point) => point.value === currentScore)?.label ?? "";
+        return `- Category: ${categoryName} | Item: ${item} | Effectiveness: ${currentScore}${scoreLabel ? ` (${scoreLabel})` : ""}`;
+      }),
+    );
     const payload =
       `Seniority Template: ${seniorityBand}\n` +
-      `Capability Matrix (1-5): Technical Execution ${scores.technicalExecution}, ` +
-      `Collaboration ${scores.collaboration}, Delivery Reliability ${scores.deliveryReliability} ` +
-      `(Avg ${avgScore})\n` +
+      `Framework Matrix Average (1-5): ${avgScore}\n` +
+      `Framework Ratings:\n${scoreRows.join("\n")}\n` +
       `Strength: ${strengthNarrative.trim()}\n` +
       `Improvement Example: ${improvementNarrative.trim()}\n` +
       `Next Skill: ${nextSkillNarrative.trim()}`;
@@ -7517,48 +7915,58 @@ function FeedbackView() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <div className="text-sm font-semibold" style={{ color: C.navy }}>
-              Core Capability Scalar Matrix (1-5)
+              Corporate Competency Evaluation Matrix
             </div>
             <div className="text-xs mt-0.5" style={{ color: C.subtle }}>
-              1 = emerging, 3 = meeting expectations, 5 = exemplary and consistently scalable.
+              Rate each framework item using your active matrix effectiveness scale.
             </div>
           </div>
           <Badge tone="info">Average Score: {avgScore.toFixed(2)} / 5</Badge>
         </div>
         <div className="space-y-3">
-          {CAPABILITY_MATRIX.map((row) => (
-            <div
-              key={row.key}
-              className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-3 border rounded-lg px-3 py-3"
-              style={{ borderColor: C.border }}
-            >
-              <div>
-                <div className="text-sm font-semibold" style={{ color: C.navy }}>
-                  {row.label}
-                </div>
-                <div className="text-xs mt-0.5" style={{ color: C.subtle }}>
-                  {row.focus}
-                </div>
+          {categoryEntries.map(([categoryName, details]) => (
+            <div key={categoryName} className="border rounded-lg p-3" style={{ borderColor: C.border }}>
+              <div className="text-sm font-semibold" style={{ color: C.navy }}>
+                {categoryName}
               </div>
-              <div className="flex items-center gap-1.5">
-                {[1, 2, 3, 4, 5].map((point) => {
-                  const active = scores[row.key] === point;
-                  return (
-                    <button
-                      key={`${row.key}-${point}`}
-                      type="button"
-                      onClick={() => updateCapabilityScore(row.key, point)}
-                      className="w-8 h-8 rounded border text-xs font-semibold transition-colors"
-                      style={{
-                        borderColor: active ? C.primary : C.border,
-                        color: active ? C.primary : C.slate,
-                        background: active ? C.primarySoft : "#fff",
-                      }}
-                    >
-                      {point}
-                    </button>
-                  );
-                })}
+              {details.summary && (
+                <div className="text-xs mt-0.5 leading-relaxed" style={{ color: C.subtle }}>
+                  {details.summary}
+                </div>
+              )}
+              <div className="mt-3 space-y-2">
+                {details.items.map((item) => (
+                  <div
+                    key={`${categoryName}-${item}`}
+                    className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-3 border rounded-lg px-3 py-3"
+                    style={{ borderColor: C.border }}
+                  >
+                    <div className="text-xs leading-relaxed" style={{ color: C.slate }}>
+                      {item}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {effectivenessScale.map((point) => {
+                        const active = (scores[categoryName]?.[item] ?? defaultScaleValue) === point.value;
+                        return (
+                          <button
+                            key={`${categoryName}-${item}-${point.value}`}
+                            type="button"
+                            onClick={() => updateCapabilityScore(categoryName, item, point.value)}
+                            title={`${point.value} - ${point.label}`}
+                            className="w-8 h-8 rounded border text-xs font-semibold transition-colors"
+                            style={{
+                              borderColor: active ? C.primary : C.border,
+                              color: active ? C.primary : C.slate,
+                              background: active ? C.primarySoft : "#fff",
+                            }}
+                          >
+                            {point.value}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           ))}
@@ -7866,13 +8274,13 @@ function DashboardSamplesSettings({
   );
 }
 
-function Toggle({ on, onChange }: { on: boolean; onChange: () => void }) {
+function Toggle({ on, onChange }: { on: boolean; onChange: (checked: boolean) => void }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={on}
-      onClick={onChange}
+      onClick={() => onChange(!on)}
       className="relative inline-flex w-9 h-5 rounded-full cursor-pointer transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1"
       style={{ background: on ? C.primary : "#C1C7D0" }}
     >
@@ -8330,6 +8738,7 @@ function TeamSettings() {
 function NotificationsSettings() {
   const { userId } = useAuth();
   const settingsUserId = userId ?? "";
+  const queryClient = useQueryClient();
   const { data: settings } = useSettingsQuery(settingsUserId);
   const saveNotificationsMutation = useSaveNotifications(settingsUserId);
   const [a, setA] = useState(true);
@@ -8339,7 +8748,54 @@ function NotificationsSettings() {
   const [timeSlots, setTimeSlots] = useState<string[]>(["16:00"]);
   const [snoozeMinutes, setSnoozeMinutes] = useState(15);
   const [weekdaysOnly, setWeekdaysOnly] = useState(true);
-  const [timezone, setTimezone] = useState("GMT");
+  const [timezone, setTimezone] = useState("UTC");
+  const timezoneOptions = [
+    { label: "London", value: "Europe/London" },
+    { label: "New York", value: "America/New_York" },
+    { label: "Los Angeles", value: "America/Los_Angeles" },
+    { label: "Paris / Berlin", value: "Europe/Paris" },
+    { label: "India (IST)", value: "Asia/Kolkata" },
+    { label: "Singapore", value: "Asia/Singapore" },
+    { label: "Tokyo", value: "Asia/Tokyo" },
+    { label: "Sydney", value: "Australia/Sydney" },
+    { label: "Universal Time", value: "UTC" },
+  ];
+  const validTimezoneValues = new Set(timezoneOptions.map((option) => option.value));
+  function normalizeTimezoneValue(value: string | undefined) {
+    if (!value) return "UTC";
+    const trimmed = value.trim();
+    if (validTimezoneValues.has(trimmed)) return trimmed;
+
+    // Legacy value migration from offset labels to IANA ids.
+    const legacyMap: Record<string, string> = {
+      "UTC-08:00 (PST)": "America/Los_Angeles",
+      "UTC-05:00 (EST)": "America/New_York",
+      "UTC+00:00 (GMT/UTC Standard)": "UTC",
+      "UTC+01:00 (BST)": "Europe/London",
+      "UTC+05:30 (IST)": "Asia/Kolkata",
+      "UTC+08:00 (SGT)": "Asia/Singapore",
+      "UTC+09:00 (JST)": "Asia/Tokyo",
+      "UTC+10:00 (AEST)": "Australia/Sydney",
+      GMT: "UTC",
+    };
+    return legacyMap[trimmed] ?? "UTC";
+  }
+
+  const saveProfileTimezoneMutation = useMutation({
+    mutationFn: async (nextTimezone: string) => {
+      if (!settingsUserId) return;
+      const { error } = await (supabase.from("profiles") as any)
+        .update({ timezone: nextTimezone })
+        .eq("id", settingsUserId);
+      if (error) throw error;
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["profile", settingsUserId] });
+    },
+  });
 
   function sendExtensionConfig(notifications: NotificationPrefs) {
     const chromeApi = (globalThis as typeof globalThis & { chrome?: any }).chrome;
@@ -8368,7 +8824,7 @@ function NotificationsSettings() {
     );
     setSnoozeMinutes(settings.notifications.extensionSnoozeMinutes);
     setWeekdaysOnly(settings.notifications.extensionWeekdaysOnly);
-    setTimezone(settings.notifications.extensionTimezone);
+    setTimezone(normalizeTimezoneValue(settings.notifications.extensionTimezone));
   }, [settings]);
 
   useEffect(() => {
@@ -8417,9 +8873,10 @@ function NotificationsSettings() {
           right={
             <Toggle
               on={a}
-              onChange={(v) => {
-                setA(v);
-                persist({ dailyReminder: v });
+              onChange={() => {
+                const checked = !a;
+                setA(checked);
+                persist({ dailyReminder: checked });
               }}
             />
           }
@@ -8430,9 +8887,10 @@ function NotificationsSettings() {
           right={
             <Toggle
               on={b}
-              onChange={(v) => {
-                setB(v);
-                persist({ managerApprovals: v });
+              onChange={() => {
+                const checked = !b;
+                setB(checked);
+                persist({ managerApprovals: checked });
               }}
             />
           }
@@ -8443,9 +8901,10 @@ function NotificationsSettings() {
           right={
             <Toggle
               on={c}
-              onChange={(v) => {
-                setC(v);
-                persist({ weeklyDigest: v });
+              onChange={() => {
+                const checked = !c;
+                setC(checked);
+                persist({ weeklyDigest: checked });
               }}
             />
           }
@@ -8456,9 +8915,10 @@ function NotificationsSettings() {
           right={
             <Toggle
               on={d}
-              onChange={(v) => {
-                setD(v);
-                persist({ browserPush: v });
+              onChange={() => {
+                const checked = !d;
+                setD(checked);
+                persist({ browserPush: checked });
               }}
             />
           }
@@ -8514,9 +8974,10 @@ function NotificationsSettings() {
           right={
             <Toggle
               on={weekdaysOnly}
-              onChange={(v) => {
-                setWeekdaysOnly(v);
-                persist({ extensionWeekdaysOnly: v });
+              onChange={() => {
+                const checked = !weekdaysOnly;
+                setWeekdaysOnly(checked);
+                persist({ extensionWeekdaysOnly: checked });
               }}
             />
           }
@@ -8553,20 +9014,26 @@ function NotificationsSettings() {
           </div>
         </div>
         <SettingRow
-          title="Prompt timezone label"
-          desc="Shown in the extension header and synced to reminder config."
+          title="Application Tracking Time Zone"
+          desc="Standardized UTC offset used for reminders and profile-level tracking."
           right={
-            <input
+            <select
               value={timezone}
               onChange={(e) => {
-                const next = e.target.value || "GMT";
+                const next = normalizeTimezoneValue(e.target.value);
                 setTimezone(next);
                 persist({ extensionTimezone: next });
+                saveProfileTimezoneMutation.mutate(next);
               }}
-              placeholder="GMT"
-              className="h-9 w-[120px] px-2 rounded border text-sm bg-[#F4F5F7] focus:bg-white outline-none"
+              className="h-9 w-[270px] px-2 rounded border text-sm bg-[#F4F5F7] focus:bg-white outline-none"
               style={{ borderColor: C.border, color: C.navy }}
-            />
+            >
+              {timezoneOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           }
         />
       </div>
@@ -8784,107 +9251,611 @@ function IntegrationRow({
   );
 }
 
+type MatrixLevelKey = "junior" | "mid" | "senior";
+type MatrixPillarKey = "technical_execution" | "collaboration" | "delivery_reliability";
+
+type MatrixSchema = Record<MatrixLevelKey, Record<MatrixPillarKey, string[]>>;
+
+type FrameworkOption = {
+  id: string;
+  name: string;
+  description: string | null;
+  is_system_default: boolean;
+  matrix: unknown;
+  created_at: string;
+};
+
+const MATRIX_PILLARS: Array<{ key: MatrixPillarKey; label: string; keywords: string[] }> = [
+  {
+    key: "technical_execution",
+    label: "Technical Execution",
+    keywords: [
+      "code",
+      "bug",
+      "architecture",
+      "system",
+      "scal",
+      "api",
+      "test",
+      "quality",
+      "refactor",
+      "performance",
+      "incident",
+      "design",
+    ],
+  },
+  {
+    key: "collaboration",
+    label: "Collaboration",
+    keywords: [
+      "team",
+      "mentor",
+      "review",
+      "feedback",
+      "commun",
+      "stakeholder",
+      "partner",
+      "cross",
+      "alignment",
+      "coach",
+      "support",
+      "documentation",
+    ],
+  },
+  {
+    key: "delivery_reliability",
+    label: "Delivery Reliability",
+    keywords: [
+      "deliver",
+      "ship",
+      "sprint",
+      "deadline",
+      "release",
+      "launch",
+      "scope",
+      "estimate",
+      "ownership",
+      "execution",
+      "roadmap",
+      "milestone",
+    ],
+  },
+];
+
+const FALLBACK_PILLARS: Record<MatrixPillarKey, string[]> = {
+  technical_execution: [
+    "Builds reliable implementations and improves code quality through testing and review.",
+    "Breaks technical problems into clear, maintainable implementation steps.",
+  ],
+  collaboration: [
+    "Communicates progress and blockers clearly to teammates and partners.",
+    "Works collaboratively through feedback and cross-functional coordination.",
+  ],
+  delivery_reliability: [
+    "Plans and ships scoped work with predictable cadence.",
+    "Owns delivery follow-through and raises risks early.",
+  ],
+};
+
+const SAMPLE_MATRIX_TEMPLATE: MatrixSchema = {
+  junior: {
+    technical_execution: [
+      "Implements clean, readable code for scoped tasks.",
+      "Fixes straightforward bugs and adds baseline tests.",
+      "Learns architecture patterns used in the current codebase.",
+    ],
+    collaboration: [
+      "Asks for support early and follows through on review feedback.",
+      "Documents task progress and keeps teammates informed.",
+      "Participates constructively in team discussions and retrospectives.",
+    ],
+    delivery_reliability: [
+      "Completes well-defined tickets within expected timelines.",
+      "Follows team release and branching workflows consistently.",
+      "Escalates blockers quickly to avoid delivery delays.",
+    ],
+  },
+  mid: {
+    technical_execution: [
+      "Owns medium complexity features end-to-end.",
+      "Writes robust tests and debugs cross-module issues.",
+      "Improves architecture decisions with practical trade-off analysis.",
+    ],
+    collaboration: [
+      "Partners effectively with product, design, and engineering peers.",
+      "Gives high-signal code review feedback and shares context.",
+      "Coordinates dependencies and keeps execution aligned across teammates.",
+    ],
+    delivery_reliability: [
+      "Ships predictably across sprints and maintains quality.",
+      "Manages scope with clear milestones and risk visibility.",
+      "Supports incident response and follow-up actions effectively.",
+    ],
+  },
+  senior: {
+    technical_execution: [
+      "Designs scalable systems and leads architecture evolution.",
+      "Raises engineering standards through deep reviews and mentorship.",
+      "Converts ambiguous requirements into clear technical plans.",
+    ],
+    collaboration: [
+      "Mentors engineers and amplifies team capability.",
+      "Aligns cross-functional stakeholders on technical direction.",
+      "Drives clear technical communication through design docs and RFCs.",
+    ],
+    delivery_reliability: [
+      "Owns delivery outcomes for critical initiatives.",
+      "Balances speed, quality, and operational risk under pressure.",
+      "Builds resilient processes that improve long-term execution reliability.",
+    ],
+  },
+};
+
+function normalizeMatrix(input: unknown): MatrixSchema | null {
+  if (!input || typeof input !== "object") return null;
+  const candidate = input as Record<string, unknown>;
+  const levels: MatrixLevelKey[] = ["junior", "mid", "senior"];
+  const pillars: MatrixPillarKey[] = ["technical_execution", "collaboration", "delivery_reliability"];
+  const normalized = {} as MatrixSchema;
+
+  for (const level of levels) {
+    const levelValue = candidate[level];
+    if (!levelValue || typeof levelValue !== "object") return null;
+    const levelRecord = levelValue as Record<string, unknown>;
+    normalized[level] = {
+      technical_execution: [],
+      collaboration: [],
+      delivery_reliability: [],
+    };
+
+    for (const pillar of pillars) {
+      const pillarValue = levelRecord[pillar];
+      if (!Array.isArray(pillarValue)) return null;
+      normalized[level][pillar] = pillarValue
+        .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+        .filter((entry) => entry.length > 0);
+    }
+  }
+
+  return normalized;
+}
+
+function levelFromCurrentRole(currentLevel: string | undefined): MatrixLevelKey {
+  const value = (currentLevel ?? "").trim().toLowerCase();
+  if (value.includes("junior") || value.includes("associate")) return "junior";
+  if (
+    value.includes("senior") ||
+    value.includes("lead") ||
+    value.includes("staff") ||
+    value.includes("principal")
+  ) {
+    return "senior";
+  }
+  return "mid";
+}
+
+function splitRawTextIntoBlocks(rawText: string): string[] {
+  return rawText
+    .split(/\r?\n+/)
+    .flatMap((line) => line.split(/[•·;|]+/))
+    .map((line) => line.replace(/^\s*([-*•\u2022]|\d+[\.\)])\s*/, "").trim())
+    .filter((line) => line.length > 0);
+}
+
+function classifyRawLine(
+  line: string,
+  bucketSizes: Record<MatrixPillarKey, number>,
+): MatrixPillarKey {
+  const normalizedLine = line.toLowerCase();
+  let winningKey: MatrixPillarKey = "technical_execution";
+  let winningScore = -1;
+  for (const pillar of MATRIX_PILLARS) {
+    const score = pillar.keywords.reduce(
+      (sum, keyword) => sum + (normalizedLine.includes(keyword) ? 1 : 0),
+      0,
+    );
+    if (score > winningScore) {
+      winningScore = score;
+      winningKey = pillar.key;
+    }
+  }
+  if (winningScore > 0) return winningKey;
+  const sorted = (Object.keys(bucketSizes) as MatrixPillarKey[]).sort(
+    (a, b) => bucketSizes[a] - bucketSizes[b],
+  );
+  return sorted[0] ?? "technical_execution";
+}
+
+function buildMatrixFromRawText(rawText: string): MatrixSchema {
+  const lines = splitRawTextIntoBlocks(rawText);
+  const buckets: Record<MatrixPillarKey, string[]> = {
+    technical_execution: [],
+    collaboration: [],
+    delivery_reliability: [],
+  };
+
+  for (const line of lines) {
+    const target = classifyRawLine(line, {
+      technical_execution: buckets.technical_execution.length,
+      collaboration: buckets.collaboration.length,
+      delivery_reliability: buckets.delivery_reliability.length,
+    });
+    buckets[target].push(line);
+  }
+
+  const merged: Record<MatrixPillarKey, string[]> = {
+    technical_execution: [
+      ...buckets.technical_execution,
+      ...FALLBACK_PILLARS.technical_execution,
+    ].slice(0, 9),
+    collaboration: [...buckets.collaboration, ...FALLBACK_PILLARS.collaboration].slice(0, 9),
+    delivery_reliability: [
+      ...buckets.delivery_reliability,
+      ...FALLBACK_PILLARS.delivery_reliability,
+    ].slice(0, 9),
+  };
+
+  return {
+    junior: {
+      technical_execution: merged.technical_execution.slice(0, 3),
+      collaboration: merged.collaboration.slice(0, 3),
+      delivery_reliability: merged.delivery_reliability.slice(0, 3),
+    },
+    mid: {
+      technical_execution: merged.technical_execution.slice(0, 5),
+      collaboration: merged.collaboration.slice(0, 5),
+      delivery_reliability: merged.delivery_reliability.slice(0, 5),
+    },
+    senior: {
+      technical_execution: merged.technical_execution.slice(0, 7),
+      collaboration: merged.collaboration.slice(0, 7),
+      delivery_reliability: merged.delivery_reliability.slice(0, 7),
+    },
+  };
+}
+
 function FrameworkSettings() {
-  const { userId } = useAuth();
+  const { userId, user } = useAuth();
   const frameworkUserId = userId ?? "";
-  const { data: activeFramework } = useFrameworkQuery(frameworkUserId);
-  const uploadFrameworkMutation = useUploadFramework(frameworkUserId);
+  const queryClient = useQueryClient();
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [mismatch, setMismatch] = useState(false);
-  const inputRef = React.useRef<HTMLInputElement | null>(null);
+  const [selectedFrameworkId, setSelectedFrameworkId] = useState("");
+  const [rawText, setRawText] = useState("");
 
-  function handleFile(file: File) {
-    const name = file.name.toLowerCase();
-    const validExt =
-      name.endsWith(".json") ||
-      name.endsWith(".csv") ||
-      name.endsWith(".pdf") ||
-      name.endsWith(".xlsx");
-    if (!validExt) {
-      toast.error("Unsupported file type. Use .CSV, .JSON, .PDF, or .XLSX.");
+  const { data: frameworkOptions = [], isLoading: loadingFrameworks } = useQuery({
+    queryKey: ["framework-options", frameworkUserId],
+    enabled: Boolean(frameworkUserId),
+    queryFn: async (): Promise<FrameworkOption[]> => {
+      const { data, error } = await (supabase.from("competency_frameworks") as any)
+        .select("id,name,description,is_system_default,matrix,created_at")
+        .or(`is_system_default.eq.true,user_id.eq.${frameworkUserId}`)
+        .order("is_system_default", { ascending: false })
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as FrameworkOption[];
+    },
+  });
+
+  const { data: profileActiveFrameworkId = null } = useQuery({
+    queryKey: ["profile-active-framework", frameworkUserId],
+    enabled: Boolean(frameworkUserId),
+    queryFn: async (): Promise<string | null> => {
+      const { data, error } = await (supabase.from("profiles") as any)
+        .select("active_framework_id")
+        .eq("id", frameworkUserId)
+        .maybeSingle();
+      if (error) throw error;
+      return (data?.active_framework_id as string | null) ?? null;
+    },
+  });
+
+  const setActiveFrameworkMutation = useMutation({
+    mutationFn: async (frameworkId: string) => {
+      const { error } = await (supabase.from("profiles") as any)
+        .update({ active_framework_id: frameworkId })
+        .eq("id", frameworkUserId);
+      if (error) throw error;
+      return frameworkId;
+    },
+    onSuccess: (frameworkId) => {
+      setSelectedFrameworkId(frameworkId);
+      void queryClient.invalidateQueries({ queryKey: ["profile-active-framework", frameworkUserId] });
+      toast.success("Active framework updated.");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const saveFrameworkMutation = useMutation({
+    mutationFn: async ({
+      name,
+      matrix,
+      description,
+    }: {
+      name: string;
+      matrix: MatrixSchema;
+      description?: string;
+    }) => {
+      const { data, error } = await (supabase.from("competency_frameworks") as any)
+        .insert({
+          user_id: frameworkUserId,
+          name,
+          description: description ?? null,
+          is_system_default: false,
+          matrix,
+        })
+        .select("id")
+        .single();
+      if (error) throw error;
+      const frameworkId = data.id as string;
+      const { error: profileError } = await (supabase.from("profiles") as any)
+        .update({ active_framework_id: frameworkId })
+        .eq("id", frameworkUserId);
+      if (profileError) throw profileError;
+      return frameworkId;
+    },
+    onSuccess: (frameworkId) => {
+      setSelectedFrameworkId(frameworkId);
+      setMismatch(false);
+      void queryClient.invalidateQueries({ queryKey: ["framework-options", frameworkUserId] });
+      void queryClient.invalidateQueries({ queryKey: ["profile-active-framework", frameworkUserId] });
+      toast.success("Custom framework imported and linked.");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
+  useEffect(() => {
+    if (profileActiveFrameworkId && selectedFrameworkId !== profileActiveFrameworkId) {
+      setSelectedFrameworkId(profileActiveFrameworkId);
       return;
     }
-    setMismatch(false);
-    setParsing(true);
-    setTimeout(() => {
-      setParsing(false);
-      // Mock validation: treat PDFs as "unrelatable" to demonstrate mismatch
-      const looksUnrelatable = name.endsWith(".pdf");
-      if (looksUnrelatable) {
-        setMismatch(true);
-        return;
-      }
-      const frameworkId = generateSafeId();
-      const frameworkName = file.name.replace(/\.(json|csv|pdf|xlsx)$/i, "");
-      uploadFrameworkMutation.mutate(
-        {
-          framework: {
-            id: frameworkId,
-            user_id: frameworkUserId,
-            name: frameworkName,
-            version: "1.0",
-            is_active: true,
-          },
-          categories: COMPETENCIES.map((name, idx) => ({
-            id: generateSafeId(),
-            framework_id: frameworkId,
-            user_id: frameworkUserId,
-            name,
-            weight: 1,
-            questions: SUBCATEGORIES[name] ?? [],
-            sort_order: idx,
-          })),
-        },
-        {
-          onSuccess: () => {
-            toast.success("Framework successfully updated.");
-          },
-        },
-      );
-    }, 1000);
+    if (!selectedFrameworkId && frameworkOptions.length > 0) {
+      setSelectedFrameworkId(frameworkOptions[0].id);
+    }
+  }, [frameworkOptions, profileActiveFrameworkId, selectedFrameworkId]);
+
+  const activeFramework = useMemo(() => {
+    if (frameworkOptions.length === 0) return null;
+    return frameworkOptions.find((f) => f.id === selectedFrameworkId) ?? frameworkOptions[0];
+  }, [frameworkOptions, selectedFrameworkId]);
+
+  const activeMatrix = useMemo(
+    () => (activeFramework ? normalizeMatrix(activeFramework.matrix) : null),
+    [activeFramework],
+  );
+  const hasCategoryPreview = Boolean(parseFrameworkCategoryMap(activeFramework?.matrix ?? null));
+  const activeCategoryEntries = useMemo(
+    () => resolveFrameworkCategoryEntries(activeFramework?.matrix ?? null),
+    [activeFramework],
+  );
+  const activeLevel = levelFromCurrentRole(user?.currentLevel);
+  const levelPreview = activeMatrix?.[activeLevel];
+
+  function linkSelectedFramework(nextFrameworkId: string) {
+    if (!frameworkUserId) {
+      toast.error("Sign in to change framework preferences.");
+      return;
+    }
+    setSelectedFrameworkId(nextFrameworkId);
+    setActiveFrameworkMutation.mutate(nextFrameworkId);
   }
 
   function downloadTemplate() {
-    const sample = {
-      version: "1.0",
-      categories: COMPETENCIES.map((name) => ({
-        name,
-        weight: 1,
-        questions: ["Example signal 1", "Example signal 2"],
-      })),
-    };
-    const blob = new Blob([JSON.stringify(sample, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify(SAMPLE_MATRIX_TEMPLATE, null, 2)], {
+      type: "application/json",
+    });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "evitrace-framework-template.json";
-    a.click();
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "career-matrix-framework-template.json";
+    anchor.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function importFrameworkJson(file: File) {
+    if (!frameworkUserId) {
+      toast.error("Sign in before importing frameworks.");
+      return;
+    }
+    if (!file.name.toLowerCase().endsWith(".json")) {
+      toast.error("Only JSON files are supported for direct import.");
+      return;
+    }
+
+    setMismatch(false);
+    setParsing(true);
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text) as unknown;
+      const matrix = normalizeMatrix(parsed);
+      if (!matrix) {
+        setMismatch(true);
+        toast.error(
+          "Invalid framework JSON. Required keys: junior, mid, senior with technical_execution, collaboration, delivery_reliability arrays.",
+        );
+        return;
+      }
+
+      const frameworkName = file.name.replace(/\.json$/i, "").trim() || "Imported Framework";
+      saveFrameworkMutation.mutate({
+        name: frameworkName,
+        matrix,
+        description: "Imported from JSON template upload.",
+      });
+    } catch {
+      setMismatch(true);
+      toast.error("Unable to parse JSON file. Please verify the file format.");
+    } finally {
+      setParsing(false);
+    }
+  }
+
+  function processRawTextIntoFramework() {
+    if (!frameworkUserId) {
+      toast.error("Sign in before importing frameworks.");
+      return;
+    }
+    if (!rawText.trim()) {
+      toast.error("Paste source text before processing.");
+      return;
+    }
+    const matrix = buildMatrixFromRawText(rawText);
+    saveFrameworkMutation.mutate({
+      name: `Quick-Start Framework ${new Date().toISOString().slice(0, 10)}`,
+      matrix,
+      description: "Generated from quick-start raw text import.",
+    });
   }
 
   return (
     <Card className="p-6">
       <SectionHeader
-        title="Competency Framework"
-        sub="Upload a custom schema or use the default 8-axis matrix"
+        title="Competency Matrix Configuration"
+        sub="Select defaults, preview pillar expectations, and import your own competency matrix."
       />
 
-      {/* Upload zone */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-[2fr,1fr]">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: C.subtle }}>
+            Framework Selector
+          </div>
+          <div className="mt-1.5">
+            <Select
+              icon={<Layers size={14} />}
+              value={selectedFrameworkId}
+              disabled={loadingFrameworks || frameworkOptions.length === 0}
+              onChange={(e) => linkSelectedFramework(e.target.value)}
+            >
+              {frameworkOptions.length === 0 ? (
+                <option value="">No frameworks available</option>
+              ) : (
+                frameworkOptions.map((framework) => (
+                  <option key={framework.id} value={framework.id}>
+                    {framework.name}
+                    {framework.is_system_default ? " · System Default" : " · Custom"}
+                  </option>
+                ))
+              )}
+            </Select>
+          </div>
+          {activeFramework?.description && (
+            <p className="mt-2 text-xs leading-relaxed" style={{ color: C.slate }}>
+              {activeFramework.description}
+            </p>
+          )}
+        </div>
+
+        <div
+          className="rounded border px-3 py-3"
+          style={{ borderColor: C.border, background: "#FAFBFC" }}
+        >
+          <div className="text-xs uppercase tracking-wider" style={{ color: C.subtle }}>
+            Profile Seniority
+          </div>
+          <div className="mt-1 text-sm font-semibold" style={{ color: C.navy }}>
+            {user?.currentLevel || "Not set"}
+          </div>
+          <div className="mt-1 text-xs" style={{ color: C.slate }}>
+            {hasCategoryPreview ? (
+              <>Previewing the active company category guide and item definitions.</>
+            ) : (
+              <>
+                Previewing matrix for <span className="font-semibold">{activeLevel}</span> level expectations.
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-5">
+        <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: C.subtle }}>
+          Active Framework Preview
+        </div>
+        {hasCategoryPreview ? (
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            {activeCategoryEntries.map(([categoryName, details]) => (
+              <div
+                key={categoryName}
+                className="rounded border p-3"
+                style={{ borderColor: C.border, background: "#FFFFFF" }}
+              >
+                <div className="text-sm font-semibold" style={{ color: C.navy }}>
+                  {categoryName}
+                </div>
+                {details.summary && (
+                  <p className="mt-1.5 text-xs leading-relaxed" style={{ color: C.slate }}>
+                    {details.summary}
+                  </p>
+                )}
+                <ul className="mt-2 space-y-1.5">
+                  {details.items.map((item) => (
+                    <li
+                      key={`${categoryName}-${item}`}
+                      className="text-xs leading-relaxed"
+                      style={{ color: C.slate }}
+                    >
+                      • {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        ) : levelPreview ? (
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            {MATRIX_PILLARS.map((pillar) => (
+              <div
+                key={pillar.key}
+                className="rounded border p-3"
+                style={{ borderColor: C.border, background: "#FFFFFF" }}
+              >
+                <div className="text-sm font-semibold" style={{ color: C.navy }}>
+                  {pillar.label}
+                </div>
+                <ul className="mt-2 space-y-1.5">
+                  {(levelPreview[pillar.key] ?? []).map((item) => (
+                    <li key={`${pillar.key}-${item}`} className="text-xs leading-relaxed" style={{ color: C.slate }}>
+                      • {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="mt-3 rounded border p-3 text-xs" style={{ borderColor: "#FFC400", background: "#FFFBE6", color: C.slate }}>
+            The selected framework is missing a valid matrix structure. Re-import using the sample template.
+          </div>
+        )}
+      </div>
+
+      <div className="mt-6 flex flex-wrap gap-2">
+        <GhostBtn onClick={downloadTemplate}>
+          <Download size={14} />
+          Download Sample Framework Template
+        </GhostBtn>
+      </div>
+
       <div
         onClick={() => !parsing && inputRef.current?.click()}
-        onDragOver={(e) => {
-          e.preventDefault();
+        onDragOver={(event) => {
+          event.preventDefault();
           setDragOver(true);
         }}
         onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => {
-          e.preventDefault();
+        onDrop={(event) => {
+          event.preventDefault();
           setDragOver(false);
-          const f = e.dataTransfer.files?.[0];
-          if (f) handleFile(f);
+          const dropped = event.dataTransfer.files?.[0];
+          if (dropped) void importFrameworkJson(dropped);
         }}
-        className={`mt-4 rounded-lg border-2 border-dashed cursor-pointer transition-colors px-6 py-8 flex flex-col items-center justify-center text-center ${
+        className={`mt-3 rounded-lg border-2 border-dashed cursor-pointer transition-colors px-6 py-7 flex flex-col items-center justify-center text-center ${
           dragOver ? "bg-[#DEEBFF]" : "hover:bg-slate-50"
         }`}
         style={{ borderColor: dragOver ? C.primary : "#C1C7D0" }}
@@ -8892,103 +9863,73 @@ function FrameworkSettings() {
         <input
           ref={inputRef}
           type="file"
-          accept=".json,.csv,.pdf,.xlsx,application/json,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          accept=".json,application/json"
           className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) handleFile(f);
-            e.target.value = "";
+          onChange={(event) => {
+            const selected = event.target.files?.[0];
+            if (selected) {
+              void importFrameworkJson(selected);
+            }
+            event.target.value = "";
           }}
         />
         {parsing ? (
           <>
-            <Loader2 size={28} className="animate-spin" style={{ color: C.primary }} />
-            <div className="mt-3 text-sm font-semibold" style={{ color: C.navy }}>
-              Parsing framework…
+            <Loader2 size={26} className="animate-spin" style={{ color: C.primary }} />
+            <div className="mt-2 text-sm font-semibold" style={{ color: C.navy }}>
+              Validating and importing framework...
             </div>
           </>
         ) : (
           <>
-            <CloudUpload size={32} style={{ color: C.primary }} />
+            <CloudUpload size={30} style={{ color: C.primary }} />
             <div className="mt-2 text-sm font-semibold" style={{ color: C.navy }}>
-              Drag and drop your framework file here
+              Drop JSON framework file or click to browse
             </div>
             <div className="text-xs mt-1" style={{ color: C.subtle }}>
-              Supports .CSV, .JSON, .PDF, or .XLSX
+              Required keys: junior, mid, senior + technical_execution/collaboration/delivery_reliability arrays
             </div>
           </>
         )}
       </div>
 
       {mismatch && (
-        <div
-          className="mt-4 p-4 rounded border flex gap-3"
-          style={{ borderColor: "#FFC400", background: "#FFFBE6" }}
-        >
+        <div className="mt-4 p-4 rounded border flex gap-3" style={{ borderColor: "#FFC400", background: "#FFFBE6" }}>
           <AlertTriangle size={18} style={{ color: "#FF8B00" }} className="shrink-0 mt-0.5" />
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-bold" style={{ color: C.navy }}>
-              Format Mismatch: We couldn't automatically map your framework.
-            </div>
-            <div className="text-xs mt-1" style={{ color: C.slate }}>
-              Please adapt your framework to match our standard 8-axis category format for a
-              seamless override.
-            </div>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <GhostBtn onClick={downloadTemplate}>
-                <Download size={14} />
-                Download Standard Template
-              </GhostBtn>
-              <GhostBtn onClick={() => setMismatch(false)}>Dismiss</GhostBtn>
-            </div>
+          <div className="text-xs leading-relaxed" style={{ color: C.slate }}>
+            Uploaded JSON did not match the required matrix structure. Download the sample template,
+            copy your content into the same shape, and retry import.
           </div>
         </div>
       )}
 
-      {activeFramework && (
-        <div
-          className="mt-4 p-3 rounded border flex items-center justify-between"
-          style={{ borderColor: C.border, background: "#FAFBFC" }}
-        >
-          <div className="flex items-center gap-2.5">
-            <CheckCircle size={16} style={{ color: C.green }} />
-            <div>
-              <div className="text-xs uppercase tracking-wider" style={{ color: C.subtle }}>
-                Active Framework
-              </div>
-              <div className="text-sm font-semibold" style={{ color: C.navy }}>
-                {activeFramework.name} - {activeFramework.competency_categories?.length ?? 0}{" "}
-                Categories
-              </div>
-            </div>
+      <details className="mt-6 rounded border" style={{ borderColor: C.border }}>
+        <summary className="cursor-pointer px-4 py-3 text-sm font-semibold" style={{ color: C.navy }}>
+          Quick-Start: Import Raw Text
+        </summary>
+        <div className="px-4 pb-4">
+          <p className="text-xs leading-relaxed" style={{ color: C.slate }}>
+            Paste raw text from a handbook/wiki. We split bullet lines, classify by keywords, map into
+            the three matrix pillars, and save as a custom framework.
+          </p>
+          <textarea
+            value={rawText}
+            onChange={(e) => setRawText(e.target.value)}
+            placeholder="Paste competency descriptions, bullet points, or handbook excerpts..."
+            className="mt-3 w-full min-h-[180px] rounded border px-3 py-2 text-sm outline-none focus:ring-2"
+            style={{ borderColor: C.border, color: C.navy }}
+          />
+          <div className="mt-3">
+            <PrimaryBtn
+              onClick={processRawTextIntoFramework}
+              disabled={saveFrameworkMutation.isPending || !rawText.trim()}
+            >
+              <Sparkles size={14} />
+              Process & Adapt Framework
+            </PrimaryBtn>
           </div>
-          <Badge tone="success">Active</Badge>
         </div>
-      )}
-
-      <div
-        className="mt-6 text-xs font-semibold uppercase tracking-wider"
-        style={{ color: C.subtle }}
-      >
-        Current Competency Axes
-      </div>
-      <div className="mt-4 grid grid-cols-2 gap-3">
-        {COMPETENCIES.map((c) => (
-          <div
-            key={c}
-            className="flex items-center justify-between px-3 py-2.5 rounded border"
-            style={{ borderColor: C.border }}
-          >
-            <div className="flex items-center gap-2">
-              <Layers size={14} style={{ color: C.primary }} />
-              <span className="text-sm font-semibold" style={{ color: C.navy }}>
-                {c}
-              </span>
-            </div>
-            <Badge tone="neutral">Active</Badge>
-          </div>
-        ))}
-      </div>
+      </details>
     </Card>
   );
 }
@@ -8999,16 +9940,27 @@ function FrameworkSettings() {
 
 function EvidenceSlideover({
   item,
+  frameworkMatrix,
   onClose,
   onSave,
   onArchive,
 }: {
   item: EvidenceItem;
+  frameworkMatrix: unknown;
   onClose: () => void;
   onSave: (updated: EvidenceItem) => void;
   onArchive: (id: string) => void;
 }) {
   const [draft, setDraft] = useState<EvidenceItem>(item);
+  const categoryEntries = useMemo(
+    () => resolveFrameworkCategoryEntries(frameworkMatrix),
+    [frameworkMatrix],
+  );
+  const categoryMap = useMemo(
+    () => Object.fromEntries(categoryEntries) as FrameworkCategoryMap,
+    [categoryEntries],
+  );
+  const categories = categoryEntries.map(([categoryName]) => categoryName);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const objectiveLinked = item.source === "Objective" || Boolean(item.linkageKey);
   const dirty = !objectiveLinked && JSON.stringify(draft) !== JSON.stringify(item);
@@ -9121,13 +10073,13 @@ function EvidenceSlideover({
                   Category
                 </div>
                 <Dropdown
-                  value={PDF_CATEGORIES.includes(draft.category) ? draft.category : ""}
-                  options={PDF_CATEGORIES}
+                  value={categories.includes(draft.category) ? draft.category : ""}
+                  options={categories}
                   placeholder="Select a competency category…"
                   onChange={(nextCat) => {
                     update("category", nextCat);
                     // Reset subcategory to the first question under the new category
-                    const firstSub = PDF_FRAMEWORK[nextCat]?.[0] ?? "";
+                    const firstSub = categoryMap[nextCat]?.items[0] ?? "";
                     update("competency", firstSub);
                   }}
                   disabled={objectiveLinked}
@@ -9142,18 +10094,18 @@ function EvidenceSlideover({
                 </div>
                 <Dropdown
                   value={
-                    (PDF_FRAMEWORK[draft.category] ?? []).includes(draft.competency)
+                    (categoryMap[draft.category]?.items ?? []).includes(draft.competency)
                       ? draft.competency
                       : ""
                   }
-                  options={PDF_FRAMEWORK[draft.category] ?? []}
+                  options={categoryMap[draft.category]?.items ?? []}
                   placeholder={
-                    PDF_CATEGORIES.includes(draft.category)
+                    categories.includes(draft.category)
                       ? "Select a subcategory / question…"
                       : "Pick a category first"
                   }
                   onChange={(val) => update("competency", val)}
-                  disabled={objectiveLinked || !PDF_CATEGORIES.includes(draft.category)}
+                  disabled={objectiveLinked || !categories.includes(draft.category)}
                 />
               </div>
             </div>
@@ -9363,6 +10315,7 @@ function ReportView({
   evidence,
   objectives,
   radarData: _radarData,
+  frameworkMatrix,
   onFlash,
   review,
   assessments,
@@ -9377,6 +10330,7 @@ function ReportView({
   evidence: EvidenceRecord[];
   objectives: Objective[];
   radarData: ReturnType<typeof deriveRadarData>;
+  frameworkMatrix: unknown;
   onFlash: (m: string) => void;
   review: ReviewSession | null;
   assessments: Assessment[];
@@ -9388,6 +10342,18 @@ function ReportView({
   onStartReview: () => void;
   onOpenHistory: () => void;
 }) {
+  const categoryEntries = useMemo(
+    () => resolveFrameworkCategoryEntries(frameworkMatrix),
+    [frameworkMatrix],
+  );
+  const frameworkCategoryNames = useMemo(
+    () => categoryEntries.map(([categoryName]) => categoryName),
+    [categoryEntries],
+  );
+  const frameworkCategoryMap = useMemo(
+    () => Object.fromEntries(categoryEntries) as FrameworkCategoryMap,
+    [categoryEntries],
+  );
   const approved = evidence.filter((e) => e.status === "Reviewed" && !e.isArchived);
   const completed = objectives.filter((o) => o.status === "Completed");
   const upcoming = objectives.filter((o) => o.status !== "Completed");
@@ -9434,22 +10400,51 @@ function ReportView({
     return Math.round((avg / 4) * 100);
   }, [review]);
 
-  const topStrengths = useMemo(
-    () =>
-      [...deltas]
-        .sort((a, b) => b.to - a.to)
-        .slice(0, 2)
-        .map((d) => d.name),
-    [deltas],
+  const categoriesForSummary = frameworkCategoryNames.length
+    ? frameworkCategoryNames
+    : Object.keys(review?.scores ?? {});
+  const categoryPerformance = useMemo(() => {
+    if (!review) return [] as Array<{ name: string; avgScore: number; evidenceCount: number }>;
+    return categoriesForSummary
+      .map((categoryName) => {
+        const rows = Object.values(review.scores[categoryName] ?? {});
+        const avgScore =
+          rows.length > 0
+            ? +(rows.reduce((sum, row) => sum + row.next, 0) / rows.length).toFixed(2)
+            : 0;
+        const evidenceCount = approved.filter((record) => {
+          const matchedCategory =
+            resolveCategoryFromFramework(record.category ?? "", categoriesForSummary) ??
+            resolveCategoryFromFramework(record.competency ?? "", categoriesForSummary);
+          return matchedCategory === categoryName;
+        }).length;
+        return { name: categoryName, avgScore, evidenceCount };
+      })
+      .sort((a, b) => {
+        if (b.avgScore !== a.avgScore) return b.avgScore - a.avgScore;
+        if (b.evidenceCount !== a.evidenceCount) return b.evidenceCount - a.evidenceCount;
+        return a.name.localeCompare(b.name);
+      });
+  }, [approved, categoriesForSummary, review]);
+  const topStrengthCategories = useMemo(
+    () => categoryPerformance.slice(0, 2).map((row) => row.name),
+    [categoryPerformance],
   );
-  const primaryGaps = useMemo(
+  const lowestOpportunityCategories = useMemo(
     () =>
-      [...deltas]
-        .sort((a, b) => a.to - b.to)
-        .slice(0, 2)
-        .map((d) => d.name),
-    [deltas],
+      [...categoryPerformance]
+        .reverse()
+        .slice(0, 1)
+        .map((row) => row.name),
+    [categoryPerformance],
   );
+
+  function formatCategoryNames(names: string[], fallback: string): string {
+    if (names.length === 0) return fallback;
+    if (names.length === 1) return names[0];
+    if (names.length === 2) return `${names[0]} and ${names[1]}`;
+    return `${names.slice(0, -1).join(", ")}, and ${names[names.length - 1]}`;
+  }
 
   const [topics, setTopics] = useState<string[]>([]);
   const [draft, setDraft] = useState("");
@@ -9616,21 +10611,23 @@ function ReportView({
         <section className="mt-8 print:break-inside-avoid">
           <SectionHeading icon={<Target size={18} />} title="Executive Summary" />
           <p className="mt-3 text-[15px] leading-relaxed" style={{ color: C.slate }}>
-            Engineer <span style={{ color: C.navy, fontWeight: 600 }}>{review.engineer}</span> is
-            currently tracking at{" "}
-            <span style={{ color: C.primary, fontWeight: 700 }}>{overallReadiness ?? 0}%</span>{" "}
-            overall readiness for the L4 Senior target. Demonstrates exceptional proficiency in{" "}
+            Based on your logged milestones, your core operational strengths are demonstrated within{" "}
             <span style={{ color: C.navy, fontWeight: 600 }}>
-              {topStrengths.length > 0
-                ? topStrengths.join(" and ")
-                : "Analytical Thinking and Code Quality"}
+              {formatCategoryNames(
+                topStrengthCategories,
+                formatCategoryNames(categoriesForSummary.slice(0, 2), "your active framework"),
+              )}
             </span>
-            . Primary growth opportunities exist in{" "}
+            , while your primary expansion opportunities sit within{" "}
             <span style={{ color: C.navy, fontWeight: 600 }}>
-              {primaryGaps.length > 0 ? primaryGaps.join(" and ") : "System Design and Leadership"}
+              {formatCategoryNames(
+                lowestOpportunityCategories,
+                formatCategoryNames(categoriesForSummary.slice(-1), "the current framework baseline"),
+              )}
             </span>
-            , requiring targeted focus in the upcoming cycle to bridge the remaining gaps. Verified
-            evidence log: {approved.length} item{approved.length === 1 ? "" : "s"}.
+            . Current readiness remains{" "}
+            <span style={{ color: C.primary, fontWeight: 700 }}>{overallReadiness ?? 0}%</span> with{" "}
+            {approved.length} verified evidence item{approved.length === 1 ? "" : "s"}.
           </p>
         </section>
 
@@ -9678,6 +10675,40 @@ function ReportView({
               })}
             </div>
           )}
+        </section>
+
+        <section className="mt-10 print:break-inside-avoid">
+          <SectionHeading icon={<Layers size={18} />} title="Framework Category Summary" />
+          <div className="mt-4 grid grid-cols-1 gap-4">
+            {categoriesForSummary.map((categoryName) => {
+              const categoryScores = Object.values(review.scores[categoryName] ?? {});
+              const avgCurrent =
+                categoryScores.length > 0
+                  ? +(categoryScores.reduce((sum, score) => sum + score.next, 0) / categoryScores.length).toFixed(2)
+                  : DEFAULT_EFFECTIVENESS_WEIGHT;
+              const mappedEvidence = approved.filter((record) => {
+                const matched =
+                  resolveCategoryFromFramework(record.category ?? "", categoriesForSummary) ??
+                  resolveCategoryFromFramework(record.competency ?? "", categoriesForSummary);
+                return matched === categoryName;
+              });
+              const expectationCount = frameworkCategoryMap[categoryName]?.items.length ?? 0;
+              return (
+                <div key={categoryName} className="rounded border p-4" style={{ borderColor: C.border }}>
+                  <div className="text-sm font-semibold" style={{ color: C.navy }}>
+                    {categoryName}
+                  </div>
+                  <div className="text-xs mt-1" style={{ color: C.subtle }}>
+                    {frameworkCategoryMap[categoryName]?.summary || COMPETENCY_DESC[categoryName] || "No summary provided."}
+                  </div>
+                  <div className="text-xs mt-2" style={{ color: C.slate }}>
+                    Avg Score: {avgCurrent.toFixed(2)} / 5 · Evidence Logged: {mappedEvidence.length} · Rubric
+                    Items: {expectationCount}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </section>
 
         {/* 4. Justification notes log */}
@@ -10143,25 +11174,47 @@ function ObjectiveColumn({
 
 function InboxReviewSlideover({
   item,
+  frameworkMatrix,
   onClose,
   onConfirm,
   onDismiss,
 }: {
   item: InboxViewItem;
+  frameworkMatrix: unknown;
   onClose: () => void;
   onConfirm: (payload: InboxConfirmPayload) => void;
   onDismiss: () => void;
 }) {
-  const inboxCats = Object.keys(SUBCATEGORIES);
-  const initialCat = inboxCats.find((c) => item.suggestion.includes(c)) ?? inboxCats[0];
+  const categoryEntries = useMemo(
+    () => resolveFrameworkCategoryEntries(frameworkMatrix),
+    [frameworkMatrix],
+  );
+  const categoryMap = useMemo(
+    () => Object.fromEntries(categoryEntries) as FrameworkCategoryMap,
+    [categoryEntries],
+  );
+  const inboxCats = categoryEntries.map(([categoryName]) => categoryName);
+  const initialCat =
+    inboxCats.find((c) => item.suggestion.toLowerCase().includes(c.toLowerCase())) ?? inboxCats[0] ?? "";
   const [title, setTitle] = useState(item.title);
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState(initialCat);
-  const [subcategory, setSubcategory] = useState(SUBCATEGORIES[initialCat][0]);
+  const [subcategory, setSubcategory] = useState(categoryMap[initialCat]?.items[0] ?? "");
   function onCatChange(v: string) {
     setCategory(v);
-    setSubcategory(SUBCATEGORIES[v][0]);
+    setSubcategory(categoryMap[v]?.items[0] ?? "");
   }
+  useEffect(() => {
+    if (!inboxCats.includes(category)) {
+      setCategory(initialCat);
+      setSubcategory(categoryMap[initialCat]?.items[0] ?? "");
+      return;
+    }
+    const options = categoryMap[category]?.items ?? [];
+    if (!options.includes(subcategory)) {
+      setSubcategory(options[0] ?? "");
+    }
+  }, [inboxCats, category, subcategory, initialCat, categoryMap]);
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -10312,7 +11365,7 @@ function InboxReviewSlideover({
                   Subcategory / Question
                 </div>
                 <Select value={subcategory} onChange={(e) => setSubcategory(e.target.value)}>
-                  {SUBCATEGORIES[category].map((s) => (
+                  {(categoryMap[category]?.items ?? []).map((s) => (
                     <option key={s}>{s}</option>
                   ))}
                 </Select>
@@ -10358,6 +11411,7 @@ function InboxReviewSlideover({
 
 function ReviewWizard({
   evidence,
+  frameworkMatrix,
   onClose,
   onFinalize,
   onOpenEvidence,
@@ -10368,6 +11422,7 @@ function ReviewWizard({
   onSaveDraft,
 }: {
   evidence: EvidenceRecord[];
+  frameworkMatrix: unknown;
   onClose: () => void;
   onFinalize: (s: ReviewSession) => void;
   onOpenEvidence: (e: EvidenceRecord) => void;
@@ -10377,7 +11432,18 @@ function ReviewWizard({
   managerName: string;
   onSaveDraft: (draft: AssessmentWizardDraft) => void;
 }) {
-  const categories = ALL_CATEGORIES;
+  const categoryEntries = useMemo(
+    () => resolveFrameworkCategoryEntries(frameworkMatrix),
+    [frameworkMatrix],
+  );
+  const categoryMap = useMemo(
+    () => Object.fromEntries(categoryEntries) as FrameworkCategoryMap,
+    [categoryEntries],
+  );
+  const categories = useMemo(
+    () => categoryEntries.map(([categoryName]) => categoryName),
+    [categoryEntries],
+  );
   const [activeIdx, setActiveIdx] = useState(initialDraft?.activeIdx ?? 0);
   const [scores, setScores] = useState<Record<string, Record<string, ReviewQuestion>>>(() => {
     if (initialDraft?.scores) {
@@ -10386,7 +11452,7 @@ function ReviewWizard({
     const init: Record<string, Record<string, ReviewQuestion>> = {};
     categories.forEach((cat) => {
       init[cat] = {};
-      SUBCATEGORIES[cat].forEach((sub) => {
+      (categoryMap[cat]?.items ?? []).forEach((sub) => {
         const historical = getHistoricalQuestionScores(latestAssessment, cat, sub);
         const prev = historical.previous;
         init[cat][sub] = { prev, next: historical.current, notes: historical.note, evidenceIds: [] };
@@ -10409,6 +11475,32 @@ function ReviewWizard({
       initialScoresSnapshotRef.current = JSON.stringify(scores);
     }
   }, [scores]);
+
+  useEffect(() => {
+    if (categories.length === 0) return;
+    setActiveIdx((prev) => (prev >= categories.length ? categories.length - 1 : prev));
+    setScores((previous) => {
+      const next: Record<string, Record<string, ReviewQuestion>> = {};
+      categories.forEach((category) => {
+        next[category] = {};
+        (categoryMap[category]?.items ?? []).forEach((item) => {
+          const existing = previous[category]?.[item];
+          if (existing) {
+            next[category][item] = existing;
+            return;
+          }
+          const historical = getHistoricalQuestionScores(latestAssessment, category, item);
+          next[category][item] = {
+            prev: historical.previous,
+            next: historical.current,
+            notes: historical.note,
+            evidenceIds: [],
+          };
+        });
+      });
+      return next;
+    });
+  }, [categories, categoryMap, latestAssessment]);
 
   function updateQ(cat: string, sub: string, patch: Partial<ReviewQuestion>) {
     setScores((s) => ({
@@ -10574,13 +11666,14 @@ function ReviewWizard({
                   {activeCat}
                 </h2>
                 <p className="text-sm mt-1 leading-relaxed" style={{ color: C.slate }}>
-                  {COMPETENCY_DESC[activeCat]}
+                  {categoryMap[activeCat]?.summary || COMPETENCY_DESC[activeCat] || ""}
                 </p>
               </div>
 
               <div className="space-y-4">
-                {SUBCATEGORIES[activeCat].map((sub) => {
-                  const q = scores[activeCat][sub];
+                {(categoryMap[activeCat]?.items ?? []).map((sub) => {
+                  const q = scores[activeCat]?.[sub];
+                  if (!q) return null;
                   const attachOpen = attachOpenFor === `${activeCat}::${sub}`;
                   return (
                     <Card key={sub} className="p-5">
