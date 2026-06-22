@@ -3086,7 +3086,7 @@ function EvitraceApp() {
                   onOpenHistory={() => setShowHistory(true)}
                 />
               )}
-              {tab === "feedback" && <FeedbackView frameworkMatrix={activeFrameworkMatrix} />}
+              {tab === "feedback" && <FeedbackView />}
               {tab === "settings" && (
                 <SettingsView
                   sampleContent={sampleContent}
@@ -3105,7 +3105,6 @@ function EvitraceApp() {
         {showCapture && (
           <CaptureModal
             onClose={() => setShowCapture(false)}
-            frameworkMatrix={activeFrameworkMatrix}
             onSaveEvidence={({ title, description, sourceLink, category, subcategory }) => {
               insertEvidenceMutation.mutate(
                 {
@@ -6608,10 +6607,8 @@ function CaptureModal({
   onClose,
   onSaveEvidence,
   onSaveKnowledge,
-  frameworkMatrix,
 }: {
   onClose: () => void;
-  frameworkMatrix: unknown;
   onSaveEvidence: (payload: {
     title: string;
     description: string;
@@ -6626,16 +6623,17 @@ function CaptureModal({
     reset: () => void;
   }) => void;
 }) {
+  const { categories: frameworkCategories, getQuestionsForCategory, isLoading } = useFramework();
   const [tab, setTab] = useState<"evidence" | "knowledge">("evidence");
-  const categoryEntries = useMemo(
-    () => resolveFrameworkCategoryEntries(frameworkMatrix),
-    [frameworkMatrix],
-  );
   const categoryMap = useMemo(
-    () => Object.fromEntries(categoryEntries) as FrameworkCategoryMap,
-    [categoryEntries],
+    () => buildFrameworkCategoryMapFromContext(frameworkCategories, getQuestionsForCategory),
+    [frameworkCategories, getQuestionsForCategory],
   );
-  const categories = categoryEntries.map(([categoryName]) => categoryName);
+  const categories = useMemo(
+    () => frameworkCategories.filter((categoryName) => categoryName.trim().length > 0),
+    [frameworkCategories],
+  );
+  const hasFrameworkTaxonomy = categories.length > 0;
   const initialCategory = categories[0] ?? "";
   const initialSubcategory = categoryMap[initialCategory]?.items[0] ?? "";
   const [title, setTitle] = useState("");
@@ -6669,6 +6667,12 @@ function CaptureModal({
   }
 
   useEffect(() => {
+    if (isLoading) return;
+    if (categories.length === 0) {
+      if (category) setCategory("");
+      if (subcategory) setSubcategory("");
+      return;
+    }
     if (!categories.includes(category)) {
       setCategory(initialCategory);
       setSubcategory(initialSubcategory);
@@ -6685,6 +6689,7 @@ function CaptureModal({
     categoryMap,
     initialCategory,
     initialSubcategory,
+    isLoading,
   ]);
 
   function handlePolishContent() {
@@ -6859,16 +6864,26 @@ function CaptureModal({
               </Field>
               <Field label="Competency Category" required>
                 <Select value={category} onChange={(e) => onCategoryChange(e.target.value)}>
+                  {hasFrameworkTaxonomy ? null : (
+                    <option value="">No framework categories available</option>
+                  )}
                   {categories.map((c) => (
                     <option key={c}>{c}</option>
                   ))}
                 </Select>
                 <div className="text-[11px] mt-1.5 leading-relaxed" style={{ color: C.subtle }}>
-                  {categoryMap[category]?.summary || COMPETENCY_DESC[category] || "No summary provided."}
+                  {categoryMap[category]?.summary || "No summary provided."}
                 </div>
               </Field>
               <Field label="Subcategory / Question" required>
-                <Select value={subcategory} onChange={(e) => setSubcategory(e.target.value)}>
+                <Select
+                  value={subcategory}
+                  onChange={(e) => setSubcategory(e.target.value)}
+                  disabled={!hasFrameworkTaxonomy || !category}
+                >
+                  {!hasFrameworkTaxonomy ? (
+                    <option value="">No framework categories available</option>
+                  ) : null}
                   {(categoryMap[category]?.items ?? []).map((s) => (
                     <option key={s}>{s}</option>
                   ))}
@@ -6969,7 +6984,11 @@ function CaptureModal({
           {tab === "evidence" ? (
             <PrimaryBtn
               disabled={
-                !title.trim() || !category.trim() || !subcategory.trim() || !linkValid
+                !hasFrameworkTaxonomy ||
+                !title.trim() ||
+                !category.trim() ||
+                !subcategory.trim() ||
+                !linkValid
               }
               onClick={() =>
                 onSaveEvidence({
@@ -6985,7 +7004,7 @@ function CaptureModal({
             </PrimaryBtn>
           ) : (
             <PrimaryBtn
-              disabled={!challenge.trim() || !lesson.trim() || !knowledgeInputValid}
+              disabled={!hasFrameworkTaxonomy || !challenge.trim() || !lesson.trim() || !knowledgeInputValid}
               onClick={() =>
                 onSaveKnowledge({
                   challenge,
@@ -8349,8 +8368,9 @@ function normalizeExternalUrl(raw: string): string | null {
   }
 }
 
-function FeedbackView({ frameworkMatrix }: { frameworkMatrix: unknown }) {
+function FeedbackView() {
   const { userId, user } = useAuth();
+  const { categories, getQuestionsForCategory, currentFramework } = useFramework();
   const feedbackUserId = userId ?? "";
   const { data: items = [] } = useFeedbackQuery(feedbackUserId);
   const addFeedbackMutation = useAddFeedback(feedbackUserId);
@@ -8360,13 +8380,24 @@ function FeedbackView({ frameworkMatrix }: { frameworkMatrix: unknown }) {
     resolveSeniorityBand(user?.currentLevel),
   );
   const [seniorityOverridden, setSeniorityOverridden] = useState(false);
-  const categoryEntries = useMemo(
-    () => resolveFrameworkCategoryEntries(frameworkMatrix),
-    [frameworkMatrix],
-  );
+  const categoryEntries = useMemo(() => {
+    if (categories.length > 0) {
+      return categories.map(
+        (categoryName) =>
+          [
+            categoryName,
+            {
+              summary: "",
+              items: getQuestionsForCategory(categoryName),
+            },
+          ] as [string, FrameworkCategoryDefinition],
+      );
+    }
+    return resolveFrameworkCategoryEntries(currentFramework?.matrix ?? null);
+  }, [categories, currentFramework?.matrix, getQuestionsForCategory]);
   const effectivenessScale = useMemo(
-    () => resolveFrameworkEffectivenessScale(frameworkMatrix),
-    [frameworkMatrix],
+    () => resolveFrameworkEffectivenessScale(currentFramework?.matrix ?? null),
+    [currentFramework?.matrix],
   );
   const defaultScaleValue =
     effectivenessScale.find((point) => point.value === 3)?.value ?? effectivenessScale[0]?.value ?? 1;

@@ -2,6 +2,58 @@ const AUTH_SYNC_MESSAGE_TYPE = "AUTH_SYNC_BRIDGE_SESSION";
 const AUTH_STATE_CHANGE_MESSAGE_TYPE = "AUTH_STATE_CHANGE";
 const AUTH_STATE_CHANGE_EVENT = "EVITRACE_AUTH_STATE_CHANGE";
 const SUPABASE_AUTH_KEY_PATTERN = /^sb-.*-auth-token$/i;
+const CONTEXT_INVALIDATED_PATTERN = /extension context invalidated/i;
+
+function isContextInvalidatedMessage(message) {
+  return CONTEXT_INVALIDATED_PATTERN.test(String(message ?? ""));
+}
+
+function logContextInvalidatedNotice() {
+  console.log(
+    "[Evitrace] Content script context updated. A simple page refresh will align the fresh runtime.",
+  );
+}
+
+function getRuntimeSafe() {
+  try {
+    const runtime = globalThis.chrome?.runtime;
+    if (!runtime?.id) return null;
+    return runtime;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function getRuntimeLastErrorSafe() {
+  try {
+    return globalThis.chrome?.runtime?.lastError ?? null;
+  } catch (_error) {
+    return { message: "Extension context invalidated." };
+  }
+}
+
+function safeSendMessage(message) {
+  const runtime = getRuntimeSafe();
+  if (!runtime?.sendMessage) return;
+
+  try {
+    runtime.sendMessage(message, () => {
+      const runtimeError = getRuntimeLastErrorSafe();
+      if (!runtimeError) return;
+      if (isContextInvalidatedMessage(runtimeError.message)) {
+        logContextInvalidatedNotice();
+      } else {
+        console.error("[Evitrace] Safe send message callback exception:", runtimeError);
+      }
+    });
+  } catch (error) {
+    if (isContextInvalidatedMessage(error?.message)) {
+      logContextInvalidatedNotice();
+    } else {
+      console.error("[Evitrace] Safe send message exception:", error);
+    }
+  }
+}
 
 function parseSupabaseTokenPayload(rawValue) {
   if (typeof rawValue !== "string" || rawValue.trim().length === 0) return null;
@@ -46,10 +98,9 @@ function findSupabaseAuthToken() {
 }
 
 function syncSessionToExtension() {
-  if (!globalThis.chrome?.runtime?.sendMessage) return;
   const tokenData = findSupabaseAuthToken();
   if (!tokenData) {
-    chrome.runtime.sendMessage({
+    safeSendMessage({
       type: AUTH_STATE_CHANGE_MESSAGE_TYPE,
       session: null,
       source_url: location.href,
@@ -57,7 +108,7 @@ function syncSessionToExtension() {
     return;
   }
 
-  chrome.runtime.sendMessage({
+  safeSendMessage({
     type: AUTH_SYNC_MESSAGE_TYPE,
     access_token: tokenData.access_token,
     refresh_token: tokenData.refresh_token,
@@ -65,7 +116,7 @@ function syncSessionToExtension() {
     source_url: location.href,
   });
 
-  chrome.runtime.sendMessage({
+  safeSendMessage({
     type: AUTH_STATE_CHANGE_MESSAGE_TYPE,
     session: {
       access_token: tokenData.access_token,
@@ -89,7 +140,6 @@ window.addEventListener("storage", (event) => {
 });
 
 window.addEventListener(AUTH_STATE_CHANGE_EVENT, (event) => {
-  if (!globalThis.chrome?.runtime?.sendMessage) return;
   const detail = event?.detail && typeof event.detail === "object" ? event.detail : null;
   const bridgeSession =
     detail?.session && typeof detail.session === "object"
@@ -106,7 +156,7 @@ window.addEventListener(AUTH_STATE_CHANGE_EVENT, (event) => {
     typeof bridgeSession.refresh_token === "string" &&
     bridgeSession.refresh_token.trim().length > 0;
 
-  chrome.runtime.sendMessage({
+  safeSendMessage({
     type: AUTH_STATE_CHANGE_MESSAGE_TYPE,
     session: hasValidSession ? bridgeSession : null,
     source_url: location.href,
@@ -114,21 +164,56 @@ window.addEventListener(AUTH_STATE_CHANGE_EVENT, (event) => {
   });
 });
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type !== "GET_AUTH_STATE") return false;
-  const tokenData = findSupabaseAuthToken();
-  if (!tokenData) {
-    sendResponse({ ok: true, session: null, source_url: location.href });
-    return false;
+const runtime = getRuntimeSafe();
+if (runtime?.onMessage?.addListener) {
+  try {
+    runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message?.type !== "GET_AUTH_STATE") return false;
+      const tokenData = findSupabaseAuthToken();
+      if (!tokenData) {
+        sendResponse({ ok: true, session: null, source_url: location.href });
+        return false;
+      }
+      sendResponse({
+        ok: true,
+        session: {
+          access_token: tokenData.access_token,
+          refresh_token: tokenData.refresh_token,
+        },
+        storage_key: tokenData.storage_key,
+        source_url: location.href,
+      });
+      return false;
+    });
+  } catch (error) {
+    if (isContextInvalidatedMessage(error?.message)) {
+      logContextInvalidatedNotice();
+    } else {
+      console.error("[Evitrace] Safe send message exception:", error);
+    }
   }
-  sendResponse({
-    ok: true,
-    session: {
-      access_token: tokenData.access_token,
-      refresh_token: tokenData.refresh_token,
-    },
-    storage_key: tokenData.storage_key,
-    source_url: location.href,
-  });
-  return false;
+}
+
+window.addEventListener(
+  "error",
+  (event) => {
+    const message = event?.error?.message ?? event?.message;
+    if (!isContextInvalidatedMessage(message)) return;
+    logContextInvalidatedNotice();
+    event.preventDefault();
+  },
+  true,
+);
+
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event?.reason;
+  const message =
+    typeof reason === "string"
+      ? reason
+      : reason && typeof reason === "object"
+        ? reason.message
+        : "";
+  if (!isContextInvalidatedMessage(message)) return;
+  logContextInvalidatedNotice();
+  event.preventDefault();
 });

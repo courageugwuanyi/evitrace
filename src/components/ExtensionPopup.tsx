@@ -41,28 +41,6 @@ type KnowledgeEntry = {
   userId: string;
 };
 
-const DEFAULT_CATEGORY_MAP: Record<string, string[]> = {
-  Delivery: [
-    "Executes predictably and hits commitments",
-    "Plans and scopes work with low churn",
-    "Coordinates cross-functional delivery",
-  ],
-  "System Design": [
-    "Designs scalable architecture",
-    "Evaluates trade-offs and risks",
-    "Builds resilience and observability",
-  ],
-  Communication: [
-    "Writes clear updates and RFCs",
-    "Aligns stakeholders across teams",
-    "Presents decisions and outcomes clearly",
-  ],
-  "Analytical Thinking": [
-    "Debugs using hypothesis-driven analysis",
-    "Uses metrics to validate changes",
-    "Identifies systemic root causes",
-  ],
-};
 const WEB_APP_BASE_URL = "http://192.168.1.130:8080";
 const SETTINGS_URL = `${WEB_APP_BASE_URL}/?tab=settings`;
 const PROFILE_SETTINGS_URL = `${WEB_APP_BASE_URL}/?tab=settings&section=profile`;
@@ -139,34 +117,56 @@ function polishText(text: string) {
   return /[.!?]$/.test(normalized) ? normalized : `${normalized}.`;
 }
 
-function inferCompetency(title: string, description: string, categories: string[]) {
-  const resolveCategory = (candidate: string): string | null => {
-    const normalizedCandidate = candidate.trim().toLowerCase();
-    return (
-      categories.find((category) => category.trim().toLowerCase() === normalizedCandidate) ??
-      categories.find(
-        (category) =>
-          category.trim().toLowerCase().includes(normalizedCandidate) ||
-          normalizedCandidate.includes(category.trim().toLowerCase()),
-      ) ??
-      null
-    );
-  };
-  const raw = `${title} ${description}`.toLowerCase();
-  if (/(design|architecture|scal|resilien|trade[- ]?off)/.test(raw)) {
-    const mapped = resolveCategory("System Design");
-    if (mapped) return { competency: mapped, category: mapped };
+function tokenize(value: string): string[] {
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/i)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 2);
+}
+
+function inferCompetency(
+  title: string,
+  description: string,
+  categoryMap: Record<string, string[]>,
+): { competency: string; category: string } | null {
+  const categories = Object.keys(categoryMap);
+  if (categories.length === 0) return null;
+
+  const sourceTokens = tokenize(`${title} ${description}`);
+  if (sourceTokens.length === 0) {
+    const fallback = categories[0];
+    return { competency: fallback, category: fallback };
   }
-  if (/(incident|rca|debug|root cause|metric|analysis)/.test(raw)) {
-    const mapped = resolveCategory("Analytical Thinking");
-    if (mapped) return { competency: mapped, category: mapped };
+
+  let bestCategory = categories[0];
+  let bestScore = -1;
+
+  for (const categoryName of categories) {
+    const categoryTokens = tokenize(categoryName);
+    const itemTokens = (categoryMap[categoryName] ?? []).flatMap((item) => tokenize(item));
+    const candidateTokens = [...categoryTokens, ...itemTokens];
+    const score = sourceTokens.reduce((sum, sourceToken) => {
+      return (
+        sum +
+        (candidateTokens.some(
+          (candidateToken) =>
+            candidateToken === sourceToken ||
+            candidateToken.includes(sourceToken) ||
+            sourceToken.includes(candidateToken),
+        )
+          ? 1
+          : 0)
+      );
+    }, 0);
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestCategory = categoryName;
+    }
   }
-  if (/(stakeholder|present|communicat|rfc|align)/.test(raw)) {
-    const mapped = resolveCategory("Communication");
-    if (mapped) return { competency: mapped, category: mapped };
-  }
-  const fallback = resolveCategory("Delivery") ?? categories[0] ?? "Delivery";
-  return { competency: fallback, category: fallback };
+
+  return { competency: bestCategory, category: bestCategory };
 }
 
 function defaultPromptState(): PromptState {
@@ -191,7 +191,7 @@ export function ExtensionPopup({
 }) {
   const chromeApi = getChromeApi();
   const { user, userId, loading } = useAuth();
-  const { currentFramework, categories: frameworkCategories, getQuestionsForCategory } =
+  const { currentFramework, categories: frameworkCategories, getQuestionsForCategory, isLoading } =
     useFrameworkContext();
   const safeUserId = userId ?? "";
   const { data: settings } = useSettingsQuery(safeUserId);
@@ -229,23 +229,30 @@ export function ExtensionPopup({
   }, [currentFramework]);
 
   const categoryMap = useMemo(() => {
-    if (frameworkCategories.length === 0) return DEFAULT_CATEGORY_MAP;
-
     const parsed = frameworkCategories.reduce<Record<string, string[]>>((acc, categoryName) => {
       acc[categoryName] = getQuestionsForCategory(categoryName);
       return acc;
     }, {});
 
-    return Object.keys(parsed).length > 0 ? parsed : DEFAULT_CATEGORY_MAP;
+    return parsed;
   }, [frameworkCategories, getQuestionsForCategory]);
   const competencies = useMemo(() => Object.keys(categoryMap), [categoryMap]);
+  const hasFrameworkTaxonomy = competencies.length > 0;
 
   const knowledgeReferenceInputValid =
     !knowledgeReferenceInput || /^https?:\/\/\S+\.\S+/i.test(knowledgeReferenceInput);
 
   useEffect(() => {
     const categoryOptions = competencies;
-    if (categoryOptions.length === 0) return;
+    if (isLoading) return;
+    if (categoryOptions.length === 0) {
+      if (category) setCategory("");
+      if (subcategory) setSubcategory("");
+      if (competency) setCompetency("");
+      if (knowledgeCategory) setKnowledgeCategory("");
+      if (knowledgeCapability) setKnowledgeCapability("");
+      return;
+    }
     if (!categoryOptions.includes(category)) {
       const nextCategory = categoryOptions[0];
       setCategory(nextCategory);
@@ -278,6 +285,7 @@ export function ExtensionPopup({
     competency,
     knowledgeCapability,
     knowledgeCategory,
+    isLoading,
     subcategory,
   ]);
 
@@ -358,6 +366,7 @@ export function ExtensionPopup({
 
   const canSaveEvidence =
     Boolean(userId) &&
+    hasFrameworkTaxonomy &&
     title.trim().length > 0 &&
     category.trim().length > 0 &&
     subcategory.trim().length > 0 &&
@@ -365,6 +374,7 @@ export function ExtensionPopup({
 
   const canSaveKnowledge =
     Boolean(userId) &&
+    hasFrameworkTaxonomy &&
     challenge.trim().length > 0 &&
     lesson.trim().length > 0 &&
     knowledgeCategory.trim().length > 0 &&
@@ -428,11 +438,19 @@ export function ExtensionPopup({
   }
 
   function handleAiAssist() {
+    if (!hasFrameworkTaxonomy) {
+      toast.info("No active framework categories available yet.");
+      return;
+    }
     if (!title.trim() && !description.trim()) {
       toast.info("Enter title or description first.");
       return;
     }
-    const mapped = inferCompetency(title, description, competencies);
+    const mapped = inferCompetency(title, description, categoryMap);
+    if (!mapped) {
+      toast.info("No active framework categories available yet.");
+      return;
+    }
     setCategory(mapped.category);
     setCompetency(mapped.competency);
     setSubcategory(categoryMap[mapped.category]?.[0] ?? "");
@@ -696,6 +714,12 @@ export function ExtensionPopup({
         <div className="mt-1 text-[11px] text-[#6B778C]">
           Active framework: <span className="font-medium">{activeFrameworkDisplayName}</span>
         </div>
+        {!isLoading && !hasFrameworkTaxonomy ? (
+          <div className="mt-1 text-[11px] text-[#DE350B]">
+            No active framework categories found. Open Settings in the web app to select or import a
+            framework.
+          </div>
+        ) : null}
       </div>
 
       <div className="px-4 pt-3">
@@ -783,8 +807,11 @@ export function ExtensionPopup({
                 }}
                 className="w-full h-10 rounded border px-3 text-sm text-[#172B4D] bg-[#F4F5F7] focus:bg-white outline-none"
                 style={{ borderColor: "#DFE1E6" }}
+                disabled={!hasFrameworkTaxonomy}
               >
-                <option value="">Select category</option>
+                <option value="">
+                  {hasFrameworkTaxonomy ? "Select category" : "No framework categories available"}
+                </option>
                 {competencies.map((key) => (
                   <option key={key}>{key}</option>
                 ))}
@@ -800,10 +827,14 @@ export function ExtensionPopup({
                 className="w-full h-10 rounded border px-3 text-sm text-[#172B4D] bg-[#F4F5F7] focus:bg-white outline-none truncate"
                 style={{ borderColor: "#DFE1E6" }}
                 title={subcategory}
-                disabled={!category}
+                disabled={!hasFrameworkTaxonomy || !category}
               >
                 <option value="">
-                  {category ? "Select subcategory" : "Select category first"}
+                  {!hasFrameworkTaxonomy
+                    ? "No framework categories available"
+                    : category
+                      ? "Select subcategory"
+                      : "Select category first"}
                 </option>
                 {category
                   ? (categoryMap[category] ?? []).map((item) => (
@@ -833,6 +864,7 @@ export function ExtensionPopup({
                 onClick={handleAiAssist}
                 className="mt-2 h-8 px-2.5 rounded border text-[11px] font-semibold inline-flex items-center gap-1"
                 style={{ borderColor: "#DFE1E6", color: "#0052CC" }}
+                disabled={!hasFrameworkTaxonomy}
               >
                 <Sparkles size={12} />
                 AI Assist (Map + Polish)
@@ -886,8 +918,11 @@ export function ExtensionPopup({
                 }}
                 className="w-full h-10 rounded border px-3 text-sm text-[#172B4D] bg-[#F4F5F7] focus:bg-white outline-none"
                 style={{ borderColor: "#DFE1E6" }}
+                disabled={!hasFrameworkTaxonomy}
               >
-                <option value="">Select category</option>
+                <option value="">
+                  {hasFrameworkTaxonomy ? "Select category" : "No framework categories available"}
+                </option>
                 {competencies.map((key) => (
                   <option key={key}>{key}</option>
                 ))}
@@ -902,10 +937,14 @@ export function ExtensionPopup({
                 onChange={(event) => setKnowledgeCapability(event.target.value)}
                 className="w-full h-10 rounded border px-3 text-sm text-[#172B4D] bg-[#F4F5F7] focus:bg-white outline-none truncate"
                 style={{ borderColor: "#DFE1E6" }}
-                disabled={!knowledgeCategory}
+                disabled={!hasFrameworkTaxonomy || !knowledgeCategory}
               >
                 <option value="">
-                  {knowledgeCategory ? "Select capability item" : "Select category first"}
+                  {!hasFrameworkTaxonomy
+                    ? "No framework categories available"
+                    : knowledgeCategory
+                      ? "Select capability item"
+                      : "Select category first"}
                 </option>
                 {(categoryMap[knowledgeCategory] ?? []).map((item) => (
                   <option key={item} value={item}>

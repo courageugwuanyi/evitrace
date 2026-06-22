@@ -75,15 +75,17 @@ SMART objective tracking with a Kanban-style board:
 A visual radar chart that maps your current scores across competency categories and shows the gap to your target level:
 
 - Driven by finalised assessment data — no manual radar input required
+- Fully reactive to the currently active competency framework (no hardcoded category schema)
 - Shows Top Strength and Primary Gap at a glance
 - Hierarchical gap analysis breaks down each category to question level
+- Legacy data that no longer maps to the active framework is grouped under **Unmapped History**
 - Comparison against previous assessment cycle built in
 
 ### Review Wizard
 
 A step-by-step promotion review tool:
 
-- Walk through each competency category and score yourself with justification
+- Walk through competency categories/questions generated from the active framework matrix
 - Attach supporting evidence entries to each question
 - Finalize the session to persist a full assessment snapshot
 - Assessment data feeds directly into the radar and report views
@@ -114,15 +116,17 @@ Full control over your profile and the app's behaviour:
 - **Avatar** — upload a profile photo (stored in Supabase Storage)
 - **Notifications** — configure daily reminders, manager approval alerts, weekly digest, browser push, and IANA-based reminder timezone
 - **Integrations** — toggle per-source auto-capture (Jira, GitHub, Bitbucket, Slack, Teams, Confluence, Notion)
-- **Framework** — upload a custom competency framework CSV/JSON to personalise the radar dimensions
+- **Framework** — select an active built-in/custom template and import your own framework JSON
+- Active framework changes update `profiles.active_framework_id` and propagate through shared app context/query state
 
 ### Extension Preview
 
 A floating panel inside the web app that simulates the Chrome extension capture experience:
 
-- Select a trigger source (based on your enabled integrations)
-- Pick one or more competency tags
-- Save directly to your Evidence Log without leaving your current context
+- Uses the same active framework taxonomy as the main app
+- Dynamically populates Category / Subcategory / Capability selectors from framework definitions
+- Shows active framework label (including built-in template naming)
+- Saves directly to your Evidence Log and Knowledge Log without leaving your current context
 
 ### Reminder Scheduling Engine (Extension)
 
@@ -235,6 +239,8 @@ bun run test         # Run tests (Vitest)
 
 ```
 src/
+├── context/
+│   └── FrameworkContext.tsx # Active framework provider + normalization hooks
 ├── lib/
 │   ├── supabase.ts          # Supabase client singleton
 │   ├── database.types.ts    # Generated DB types (do not edit manually)
@@ -253,6 +259,7 @@ src/
 ├── components/
 │   ├── ExtensionPopup.tsx   # Standalone extension preview component
 │   └── ui/                  # shadcn/ui base components
+├── popup.tsx                # Extension popup entry (Auth + Query + Framework providers)
 ├── routes/
 │   ├── __root.tsx           # App shell, QueryClientProvider
 │   └── index.tsx            # Main application (auth gate + all views)
@@ -260,6 +267,7 @@ src/
 public/
 ├── manifest.json            # Extension Manifest V3 definition
 ├── background.js            # Built/served extension service worker entry
+├── content.js               # Web app auth/session bridge content script
 ├── offscreen.html           # Offscreen audio document host
 └── offscreen.js             # Offscreen audio playback runtime listener
 supabase/
@@ -307,11 +315,13 @@ Build and load flow:
 Current extension capabilities include:
 
 - Share authentication with the web app via `chrome.storage.local`
+- Mirror auth/session state through a content-script bridge with safe runtime messaging guards
 - Poll and sync reminder preferences from Supabase profile/session context
 - IANA-timezone-aware daily scheduling with 5-minute warning notifications
 - Primary reminder cards with action buttons (**Log Evidence Now** / **Snooze**)
 - Offscreen audio ping before primary reminder delivery
 - Direct click-through to the Evitrace evidence workspace tab
+- Framework-reactive capture flows (category/subcategory/capability options come from the active framework)
 
 The extension is not yet published — it is available for local unpacked loading during development.
 
