@@ -19,6 +19,7 @@ const PROMPT_NOTIFICATION_ID = `${NOTIFICATION_PREFIX}prompt`;
 const WEB_APP_ORIGIN = "http://192.168.1.130:8080";
 const EXT_SUPABASE_SESSION_KEY = "evitrace_supabase_session";
 const EXT_SUPABASE_SESSION_SYNCED_AT_KEY = "evitrace_supabase_session_synced_at";
+const AUTH_STATE_CHANGE_MESSAGE_TYPE = "AUTH_STATE_CHANGE";
 
 function defaultConfig() {
   return {
@@ -220,6 +221,26 @@ function parseSupabaseAuthToken(rawValue) {
     return { accessToken: nestedAccessToken, refreshToken: nestedRefreshToken };
   }
 
+  return null;
+}
+
+function parseAuthStateChangeSession(session) {
+  if (!session || typeof session !== "object") return null;
+  const directAccessToken =
+    typeof session.access_token === "string"
+      ? session.access_token
+      : typeof session.accessToken === "string"
+        ? session.accessToken
+        : null;
+  const directRefreshToken =
+    typeof session.refresh_token === "string"
+      ? session.refresh_token
+      : typeof session.refreshToken === "string"
+        ? session.refreshToken
+        : null;
+  if (typeof directAccessToken === "string" && typeof directRefreshToken === "string") {
+    return { accessToken: directAccessToken, refreshToken: directRefreshToken };
+  }
   return null;
 }
 
@@ -531,6 +552,34 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message?.type === "SYNC_SUPABASE_SESSION") {
     syncSupabaseSessionFromWebApp(sendResponse);
+    return true;
+  }
+
+  if (message?.type === AUTH_STATE_CHANGE_MESSAGE_TYPE) {
+    const parsed = parseAuthStateChangeSession(message.session);
+    if (!parsed) {
+      chrome.storage.local.remove([EXT_SUPABASE_SESSION_KEY, EXT_SUPABASE_SESSION_SYNCED_AT_KEY], () => {
+        clearPromptActiveState();
+        sendResponse({ ok: true, status: "NO_SESSION" });
+      });
+      return true;
+    }
+    const mirrored = {
+      accessToken: parsed.accessToken,
+      refreshToken: parsed.refreshToken,
+      sourceUrl: typeof message.source_url === "string" ? message.source_url : WEB_APP_ORIGIN,
+      syncedAt: Date.now(),
+    };
+    chrome.storage.local.set(
+      {
+        [EXT_SUPABASE_SESSION_KEY]: mirrored,
+        [EXT_SUPABASE_SESSION_SYNCED_AT_KEY]: mirrored.syncedAt,
+      },
+      () => {
+        syncSupabaseProfilePreferences();
+        sendResponse({ ok: true, status: "SYNCED" });
+      },
+    );
     return true;
   }
 

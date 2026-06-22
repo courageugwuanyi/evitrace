@@ -5,6 +5,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "../supabase";
+import { toLocalDateString } from "../datetime";
 import { objectiveRowToObjective, objectiveToRow, type Objective } from "./mappers";
 
 // ── Exported interfaces ────────────────────────────────────────────────────────
@@ -61,9 +62,9 @@ function buildSampleObjectives(userId: string) {
   const addDays = (days: number) => {
     const d = new Date(today);
     d.setDate(d.getDate() + days);
-    return d.toISOString().slice(0, 10);
+    return toLocalDateString(d);
   };
-  const authored = today.toISOString().slice(0, 10);
+  const authored = toLocalDateString(today);
 
   return [
     {
@@ -388,7 +389,7 @@ export function useMoveObjective(userId: string) {
           status: "Reviewed",
           match_state: "Yes",
           manager_notes: objectiveEvidenceMarker(id),
-          date: new Date().toISOString().slice(0, 10),
+          date: toLocalDateString(),
           is_archived: false,
         });
         if (evidenceError) {
@@ -482,13 +483,13 @@ export function useArchiveObjective(userId: string) {
           ? {
               ...row,
               isArchived: true,
-              archivedDate: new Date().toISOString().slice(0, 10),
+              archivedDate: toLocalDateString(),
             }
           : row,
       );
     },
     mutationFn: async (id: string) => {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = toLocalDateString();
       const { error } = await supabase
         .from("objectives")
         .update({ is_archived: true, archived_date: today })

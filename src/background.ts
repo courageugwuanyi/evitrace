@@ -1,3 +1,6 @@
+import { getCurrentTimeZone } from "@/lib/datetime";
+import { supabase } from "@/lib/supabase";
+
 const STORAGE_KEYS = {
   schedule: "evitrace_prompt_schedule",
   snoozeMinutes: "evitrace_snooze_minutes",
@@ -14,8 +17,16 @@ const SNOOZE_ALARM = "evitrace-snooze";
 const PROFILE_SYNC_ALARM = "evitrace-profile-sync";
 const PROFILE_SYNC_MINUTES = 5;
 const PROMPT_NOTIFICATION_ID = "evitrace-reminder-prompt";
-const WEB_APP_ORIGIN = "http://192.168.1.130:8080";
 const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
+const AUTH_SYNC_MESSAGE_TYPE = "AUTH_SYNC_BRIDGE_SESSION";
+const AUTH_STATE_CHANGE_MESSAGE_TYPE = "AUTH_STATE_CHANGE";
+const SYNC_SUPABASE_SESSION_MESSAGE_TYPE = "SYNC_SUPABASE_SESSION";
+const WEB_APP_MATCH_PATTERNS = [
+  "http://192.168.1.130:8080/*",
+  "http://localhost:3000/*",
+  "https://*.yourdomain.com/*",
+];
+const DEFAULT_CAPTURE_DEEPLINK_URL = "http://localhost:3000/?action=capture";
 
 type ChromeApi = {
   storage: {
@@ -51,7 +62,16 @@ type ChromeApi = {
     };
   };
   runtime: {
-    sendMessage: (message: Record<string, unknown>) => void;
+    sendMessage: (
+      message: Record<string, unknown>,
+      callback?: (response: { ok?: boolean; reason?: string } | undefined) => void,
+    ) => void;
+    lastError?: { message?: string };
+    getURL?: (path: string) => string;
+    getContexts?: (filter: {
+      contextTypes?: string[];
+      documentUrls?: string[];
+    }) => Promise<Array<Record<string, unknown>>>;
     onInstalled: {
       addListener: (listener: () => void) => void;
     };
@@ -70,8 +90,41 @@ type ChromeApi = {
   };
   tabs: {
     create: (options: { url: string; active: boolean }) => void;
+    query: (
+      queryInfo: { url?: string | string[]; active?: boolean; lastFocusedWindow?: boolean },
+      callback: (tabs: Array<{ id?: number; url?: string; windowId?: number }>) => void,
+    ) => void;
+    update: (
+      tabId: number,
+      updateProperties: { active?: boolean; url?: string },
+      callback?: (tab?: { id?: number }) => void,
+    ) => void;
+    sendMessage: (
+      tabId: number,
+      message: Record<string, unknown>,
+      callback: (response?: Record<string, unknown>) => void,
+    ) => void;
+  };
+  windows?: {
+    create: (options: {
+      url: string;
+      type: "popup";
+      width: number;
+      height: number;
+      focused: boolean;
+    }) => void;
+    update?: (
+      windowId: number,
+      updateInfo: {
+        focused?: boolean;
+      },
+      callback?: () => void,
+    ) => void;
   };
   offscreen?: {
+    Reason: {
+      AUDIO_PLAYBACK: string;
+    };
     hasDocument?: () => Promise<boolean>;
     createDocument: (options: {
       url: string;
@@ -90,13 +143,50 @@ type PromptConfig = {
   snoozeDurationMinutes: number;
 };
 
+type AuthSyncMessage = {
+  type: typeof AUTH_SYNC_MESSAGE_TYPE;
+  access_token: string;
+  refresh_token: string;
+  storage_key?: string;
+  source_url?: string;
+};
+
+type AuthStateChangeMessage = {
+  type: typeof AUTH_STATE_CHANGE_MESSAGE_TYPE;
+  session?: Record<string, unknown> | null;
+  source_url?: string;
+};
+
+type ResolvedSession = {
+  accessToken: string;
+  refreshToken: string;
+};
+
 function defaultConfig(): PromptConfig {
   return {
-    timezone: "UTC+00:00 (GMT/UTC Standard)",
+    timezone: getCurrentTimeZone(),
     promptTimes: ["16:00"],
     weekdaysOnly: true,
     snoozeDurationMinutes: 15,
   };
+}
+
+function normalizeTimeZoneLabel(value: string | undefined): string {
+  if (!value) return getCurrentTimeZone();
+  const trimmed = value.trim();
+  if (!trimmed) return getCurrentTimeZone();
+  const legacyMap: Record<string, string> = {
+    "UTC-08:00 (PST)": "America/Los_Angeles",
+    "UTC-05:00 (EST)": "America/New_York",
+    "UTC+00:00 (GMT/UTC Standard)": "UTC",
+    "UTC+01:00 (BST)": "Europe/London",
+    "UTC+05:30 (IST)": "Asia/Kolkata",
+    "UTC+08:00 (SGT)": "Asia/Singapore",
+    "UTC+09:00 (JST)": "Asia/Tokyo",
+    "UTC+10:00 (AEST)": "Australia/Sydney",
+    GMT: "UTC",
+  };
+  return legacyMap[trimmed] ?? trimmed;
 }
 
 function parseHourMinute(value: string): { hour: number; minute: number } | null {
@@ -108,37 +198,243 @@ function parseHourMinute(value: string): { hour: number; minute: number } | null
   return { hour, minute };
 }
 
+function isAuthSyncMessage(message: Record<string, unknown>): message is AuthSyncMessage {
+  return (
+    message?.type === AUTH_SYNC_MESSAGE_TYPE &&
+    typeof message.access_token === "string" &&
+    message.access_token.trim().length > 0 &&
+    typeof message.refresh_token === "string" &&
+    message.refresh_token.trim().length > 0
+  );
+}
+
+function isAuthStateChangeMessage(message: Record<string, unknown>): message is AuthStateChangeMessage {
+  return message?.type === AUTH_STATE_CHANGE_MESSAGE_TYPE;
+}
+
+function errorMessage(value: unknown): string {
+  if (!value || typeof value !== "object") return "Unknown auth sync error";
+  const candidate = value as { message?: unknown };
+  return typeof candidate.message === "string" && candidate.message.trim().length > 0
+    ? candidate.message
+    : "Unknown auth sync error";
+}
+
+function parseSessionTokens(value: unknown): ResolvedSession | null {
+  if (!value || typeof value !== "object") return null;
+  const payload = value as Record<string, unknown>;
+  const accessToken =
+    typeof payload.access_token === "string"
+      ? payload.access_token
+      : typeof payload.accessToken === "string"
+        ? payload.accessToken
+        : null;
+  const refreshToken =
+    typeof payload.refresh_token === "string"
+      ? payload.refresh_token
+      : typeof payload.refreshToken === "string"
+        ? payload.refreshToken
+        : null;
+  if (!accessToken || !refreshToken) return null;
+  if (!accessToken.trim() || !refreshToken.trim()) return null;
+  return {
+    accessToken,
+    refreshToken,
+  };
+}
+
+async function persistMirroredSession(
+  tokens: ResolvedSession,
+  metadata?: { storageKey?: string; sourceUrl?: string },
+): Promise<void> {
+  await setLocal({
+    [STORAGE_KEYS.supabaseSession]: {
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      storageKey: metadata?.storageKey,
+      sourceUrl: metadata?.sourceUrl,
+      syncedAt: Date.now(),
+    },
+  });
+}
+
+async function applyIncomingSession(
+  tokens: ResolvedSession,
+  metadata?: { storageKey?: string; sourceUrl?: string },
+): Promise<{ emailOrId: string }> {
+  const { data, error } = await supabase.auth.setSession({
+    access_token: tokens.accessToken,
+    refresh_token: tokens.refreshToken,
+  });
+  if (error || !data.session) {
+    throw new Error(error?.message ?? "Failed to set Supabase session");
+  }
+  await persistMirroredSession(tokens, metadata);
+  return {
+    emailOrId: data.session.user.email ?? data.session.user.id,
+  };
+}
+
+async function clearMirroredAuthSession(): Promise<void> {
+  await supabase.auth.signOut();
+  await setLocal({
+    [STORAGE_KEYS.supabaseSession]: null,
+  });
+}
+
+function queryTabs(urlPatterns: string[]): Promise<Array<{ id?: number; url?: string; windowId?: number }>> {
+  return new Promise((resolve) => {
+    if (!chromeApi?.tabs?.query) {
+      resolve([]);
+      return;
+    }
+    chromeApi.tabs.query({ url: urlPatterns }, (tabs) => resolve(tabs ?? []));
+  });
+}
+
+function sendMessageToTab(
+  tabId: number,
+  message: Record<string, unknown>,
+): Promise<{ response?: Record<string, unknown>; runtimeError?: string }> {
+  return new Promise((resolve) => {
+    if (!chromeApi?.tabs?.sendMessage) {
+      resolve({ runtimeError: "tabs.sendMessage is unavailable" });
+      return;
+    }
+    chromeApi.tabs.sendMessage(tabId, message, (response) => {
+      resolve({ response, runtimeError: chromeApi.runtime.lastError?.message });
+    });
+  });
+}
+
+function resolveCaptureDeepLink(tabUrl?: string): string {
+  if (!tabUrl) return DEFAULT_CAPTURE_DEEPLINK_URL;
+  try {
+    const parsed = new URL(tabUrl);
+    return `${parsed.origin}/?action=capture`;
+  } catch {
+    return DEFAULT_CAPTURE_DEEPLINK_URL;
+  }
+}
+
+function updateTab(tabId: number, updateProperties: { active?: boolean; url?: string }): Promise<void> {
+  return new Promise((resolve) => {
+    if (!chromeApi?.tabs?.update) {
+      resolve();
+      return;
+    }
+    chromeApi.tabs.update(tabId, updateProperties, () => resolve());
+  });
+}
+
+function focusWindow(windowId: number): Promise<void> {
+  return new Promise((resolve) => {
+    if (!chromeApi?.windows?.update) {
+      resolve();
+      return;
+    }
+    chromeApi.windows.update(windowId, { focused: true }, () => resolve());
+  });
+}
+
+async function handleNotificationDeepLink(): Promise<void> {
+  const appUrl = "http://localhost:3000/?action=capture";
+  const tabs = await queryTabs(WEB_APP_MATCH_PATTERNS);
+  const existingTab = tabs.find((tab) => typeof tab.id === "number");
+  if (existingTab?.id) {
+    await updateTab(existingTab.id, {
+      active: true,
+      url: resolveCaptureDeepLink(existingTab.url) || appUrl,
+    });
+    if (typeof existingTab.windowId === "number") {
+      await focusWindow(existingTab.windowId);
+    }
+    return;
+  }
+  if (!chromeApi?.tabs?.create) return;
+  chromeApi.tabs.create({
+    url: appUrl,
+    active: true,
+  });
+}
+
+async function syncSupabaseSessionFromWebAppTab(): Promise<
+  { ok: true; status: "SYNCED"; sourceUrl?: string; storageKey?: string } | { ok: false; status: "NO_SESSION" | "NO_TAB" | "SYNC_FAILED"; reason?: string }
+> {
+  const tabs = await queryTabs(WEB_APP_MATCH_PATTERNS);
+  const targetTab = tabs.find((tab) => typeof tab.id === "number") ?? null;
+  if (!targetTab?.id) {
+    return { ok: false, status: "NO_TAB", reason: "No web app tab found" };
+  }
+
+  const { response, runtimeError } = await sendMessageToTab(targetTab.id, { type: "GET_AUTH_STATE" });
+  if (runtimeError) {
+    return { ok: false, status: "SYNC_FAILED", reason: runtimeError };
+  }
+
+  const sessionTokens = parseSessionTokens(response?.session);
+  if (!sessionTokens) {
+    await clearMirroredAuthSession();
+    return { ok: false, status: "NO_SESSION", reason: "No active session in web app localStorage" };
+  }
+
+  const sourceUrl = typeof response?.source_url === "string" ? response.source_url : targetTab.url;
+  const storageKey = typeof response?.storage_key === "string" ? response.storage_key : undefined;
+
+  await applyIncomingSession(sessionTokens, { sourceUrl, storageKey });
+  return { ok: true, status: "SYNCED", sourceUrl, storageKey };
+}
+
+function isDateLikeValue(value: string): boolean {
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.getTime());
+}
+
 function normalizePromptTimes(values: unknown): string[] {
   if (!Array.isArray(values)) return [];
-  return [...new Set(values.map((v) => String(v).trim()).filter((v) => parseHourMinute(v)))].sort();
+  return [
+    ...new Set(
+      values
+        .map((v) => String(v).trim())
+        .filter((v) => parseHourMinute(v) || isDateLikeValue(v)),
+    ),
+  ].sort();
 }
 
-function getCurrentDateInTargetZone(timezoneLabel: string): Date {
-  const zone = timezoneLabel?.trim() || "UTC";
+function resolveTimeZone(timezoneLabel: string): string {
+  const zone = normalizeTimeZoneLabel(timezoneLabel) || "UTC";
   try {
-    const targetString = new Date().toLocaleString("en-US", { timeZone: zone });
-    return new Date(targetString);
+    // Throws for invalid time zone identifiers.
+    new Intl.DateTimeFormat("en-US", { timeZone: zone }).format(new Date());
+    return zone;
   } catch {
-    const fallbackString = new Date().toLocaleString("en-US", { timeZone: "UTC" });
-    return new Date(fallbackString);
+    return getCurrentTimeZone();
   }
 }
 
-function computeNextSystemTimestamp(timeText: string, timezoneLabel: string): number | null {
-  const parsed = parseHourMinute(timeText);
-  if (!parsed) return null;
+function resolveScheduledLocalTime(value: string): { hour: number; minute: number } | null {
+  const dbDate = new Date(value);
+  if (!Number.isNaN(dbDate.getTime())) {
+    return {
+      hour: dbDate.getHours(),
+      minute: dbDate.getMinutes(),
+    };
+  }
+  return parseHourMinute(value);
+}
 
-  const now = new Date();
-  const targetNow = getCurrentDateInTargetZone(timezoneLabel);
-  const targetCandidate = new Date(targetNow);
-  targetCandidate.setHours(parsed.hour, parsed.minute, 0, 0);
-  if (targetCandidate.getTime() <= targetNow.getTime()) {
-    targetCandidate.setDate(targetCandidate.getDate() + 1);
+function computeNextSystemTimestamp(timeText: string, _timezoneLabel: string): number | null {
+  const local = resolveScheduledLocalTime(timeText);
+  if (!local) return null;
+
+  const target = new Date();
+  target.setHours(local.hour, local.minute, 0, 0);
+
+  if (target.getTime() <= Date.now()) {
+    target.setDate(target.getDate() + 1);
   }
 
-  // Convert target-zone future clock distance back to local system time.
-  const millisecondsUntilTargetWindow = targetCandidate.getTime() - targetNow.getTime();
-  return now.getTime() + millisecondsUntilTargetWindow;
+  return target.getTime();
 }
 
 function suppressWeekend(weekdaysOnly: boolean): boolean {
@@ -255,7 +551,7 @@ function normalizeConfigFromSupabase(
   return {
     timezone:
       typeof profileRow?.timezone === "string" && profileRow.timezone.trim().length > 0
-        ? profileRow.timezone
+        ? resolveTimeZone(profileRow.timezone)
         : defaults.timezone,
     promptTimes: (() => {
       const times = normalizePromptTimes(profileRow?.prompt_times);
@@ -341,7 +637,7 @@ async function readStoredConfig(): Promise<PromptConfig> {
     timezone:
       typeof stored?.[STORAGE_KEYS.timezone] === "string" &&
       String(stored[STORAGE_KEYS.timezone]).trim()
-        ? (stored[STORAGE_KEYS.timezone] as string)
+        ? resolveTimeZone(String(stored[STORAGE_KEYS.timezone]))
         : defaults.timezone,
     promptTimes: promptTimes.length > 0 ? promptTimes : defaults.promptTimes,
     weekdaysOnly:
@@ -359,10 +655,16 @@ async function readStoredConfig(): Promise<PromptConfig> {
 async function ensureOffscreenAudioDocument(): Promise<void> {
   if (!chromeApi?.offscreen) return;
   try {
-    const hasDocument =
-      typeof chromeApi.offscreen.hasDocument === "function"
-        ? await chromeApi.offscreen.hasDocument()
-        : false;
+    let hasDocument = false;
+    if (typeof chromeApi.runtime.getContexts === "function" && typeof chromeApi.runtime.getURL === "function") {
+      const contexts = await chromeApi.runtime.getContexts({
+        contextTypes: ["OFFSCREEN_DOCUMENT"],
+        documentUrls: [chromeApi.runtime.getURL(OFFSCREEN_DOCUMENT_PATH)],
+      });
+      hasDocument = contexts.length > 0;
+    } else if (typeof chromeApi.offscreen.hasDocument === "function") {
+      hasDocument = await chromeApi.offscreen.hasDocument();
+    }
     if (hasDocument) return;
   } catch {
     // Continue and attempt creation.
@@ -371,25 +673,51 @@ async function ensureOffscreenAudioDocument(): Promise<void> {
   try {
     await chromeApi.offscreen.createDocument({
       url: OFFSCREEN_DOCUMENT_PATH,
-      reasons: ["AUDIO_PLAYBACK"],
-      justification: "Play Evitrace reminder ping",
+      reasons: [chromeApi.offscreen.Reason.AUDIO_PLAYBACK],
+      justification: "Play scheduled prompt chime",
     });
-  } catch {
-    // Safe no-op if already exists or unavailable.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  } catch (error) {
+    // Log to surface silent failures in offscreen audio setup.
+    console.error("Failed to create offscreen audio document:", error);
   }
 }
 
 async function playReminderPing(): Promise<void> {
-  await ensureOffscreenAudioDocument();
-  chromeApi.runtime.sendMessage({
-    target: "evitrace-audio",
-    audioUrl: "assets/sounds/ping.mp3",
-    volume: 0.5,
-  });
+  try {
+    await ensureOffscreenAudioDocument();
+    chromeApi.runtime.sendMessage(
+      {
+        target: "evitrace-audio",
+        audioUrl: "assets/sounds/ping.mp3",
+        volume: 0.5,
+      },
+      (response) => {
+        const runtimeError = (globalThis as typeof globalThis & { chrome?: any }).chrome?.runtime
+          ?.lastError;
+        if (runtimeError) {
+          console.error("Failed to dispatch audio message:", runtimeError.message);
+          return;
+        }
+        if (!response?.ok) {
+          console.error("Offscreen audio playback failed:", response?.reason ?? "unknown reason");
+        }
+      },
+    );
+  } catch (error) {
+    console.error("Audio failed to initialize:", error);
+  }
 }
 
-function openWorkspaceTab(): void {
-  chromeApi.tabs.create({ url: `${WEB_APP_ORIGIN}/?tab=evidence`, active: true });
+function launchEvitraceEntryModal(): void {
+  if (!chromeApi?.windows?.create || typeof chromeApi.runtime.getURL !== "function") return;
+  chromeApi.windows.create({
+    url: chromeApi.runtime.getURL("popup.html"),
+    type: "popup",
+    width: 450,
+    height: 650,
+    focused: true,
+  });
 }
 
 async function markPromptActive(label: string): Promise<void> {
@@ -442,6 +770,7 @@ async function handleTriggerAlarm(alarmName: string): Promise<void> {
 
   await playReminderPing();
   await markPromptActive(promptLabel);
+  launchEvitraceEntryModal();
   await createNotification(PROMPT_NOTIFICATION_ID, notificationPayloadPrompt(promptLabel));
 }
 
@@ -475,6 +804,74 @@ if (chromeApi?.runtime?.onMessage) {
       _sender: unknown,
       sendResponse: (response?: unknown) => void,
     ) => {
+      if (isAuthSyncMessage(message)) {
+        void (async () => {
+          try {
+            const session = await applyIncomingSession(
+              {
+                accessToken: message.access_token,
+                refreshToken: message.refresh_token,
+              },
+              {
+                storageKey: typeof message.storage_key === "string" ? message.storage_key : undefined,
+                sourceUrl: typeof message.source_url === "string" ? message.source_url : undefined,
+              },
+            );
+
+            console.log("Authentication synchronized perfectly for user:", session.emailOrId);
+            sendResponse({ ok: true, status: "SYNCED" });
+          } catch (error: unknown) {
+            console.error("Failed to synchronize authentication session:", error);
+            sendResponse({ ok: false, status: "SYNC_FAILED", reason: errorMessage(error) });
+          }
+        })();
+        return true;
+      }
+
+      if (isAuthStateChangeMessage(message)) {
+        void (async () => {
+          try {
+            const tokens = parseSessionTokens(message.session);
+            if (!tokens) {
+              await clearMirroredAuthSession();
+              sendResponse({ ok: true, status: "NO_SESSION" });
+              return;
+            }
+
+            const session = await applyIncomingSession(tokens, {
+              sourceUrl: typeof message.source_url === "string" ? message.source_url : undefined,
+            });
+            console.log("Authentication synchronized perfectly for user:", session.emailOrId);
+            sendResponse({ ok: true, status: "SYNCED" });
+          } catch (error: unknown) {
+            console.error("Failed to apply AUTH_STATE_CHANGE:", error);
+            sendResponse({ ok: false, status: "SYNC_FAILED", reason: errorMessage(error) });
+          }
+        })();
+        return true;
+      }
+
+      if (message?.type === SYNC_SUPABASE_SESSION_MESSAGE_TYPE) {
+        void (async () => {
+          try {
+            const result = await syncSupabaseSessionFromWebAppTab();
+            sendResponse(result);
+          } catch (error: unknown) {
+            console.error("Failed to verify session from popup bootstrap:", error);
+            sendResponse({ ok: false, status: "SYNC_FAILED", reason: errorMessage(error) });
+          }
+        })();
+        return true;
+      }
+
+      if (message?.type === "CLEAR_PROMPT_ACTIVE") {
+        void (async () => {
+          await clearPromptState();
+          sendResponse({ ok: true });
+        })();
+        return true;
+      }
+
       if (message?.type === "SYNC_PROFILE_PROMPT_CONFIG") {
         void (async () => {
           await syncConfigFromSupabase();
@@ -486,10 +883,10 @@ if (chromeApi?.runtime?.onMessage) {
       if (message?.type === "UPDATE_PROMPT_CONFIG") {
         void (async () => {
           const nextConfig: PromptConfig = {
-            timezone:
-              typeof message.timezone === "string" && message.timezone.trim().length > 0
-                ? message.timezone
-                : defaultConfig().timezone,
+              timezone:
+                typeof message.timezone === "string" && message.timezone.trim().length > 0
+                  ? resolveTimeZone(message.timezone)
+                  : defaultConfig().timezone,
             promptTimes: (() => {
               const parsed = normalizePromptTimes(message.scheduleTimes);
               return parsed.length > 0 ? parsed : defaultConfig().promptTimes;
@@ -529,50 +926,46 @@ if (chromeApi?.storage?.onChanged) {
   });
 }
 
-if (chromeApi?.alarms?.onAlarm) {
-  chromeApi.alarms.onAlarm.addListener((alarm: { name: string }) => {
+chromeApi.alarms.onAlarm.addListener((alarm: { name: string }) => {
+  void (async () => {
     if (alarm.name === PROFILE_SYNC_ALARM) {
-      void syncConfigFromSupabase();
+      await syncConfigFromSupabase();
       return;
     }
     if (alarm.name.startsWith(ALARM_WARNING_PREFIX)) {
-      void handleWarningAlarm();
+      await handleWarningAlarm();
       return;
     }
     if (alarm.name.startsWith(ALARM_TRIGGER_PREFIX) || alarm.name === SNOOZE_ALARM) {
-      void handleTriggerAlarm(alarm.name);
+      await handleTriggerAlarm(alarm.name);
     }
-  });
-}
+  })();
+});
 
-if (chromeApi?.notifications?.onButtonClicked) {
-  chromeApi.notifications.onButtonClicked.addListener(
-    (notificationId: string, buttonIndex: number) => {
-      if (notificationId !== PROMPT_NOTIFICATION_ID) return;
-      if (buttonIndex === 0) {
-        void clearNotification(PROMPT_NOTIFICATION_ID);
-        void clearPromptState();
-        openWorkspaceTab();
-        return;
-      }
-      if (buttonIndex === 1) {
-        void (async () => {
-          await clearNotification(PROMPT_NOTIFICATION_ID);
-          await scheduleSnooze();
-        })();
-      }
-    },
-  );
-}
-
-if (chromeApi?.notifications?.onClicked) {
-  chromeApi.notifications.onClicked.addListener((notificationId: string) => {
+chromeApi.notifications.onButtonClicked.addListener(
+  (notificationId: string, buttonIndex: number) => {
     if (notificationId !== PROMPT_NOTIFICATION_ID) return;
-    void clearNotification(PROMPT_NOTIFICATION_ID);
-    void clearPromptState();
-    openWorkspaceTab();
-  });
-}
+    if (buttonIndex === 0) {
+      void clearNotification(PROMPT_NOTIFICATION_ID);
+      void clearPromptState();
+      void handleNotificationDeepLink();
+      return;
+    }
+    if (buttonIndex === 1) {
+      void (async () => {
+        await clearNotification(PROMPT_NOTIFICATION_ID);
+        await scheduleSnooze();
+      })();
+    }
+  },
+);
+
+chromeApi.notifications.onClicked.addListener((notificationId: string) => {
+  if (notificationId !== PROMPT_NOTIFICATION_ID) return;
+  void clearNotification(PROMPT_NOTIFICATION_ID);
+  void clearPromptState();
+  void handleNotificationDeepLink();
+});
 
 // Initialize in case the worker wakes outside startup/install events.
 void initializeReminderEngine();

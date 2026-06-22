@@ -17,6 +17,7 @@ import React, {
 import { toast } from 'sonner'
 import { supabase } from './supabase'
 import type { Database } from './database.types'
+import { getCurrentTimeZone } from './datetime'
 import { profileRowToAuthUser, type AuthUser } from './api/mappers'
 
 type ProfileUpdate = Database['public']['Tables']['profiles']['Update']
@@ -27,6 +28,8 @@ type MirroredSupabaseSession = {
   sourceUrl?: string
   syncedAt?: number
 }
+
+const AUTH_STATE_CHANGE_EVENT = 'EVITRACE_AUTH_STATE_CHANGE'
 
 // ── Public interface ───────────────────────────────────────────────────────────
 
@@ -67,7 +70,7 @@ const DEFAULT_NOTIFICATIONS = {
   extensionPromptTimes: ['16:00'],
   extensionSnoozeMinutes: 15,
   extensionWeekdaysOnly: true,
-  extensionTimezone: 'GMT',
+  extensionTimezone: getCurrentTimeZone(),
 }
 
 const DEFAULT_INTEGRATIONS = {
@@ -138,6 +141,38 @@ async function fetchProfile(userId: string): Promise<AuthUser | null> {
 
 function getChromeApi() {
   return (globalThis as typeof globalThis & { chrome?: any }).chrome
+}
+
+type BridgeSessionPayload = {
+  access_token: string
+  refresh_token: string
+} | null
+
+function toBridgeSessionPayload(session: unknown): BridgeSessionPayload {
+  if (!session || typeof session !== 'object') return null
+  const candidate = session as Record<string, unknown>
+  const accessToken = candidate.access_token
+  const refreshToken = candidate.refresh_token
+  if (typeof accessToken !== 'string' || typeof refreshToken !== 'string') return null
+  if (!accessToken.trim() || !refreshToken.trim()) return null
+  return {
+    access_token: accessToken,
+    refresh_token: refreshToken,
+  }
+}
+
+function broadcastAuthStateChangeToBridge(event: string, session: unknown): void {
+  if (typeof window === 'undefined' || typeof window.dispatchEvent !== 'function') return
+  const payload = toBridgeSessionPayload(session)
+  window.dispatchEvent(
+    new CustomEvent(AUTH_STATE_CHANGE_EVENT, {
+      detail: {
+        type: 'AUTH_STATE_CHANGE',
+        event,
+        session: payload,
+      },
+    }),
+  )
 }
 
 function normalizeMirroredSession(value: unknown): MirroredSupabaseSession | null {
@@ -236,6 +271,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // ── Step 2: subscribe to future auth state changes ──────────────────────
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
+        broadcastAuthStateChangeToBridge(event, session)
+
         if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
           if (!session?.user) return
           const profile = await fetchProfile(session.user.id)

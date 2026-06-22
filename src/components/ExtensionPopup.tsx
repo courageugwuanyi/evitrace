@@ -14,7 +14,9 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { useInsertEvidence } from "@/lib/api/evidence";
-import { useSettingsQuery } from "@/lib/api/settings";
+import { getFrameworkDisplayName, useSettingsQuery } from "@/lib/api/settings";
+import { useFrameworkContext } from "@/context/FrameworkContext";
+import { getCurrentTimeZone, toLocalDateString } from "@/lib/datetime";
 import { supabase } from "@/lib/supabase";
 
 type TabMode = "evidence" | "knowledge";
@@ -170,7 +172,7 @@ function inferCompetency(title: string, description: string, categories: string[
 function defaultPromptState(): PromptState {
   return {
     schedule: ["16:00"],
-    timezone: "UTC+00:00 (GMT/UTC Standard)",
+    timezone: getCurrentTimeZone(),
     currentPromptLabel: "",
     promptActive: false,
     snoozeCount: 0,
@@ -189,6 +191,8 @@ export function ExtensionPopup({
 }) {
   const chromeApi = getChromeApi();
   const { user, userId, loading } = useAuth();
+  const { currentFramework, categories: frameworkCategories, getQuestionsForCategory } =
+    useFrameworkContext();
   const safeUserId = userId ?? "";
   const { data: settings } = useSettingsQuery(safeUserId);
   const insertEvidenceMutation = useInsertEvidence(safeUserId);
@@ -208,7 +212,6 @@ export function ExtensionPopup({
   const [category, setCategory] = useState("");
   const [subcategory, setSubcategory] = useState("");
   const [competency, setCompetency] = useState("");
-  const [activeFrameworkMatrix, setActiveFrameworkMatrix] = useState<unknown | null>(null);
 
   const [challenge, setChallenge] = useState("");
   const [lesson, setLesson] = useState("");
@@ -217,89 +220,28 @@ export function ExtensionPopup({
   const [knowledgeReferenceInput, setKnowledgeReferenceInput] = useState("");
   const [knowledgeReferenceLinks, setKnowledgeReferenceLinks] = useState<string[]>([]);
 
+  const activeFrameworkDisplayName = useMemo(() => {
+    if (!currentFramework) return "Built-in Template";
+    return getFrameworkDisplayName({
+      name: currentFramework.name,
+      is_system_default: Boolean(currentFramework.isSystemDefault),
+    });
+  }, [currentFramework]);
+
   const categoryMap = useMemo(() => {
-    const rawCategories =
-      (activeFrameworkMatrix &&
-      typeof activeFrameworkMatrix === "object" &&
-      !Array.isArray(activeFrameworkMatrix)
-        ? (activeFrameworkMatrix as Record<string, unknown>).categories
-        : null) ?? null;
-    if (!rawCategories || typeof rawCategories !== "object" || Array.isArray(rawCategories)) {
-      return DEFAULT_CATEGORY_MAP;
-    }
-    const parsed = Object.entries(rawCategories as Record<string, unknown>).reduce<
-      Record<string, string[]>
-    >((acc, [categoryName, payload]) => {
-      if (!payload || typeof payload !== "object") return acc;
-      const items = Array.isArray((payload as Record<string, unknown>).items)
-        ? ((payload as Record<string, unknown>).items as unknown[])
-            .map((item) => (typeof item === "string" ? item.trim() : ""))
-            .filter((item) => item.length > 0)
-        : [];
-      if (items.length > 0) acc[categoryName] = items;
+    if (frameworkCategories.length === 0) return DEFAULT_CATEGORY_MAP;
+
+    const parsed = frameworkCategories.reduce<Record<string, string[]>>((acc, categoryName) => {
+      acc[categoryName] = getQuestionsForCategory(categoryName);
       return acc;
     }, {});
+
     return Object.keys(parsed).length > 0 ? parsed : DEFAULT_CATEGORY_MAP;
-  }, [activeFrameworkMatrix]);
+  }, [frameworkCategories, getQuestionsForCategory]);
   const competencies = useMemo(() => Object.keys(categoryMap), [categoryMap]);
 
   const knowledgeReferenceInputValid =
     !knowledgeReferenceInput || /^https?:\/\/\S+\.\S+/i.test(knowledgeReferenceInput);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (!userId) {
-      setActiveFrameworkMatrix(null);
-      return () => {
-        cancelled = true;
-      };
-    }
-    const loadFramework = async () => {
-      try {
-        const { data: profile, error: profileError } = await supabase
-          .from("profiles")
-          .select("active_framework_id")
-          .eq("id", userId)
-          .maybeSingle();
-        if (profileError) throw profileError;
-
-        const activeFrameworkId = (profile?.active_framework_id as string | null) ?? null;
-        if (activeFrameworkId) {
-          const { data: activeFramework, error: frameworkError } = await supabase
-            .from("competency_frameworks")
-            .select("matrix")
-            .eq("id", activeFrameworkId)
-            .maybeSingle();
-          if (frameworkError) throw frameworkError;
-          if (activeFramework?.matrix && !cancelled) {
-            setActiveFrameworkMatrix(activeFramework.matrix as unknown);
-            return;
-          }
-        }
-
-        const { data: fallbackFramework, error: fallbackError } = await supabase
-          .from("competency_frameworks")
-          .select("matrix")
-          .or(`is_system_default.eq.true,user_id.eq.${userId}`)
-          .order("is_system_default", { ascending: false })
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (fallbackError) throw fallbackError;
-        if (!cancelled) {
-          setActiveFrameworkMatrix((fallbackFramework?.matrix as unknown) ?? null);
-        }
-      } catch {
-        if (!cancelled) {
-          setActiveFrameworkMatrix(null);
-        }
-      }
-    };
-    void loadFramework();
-    return () => {
-      cancelled = true;
-    };
-  }, [userId]);
 
   useEffect(() => {
     const categoryOptions = competencies;
@@ -358,7 +300,7 @@ export function ExtensionPopup({
           timezone:
             typeof stored.evitrace_timezone === "string"
               ? stored.evitrace_timezone
-              : "UTC+00:00 (GMT/UTC Standard)",
+              : getCurrentTimeZone(),
           currentPromptLabel:
             typeof stored.evitrace_current_prompt_label === "string"
               ? stored.evitrace_current_prompt_label
@@ -379,7 +321,7 @@ export function ExtensionPopup({
       scheduleTimes: notifications.dailyReminder ? notifications.extensionPromptTimes : [],
       snoozeMinutes: notifications.extensionSnoozeMinutes,
       weekdaysOnly: notifications.extensionWeekdaysOnly,
-      timezone: notifications.extensionTimezone || "UTC+00:00 (GMT/UTC Standard)",
+      timezone: notifications.extensionTimezone || getCurrentTimeZone(),
     });
   }, [chromeApi?.runtime?.sendMessage, settings]);
 
@@ -504,7 +446,7 @@ export function ExtensionPopup({
     insertEvidenceMutation.mutate(
       {
         id: "",
-        date: new Date().toISOString().slice(0, 10),
+        date: toLocalDateString(),
         source: promptState.promptActive ? "Extension Prompt" : "Extension Manual",
         category: category.trim(),
         competency: competency.trim(),
@@ -678,12 +620,12 @@ export function ExtensionPopup({
       transition={{ duration: 0.18 }}
       className={
         standalone
-          ? "w-full h-full rounded-lg shadow-none border bg-white flex flex-col overflow-hidden"
-          : "fixed bottom-6 right-6 w-[460px] h-[580px] rounded-lg shadow-xl border bg-white z-40 flex flex-col overflow-hidden"
+          ? "w-[460px] h-[680px] rounded-lg shadow-none border bg-white flex flex-col overflow-hidden"
+          : "fixed bottom-6 right-6 w-[460px] h-[680px] rounded-lg shadow-xl border bg-white z-40 flex flex-col overflow-hidden"
       }
       style={{ borderColor: "#DFE1E6" }}
     >
-      <div className="px-4 py-3 border-b" style={{ borderColor: "#DFE1E6" }}>
+      <div className="shrink-0 px-4 py-3 border-b" style={{ borderColor: "#DFE1E6" }}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <BrandMark size={28} />
@@ -751,6 +693,9 @@ export function ExtensionPopup({
         <div className="mt-2 text-[11px] text-[#6B778C]">
           <span className="font-medium">{promptSummary}</span>
         </div>
+        <div className="mt-1 text-[11px] text-[#6B778C]">
+          Active framework: <span className="font-medium">{activeFrameworkDisplayName}</span>
+        </div>
       </div>
 
       <div className="px-4 pt-3">
@@ -784,7 +729,7 @@ export function ExtensionPopup({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-3">
         {tab === "evidence" ? (
           <>
             <div>
@@ -804,11 +749,11 @@ export function ExtensionPopup({
                 Description / Context <span className="normal-case font-medium">(optional)</span>
               </label>
               <textarea
-                rows={4}
+                rows={6}
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
                 placeholder="Capture the challenge, action, and outcome."
-                className="w-full px-3 py-2 text-sm rounded border bg-[#F4F5F7] focus:bg-white outline-none resize-none text-[#172B4D]"
+                className="w-full min-h-[180px] resize-y rounded border bg-[#F4F5F7] p-3 text-sm leading-relaxed text-[#172B4D] outline-none transition-all focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
                 style={{ borderColor: "#DFE1E6" }}
               />
             </div>
@@ -907,11 +852,11 @@ export function ExtensionPopup({
                 Core Activity / Challenge <span className="text-[#DE350B]">*</span>
               </label>
               <textarea
-                rows={4}
+                rows={6}
                 value={challenge}
                 onChange={(event) => setChallenge(event.target.value)}
                 placeholder="What challenge did you run into?"
-                className="w-full px-3 py-2 text-sm rounded border bg-[#F4F5F7] focus:bg-white outline-none resize-none text-[#172B4D]"
+                className="w-full min-h-[180px] resize-y rounded border bg-[#F4F5F7] p-3 text-sm leading-relaxed text-[#172B4D] outline-none transition-all focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
                 style={{ borderColor: "#DFE1E6" }}
               />
             </div>
@@ -920,11 +865,11 @@ export function ExtensionPopup({
                 Solution / Lesson Learned <span className="text-[#DE350B]">*</span>
               </label>
               <textarea
-                rows={5}
+                rows={6}
                 value={lesson}
                 onChange={(event) => setLesson(event.target.value)}
                 placeholder="What did you learn that you can reuse later?"
-                className="w-full px-3 py-2 text-sm rounded border bg-[#F4F5F7] focus:bg-white outline-none resize-none text-[#172B4D]"
+                className="w-full min-h-[180px] resize-y rounded border bg-[#F4F5F7] p-3 text-sm leading-relaxed text-[#172B4D] outline-none transition-all focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
                 style={{ borderColor: "#DFE1E6" }}
               />
             </div>
@@ -1077,7 +1022,7 @@ export function ExtensionPopup({
       </div>
 
       <div
-        className="px-4 py-3 border-t flex items-center justify-between gap-2 bg-[#FAFBFC]"
+        className="shrink-0 px-4 py-3 border-t flex items-center justify-between gap-2 bg-[#FAFBFC]"
         style={{ borderColor: "#DFE1E6" }}
       >
         <div className="flex items-center gap-2">

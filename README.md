@@ -40,6 +40,7 @@ The app is built with a Supabase backend (Postgres + Auth + Storage), TanStack S
 ## Features
 
 ### Dashboard
+
 The home view surfaces the most important information at a glance:
 
 - **Evidence This Quarter** — count of non-archived evidence entries in the current quarter
@@ -50,6 +51,7 @@ The home view surfaces the most important information at a glance:
 - **Action Inbox** — auto-captured integration events waiting to be mapped to evidence or dismissed
 
 ### Evidence Log
+
 A chronological, searchable log of everything you've done that demonstrates your competencies:
 
 - Add evidence manually via the Capture Modal (source, competency, category, title, description, link)
@@ -59,6 +61,7 @@ A chronological, searchable log of everything you've done that demonstrates your
 - Filter by competency, status, and date
 
 ### Objectives
+
 SMART objective tracking with a Kanban-style board:
 
 - Create objectives with full SMART fields (Specific, Measurable, Achievable, Relevant, Time-bound)
@@ -68,6 +71,7 @@ SMART objective tracking with a Kanban-style board:
 - Archive, restore, or delete objectives as needed
 
 ### Promotion Readiness Radar
+
 A visual radar chart that maps your current scores across competency categories and shows the gap to your target level:
 
 - Driven by finalised assessment data — no manual radar input required
@@ -76,6 +80,7 @@ A visual radar chart that maps your current scores across competency categories 
 - Comparison against previous assessment cycle built in
 
 ### Review Wizard
+
 A step-by-step promotion review tool:
 
 - Walk through each competency category and score yourself with justification
@@ -84,6 +89,7 @@ A step-by-step promotion review tool:
 - Assessment data feeds directly into the radar and report views
 
 ### Reviews & Reports
+
 A record of all past promotion review sessions:
 
 - View full assessment history
@@ -92,6 +98,7 @@ A record of all past promotion review sessions:
 - Open any historical assessment to re-enter the scoring detail view
 
 ### 360° Feedback
+
 Log and manage feedback from peers, managers, and stakeholders:
 
 - Add feedback requests (Manager Requested, Ad-hoc, Peer Review)
@@ -99,6 +106,7 @@ Log and manage feedback from peers, managers, and stakeholders:
 - Anonymous feedback entries supported
 
 ### Settings
+
 Full control over your profile and the app's behaviour:
 
 - **Profile** — name, email, current level, target level, job title
@@ -109,6 +117,7 @@ Full control over your profile and the app's behaviour:
 - **Framework** — upload a custom competency framework CSV/JSON to personalise the radar dimensions
 
 ### Extension Preview
+
 A floating panel inside the web app that simulates the Chrome extension capture experience:
 
 - Select a trigger source (based on your enabled integrations)
@@ -116,6 +125,7 @@ A floating panel inside the web app that simulates the Chrome extension capture 
 - Save directly to your Evidence Log without leaving your current context
 
 ### Reminder Scheduling Engine (Extension)
+
 The extension service worker includes a live reminder engine that:
 
 - Syncs reminder preferences from Supabase profile data (`timezone`, `prompt_times`, `weekdays_only`, `snooze_duration_minutes`)
@@ -129,19 +139,21 @@ The extension service worker includes a live reminder engine that:
 
 ## Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Framework | [TanStack Start](https://tanstack.com/start) (React 19, Vite, TypeScript) |
-| Routing | [TanStack Router](https://tanstack.com/router) |
-| Server State | [TanStack Query v5](https://tanstack.com/query) |
-| Backend | [Supabase](https://supabase.com) (Postgres, Auth, Storage) |
-| Styling | [Tailwind CSS v4](https://tailwindcss.com) |
-| UI Components | [Radix UI](https://www.radix-ui.com) + [shadcn/ui](https://ui.shadcn.com) |
-| Charts | [Recharts](https://recharts.org) |
-| Animation | [Framer Motion](https://www.framer.com/motion/) |
-| Forms | [React Hook Form](https://react-hook-form.com) + [Zod](https://zod.dev) |
-| Icons | [Lucide React](https://lucide.dev) |
-| Package Manager | [Bun](https://bun.sh) |
+
+| Layer           | Technology                                                                |
+| --------------- | ------------------------------------------------------------------------- |
+| Framework       | [TanStack Start](https://tanstack.com/start) (React 19, Vite, TypeScript) |
+| Routing         | [TanStack Router](https://tanstack.com/router)                            |
+| Server State    | [TanStack Query v5](https://tanstack.com/query)                           |
+| Backend         | [Supabase](https://supabase.com) (Postgres, Auth, Storage)                |
+| Styling         | [Tailwind CSS v4](https://tailwindcss.com)                                |
+| UI Components   | [Radix UI](https://www.radix-ui.com) + [shadcn/ui](https://ui.shadcn.com) |
+| Charts          | [Recharts](https://recharts.org)                                          |
+| Animation       | [Framer Motion](https://www.framer.com/motion/)                           |
+| Forms           | [React Hook Form](https://react-hook-form.com) + [Zod](https://zod.dev)   |
+| Icons           | [Lucide React](https://lucide.dev)                                        |
+| Package Manager | [Bun](https://bun.sh)                                                     |
+
 
 ---
 
@@ -156,7 +168,7 @@ The extension service worker includes a live reminder engine that:
 ### Installation
 
 ```bash
-git clone https://github.com/your-org/evitrace.git
+git clone https://github.com/courageugwuanyi/evitrace.git
 cd evitrace
 bun install
 ```
@@ -260,19 +272,21 @@ supabase/
 
 The schema mirrors the app's domain model exactly. Every table is user-scoped via `user_id` with Row Level Security enforced at the database level.
 
-| Table | Purpose |
-|---|---|
-| `profiles` | User profile data (name, level, team, manager) |
-| `user_settings` | Notification and integration toggle preferences (JSONB) |
-| `evidence` | Evidence records with competency, status, and archive state |
-| `inbox_events` | Auto-captured integration events pending review |
-| `objectives` | SMART objectives with success criteria (JSONB) |
-| `assessments` | Promotion review snapshots |
-| `assessment_categories` | Per-category scores and summaries within an assessment |
-| `assessment_questions` | Per-question scores with justification and evidence links |
-| `feedback` | 360° feedback entries |
-| `competency_frameworks` | Custom uploaded competency framework definitions |
-| `competency_categories` | Categories and questions within a framework |
+
+| Table                   | Purpose                                                     |
+| ----------------------- | ----------------------------------------------------------- |
+| `profiles`              | User profile data (name, level, team, manager)              |
+| `user_settings`         | Notification and integration toggle preferences (JSONB)     |
+| `evidence`              | Evidence records with competency, status, and archive state |
+| `inbox_events`          | Auto-captured integration events pending review             |
+| `objectives`            | SMART objectives with success criteria (JSONB)              |
+| `assessments`           | Promotion review snapshots                                  |
+| `assessment_categories` | Per-category scores and summaries within an assessment      |
+| `assessment_questions`  | Per-question scores with justification and evidence links   |
+| `feedback`              | 360° feedback entries                                       |
+| `competency_frameworks` | Custom uploaded competency framework definitions            |
+| `competency_categories` | Categories and questions within a framework                 |
+
 
 ---
 
@@ -283,11 +297,9 @@ The floating **Extension Preview** panel in the web app simulates the extension 
 Build and load flow:
 
 1. Run:
-
-   ```bash
+  ```bash
    bun run build:ext
-   ```
-
+  ```
 2. Open `chrome://extensions`
 3. Enable **Developer mode**
 4. Click **Load unpacked** and select `dist-ext/`

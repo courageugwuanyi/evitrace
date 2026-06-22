@@ -5,6 +5,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { supabase } from '../supabase'
+import { toLocalDateString } from '../datetime'
 import { inboxRowToItem, type InboxItem, type EvidenceRecord } from './mappers'
 import type { Database } from '../database.types'
 
@@ -104,7 +105,7 @@ export function useApproveInbox(userId: string) {
       // We set a temporary id since the DB will generate the real one.
       const optimisticEvidence: EvidenceRecord = {
         id: `optimistic-${inboxItem.id}`,
-        date: newEvidenceRow.date ?? new Date().toISOString().slice(0, 10),
+        date: newEvidenceRow.date ?? toLocalDateString(),
         source: newEvidenceRow.source,
         category: newEvidenceRow.category,
         competency: newEvidenceRow.competency,

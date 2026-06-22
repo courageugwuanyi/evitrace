@@ -30,9 +30,18 @@ import {
 import { useDashboardStats } from "@/lib/api/dashboard";
 import { useFeedbackQuery, useAddFeedback } from "@/lib/api/feedback";
 import { useUploadAvatar } from "@/lib/api/profile";
-import { useSettingsQuery, useSaveNotifications, useSaveIntegrations } from "@/lib/api/settings";
+import {
+  getFrameworkDisplayName,
+  useSaveIntegrations,
+  useSaveNotifications,
+  useSetActiveFramework,
+  useSettingsQuery,
+  type FrameworkOption,
+} from "@/lib/api/settings";
 import { supabase } from "@/lib/supabase";
+import { formatUtcToLocal, getCurrentTimeZone, toLocalDateString } from "@/lib/datetime";
 import { generateSafeId } from "@/lib/utils/generateSafeId";
+import { FrameworkProvider, useFramework } from "@/context/FrameworkContext";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import {
@@ -129,6 +138,7 @@ export const Route = createFileRoute("/")({
   validateSearch: (search: Record<string, unknown>) => ({
     tab: typeof search.tab === "string" ? search.tab : undefined,
     section: typeof search.section === "string" ? search.section : undefined,
+    action: typeof search.action === "string" ? search.action : undefined,
   }),
   head: () => ({
     meta: [
@@ -331,6 +341,19 @@ function resolveFrameworkCategoryEntries(
   matrix: unknown,
 ): Array<[string, FrameworkCategoryDefinition]> {
   return Object.entries(resolveFrameworkCategoryMap(matrix));
+}
+
+function buildFrameworkCategoryMapFromContext(
+  categories: string[],
+  getQuestionsForCategory: (categoryName: string) => string[],
+): FrameworkCategoryMap {
+  return categories.reduce<FrameworkCategoryMap>((acc, categoryName) => {
+    acc[categoryName] = {
+      summary: "",
+      items: getQuestionsForCategory(categoryName),
+    };
+    return acc;
+  }, {});
 }
 
 function normalizeCategoryName(value: string): string {
@@ -711,18 +734,20 @@ function inferCompetencyFromText(title: string, description: string) {
  *  Falls back to the static initialRadar shape when no assessment is available. */
 function deriveRadarData(
   assessment: Assessment | undefined,
+  activeFrameworkCategories: string[],
   frameworkMatrix: unknown,
 ): { competency: string; current: number; target: number }[] {
-  const frameworkCategories = Object.keys(
-    ((frameworkMatrix as { categories?: Record<string, unknown> } | null)?.categories ?? {}) as Record<
-      string,
-      unknown
-    >,
-  );
   const orderedCategories =
-    frameworkCategories.length > 0
-      ? frameworkCategories
+    activeFrameworkCategories.length > 0
+      ? activeFrameworkCategories
       : resolveFrameworkCategoryEntries(frameworkMatrix).map(([category]) => category);
+  if (orderedCategories.length === 0) {
+    return (assessment?.categories ?? []).map((category) => ({
+      competency: category.categoryName,
+      current: +Math.min(4, (category.categoryCurrentAvg / 5) * 4).toFixed(2),
+      target: 4,
+    }));
+  }
   return orderedCategories.map((categoryName) => {
     const found = assessment?.categories.find(
       (c) =>
@@ -1866,7 +1891,9 @@ const LEVEL_OPTIONS = ["L1", "L2", "L3", "L4", "L5", "L6", "L7"];
 function App() {
   return (
     <AuthProvider>
-      <AppGate />
+      <FrameworkProvider>
+        <AppGate />
+      </FrameworkProvider>
     </AuthProvider>
   );
 }
@@ -2399,7 +2426,8 @@ function SecureField({
 
 function EvitraceApp() {
   const { user, userId: authUserId } = useAuth();
-  const { tab: searchTab, section: searchSection } = Route.useSearch();
+  const { categories: frameworkCategories, currentFramework } = useFramework();
+  const { tab: searchTab, section: searchSection, action: searchAction } = Route.useSearch();
   const navigate = Route.useNavigate();
   const userId = authUserId ?? "";
 
@@ -2492,6 +2520,7 @@ function EvitraceApp() {
       return (fallbackFramework?.matrix as unknown) ?? null;
     },
   });
+  const knowledgeQueryKey = ["knowledge_items", userId] as const;
   const addKnowledgeMutation = useMutation({
     mutationFn: async (payload: {
       user_id: string;
@@ -2503,7 +2532,79 @@ function EvitraceApp() {
       if (error) throw error;
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["knowledge_items", userId] });
+      void queryClient.invalidateQueries({ queryKey: knowledgeQueryKey });
+    },
+  });
+  const updateKnowledgeMutation = useMutation({
+    mutationFn: async (payload: {
+      id: string;
+      title: string;
+      description: string;
+      reference_links: string[];
+    }) => {
+      const { error } = await (supabase as any)
+        .from("knowledge_items")
+        .update({
+          title: payload.title,
+          description: payload.description,
+          reference_links: payload.reference_links,
+        })
+        .eq("id", payload.id)
+        .eq("user_id", userId);
+      if (error) throw error;
+    },
+    onMutate: async (payload) => {
+      await queryClient.cancelQueries({ queryKey: knowledgeQueryKey });
+      const previousRows = queryClient.getQueryData<KnowledgeItemRow[]>(knowledgeQueryKey) ?? [];
+      queryClient.setQueryData<KnowledgeItemRow[]>(knowledgeQueryKey, (rows = []) =>
+        rows.map((row) =>
+          row.id === payload.id
+            ? {
+                ...row,
+                title: payload.title,
+                description: payload.description,
+                reference_links: payload.reference_links,
+              }
+            : row,
+        ),
+      );
+      return { previousRows };
+    },
+    onError: (error: Error, _payload, context) => {
+      if (context?.previousRows) {
+        queryClient.setQueryData(knowledgeQueryKey, context.previousRows);
+      }
+      toast.error(error.message || "Failed to update knowledge entry.");
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: knowledgeQueryKey });
+    },
+  });
+  const deleteKnowledgeMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await (supabase as any)
+        .from("knowledge_items")
+        .delete()
+        .eq("id", id)
+        .eq("user_id", userId);
+      if (error) throw error;
+    },
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: knowledgeQueryKey });
+      const previousRows = queryClient.getQueryData<KnowledgeItemRow[]>(knowledgeQueryKey) ?? [];
+      queryClient.setQueryData<KnowledgeItemRow[]>(knowledgeQueryKey, (rows = []) =>
+        rows.filter((row) => row.id !== id),
+      );
+      return { previousRows };
+    },
+    onError: (error: Error, _id, context) => {
+      if (context?.previousRows) {
+        queryClient.setQueryData(knowledgeQueryKey, context.previousRows);
+      }
+      toast.error(error.message || "Failed to delete knowledge entry.");
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: knowledgeQueryKey });
     },
   });
   const [sampleAssessments, setSampleAssessments] = useState<Assessment[]>(() =>
@@ -2525,14 +2626,16 @@ function EvitraceApp() {
   }, [assessments, sampleAssessments]);
 
   const radarData = useMemo(
-    () => deriveRadarData(assessments[0], activeFrameworkMatrix),
-    [assessments, activeFrameworkMatrix],
+    () => deriveRadarData(assessments[0], frameworkCategories, currentFramework?.matrix ?? activeFrameworkMatrix),
+    [assessments, currentFramework?.matrix, frameworkCategories, activeFrameworkMatrix],
   );
 
   const [showCapture, setShowCapture] = useState(false);
   const [showCreateObjective, setShowCreateObjective] = useState(false);
   const [openObjective, setOpenObjective] = useState<Objective | null>(null);
   const [openEvidence, setOpenEvidence] = useState<EvidenceRecord | null>(null);
+  const [editingKnowledge, setEditingKnowledge] = useState<KnowledgeHubItem | null>(null);
+  const [pendingKnowledgeDelete, setPendingKnowledgeDelete] = useState<KnowledgeHubItem | null>(null);
   const [openInbox, setOpenInbox] = useState<InboxViewItem | null>(null);
   const [showWizard, setShowWizard] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
@@ -2540,6 +2643,19 @@ function EvitraceApp() {
   const [pendingAssessmentDeleteId, setPendingAssessmentDeleteId] = useState<string | null>(null);
   const [showDiscardDraftConfirm, setShowDiscardDraftConfirm] = useState(false);
   const [dismissedSampleInboxIds, setDismissedSampleInboxIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (searchAction !== "capture") return;
+    setShowCapture(true);
+    void navigate({
+      search: (prev) => {
+        const { action: _action, ...rest } = prev;
+        return rest;
+      },
+      replace: true,
+    });
+  }, [navigate, searchAction]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     const stored = window.localStorage.getItem("evitrace.sampleContentVisibility");
@@ -2776,7 +2892,7 @@ function EvitraceApp() {
       insertEvidenceMutation.mutate(
         {
           id: "",
-          date: new Date().toISOString().slice(0, 10),
+          date: toLocalDateString(),
           source: item.source,
           category,
           competency,
@@ -2798,7 +2914,7 @@ function EvitraceApp() {
     if (!liveItem) return;
     const newEvidenceRow = {
       user_id: userId,
-      date: new Date().toISOString().slice(0, 10),
+      date: toLocalDateString(),
       source: liveItem.source,
       category,
       competency,
@@ -2873,7 +2989,7 @@ function EvitraceApp() {
                   data={radarData}
                   assessments={assessments}
                   evidence={visibleEvidence}
-                  frameworkMatrix={activeFrameworkMatrix}
+                  objectives={visibleObjectives}
                   wizardDraft={wizardDraft}
                   onCreateObjective={() => setShowCreateObjective(true)}
                   onStartReview={() => setShowWizard(true)}
@@ -2886,6 +3002,11 @@ function EvitraceApp() {
                 <EvidenceView
                   rows={[...visibleEvidence, ...visibleArchivedEvidence]}
                   onOpenRow={setOpenEvidence}
+                  onArchive={(id) => {
+                    archiveEvidenceMutation.mutate(id, {
+                      onSuccess: () => flash("Evidence archived"),
+                    });
+                  }}
                   onPermanentDelete={(id) => {
                     deleteEvidenceMutation.mutate(id, {
                       onSuccess: () => flash("Evidence permanently deleted"),
@@ -2934,13 +3055,18 @@ function EvitraceApp() {
                   }}
                 />
               )}
-              {tab === "knowledge" && <KnowledgeHubView items={knowledgeItems} />}
+              {tab === "knowledge" && (
+                <KnowledgeHubView
+                  items={knowledgeItems}
+                  onEdit={setEditingKnowledge}
+                  onDelete={(item) => setPendingKnowledgeDelete(item)}
+                />
+              )}
               {tab === "report" && (
                 <ReportView
                   evidence={visibleEvidence}
                   objectives={visibleObjectives}
                   radarData={radarData}
-                  frameworkMatrix={activeFrameworkMatrix}
                   onFlash={flash}
                   review={review}
                   assessments={assessments}
@@ -2984,7 +3110,7 @@ function EvitraceApp() {
               insertEvidenceMutation.mutate(
                 {
                   id: "",
-                  date: new Date().toISOString().slice(0, 10),
+                  date: toLocalDateString(),
                   source: "Manual",
                   category,
                   competency: subcategory,
@@ -3029,6 +3155,61 @@ function EvitraceApp() {
         )}
       </AnimatePresence>
 
+      {/* Knowledge edit modal */}
+      <AnimatePresence>
+        {editingKnowledge && (
+          <KnowledgeEditorModal
+            item={editingKnowledge}
+            isSaving={updateKnowledgeMutation.isPending}
+            onClose={() => setEditingKnowledge(null)}
+            onSave={({ challenge, lesson, referenceLinks }) => {
+              updateKnowledgeMutation.mutate(
+                {
+                  id: editingKnowledge.id,
+                  title: challenge.trim(),
+                  description: lesson.trim(),
+                  reference_links: referenceLinks,
+                },
+                {
+                  onSuccess: () => {
+                    setEditingKnowledge(null);
+                    flash("Knowledge log updated");
+                  },
+                },
+              );
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Knowledge delete confirmation */}
+      <AnimatePresence>
+        {pendingKnowledgeDelete && (
+          <ConfirmDialog
+            title="Delete knowledge log?"
+            description="This action cannot be undone. This knowledge entry will be permanently deleted."
+            confirmLabel="Delete log"
+            cancelLabel="Cancel"
+            destructive
+            onCancel={() => setPendingKnowledgeDelete(null)}
+            onConfirm={() => {
+              const target = pendingKnowledgeDelete;
+              if (!target) return;
+              deleteKnowledgeMutation.mutate(target.id, {
+                onSuccess: () => {
+                  if (editingKnowledge?.id === target.id) setEditingKnowledge(null);
+                  setPendingKnowledgeDelete(null);
+                  flash("Knowledge log deleted");
+                },
+                onError: () => {
+                  setPendingKnowledgeDelete(null);
+                },
+              });
+            }}
+          />
+        )}
+      </AnimatePresence>
+
       {/* Create SMART objective modal */}
       <AnimatePresence>
         {showCreateObjective && (
@@ -3055,6 +3236,7 @@ function EvitraceApp() {
         {openObjective && (
           <ObjectiveSlideover
             objective={openObjective}
+            frameworkMatrix={activeFrameworkMatrix}
             onClose={() => setOpenObjective(null)}
             onSave={(o) => {
               saveObjectiveMutation.mutate(o, {
@@ -3148,7 +3330,6 @@ function EvitraceApp() {
         {showWizard && (
           <ReviewWizard
             evidence={visibleEvidence}
-            frameworkMatrix={activeFrameworkMatrix}
             onOpenEvidence={setOpenEvidence}
             onClose={() => setShowWizard(false)}
             latestAssessment={assessments[0]}
@@ -4149,26 +4330,33 @@ function InboxRow({
   onOpen?: () => void;
   isSample?: boolean;
 }) {
+  const safeItem = item ?? ({} as Partial<InboxItem>);
+  const canOpen = Boolean(onOpen && typeof safeItem.id === "string" && safeItem.id.trim().length > 0);
+  const sourceLabel = safeItem.source || "Unknown source";
+  const timeLabel = safeItem.when || "Unknown time";
+  const titleLabel = safeItem.title || "Untitled action";
+  const suggestions = Array.isArray(safeItem.suggestion) ? safeItem.suggestion.filter(Boolean) : [];
+
   return (
     <button
-      onClick={onOpen}
-      disabled={!onOpen}
+      onClick={canOpen ? onOpen : undefined}
+      disabled={!canOpen}
       className="w-full text-left py-4 flex items-start gap-3 hover:bg-[#FAFBFC] disabled:hover:bg-transparent transition-colors rounded px-2 -mx-2 disabled:cursor-default"
     >
       <div
         className="w-9 h-9 rounded flex items-center justify-center shrink-0"
         style={{ background: "#F4F5F7", color: C.slate }}
       >
-        <SourceIcon source={item.source} size={16} />
+        <SourceIcon source={sourceLabel} size={16} />
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 text-[11px]" style={{ color: C.subtle }}>
-          <span className="font-semibold uppercase tracking-wider">{item.source}</span>
+          <span className="font-semibold uppercase tracking-wider">{sourceLabel}</span>
           <span>•</span>
-          <span>{item.when}</span>
+          <span>{timeLabel}</span>
         </div>
         <div className="text-sm font-semibold mt-0.5 truncate" style={{ color: C.navy }}>
-          {item.title}
+          {titleLabel}
         </div>
         {isSample && (
           <div className="text-[11px] mt-1" style={{ color: C.subtle }}>
@@ -4180,15 +4368,21 @@ function InboxRow({
           <span className="text-[11px] mr-1" style={{ color: C.subtle }}>
             AI suggested:
           </span>
-          {item.suggestion.map((c) => (
-            <span
-              key={c}
-              className="text-[11px] px-2 py-0.5 rounded-full border"
-              style={{ borderColor: C.border, color: C.slate, background: "#F4F5F7" }}
-            >
-              {c}
+          {suggestions.length > 0 ? (
+            suggestions.map((c) => (
+              <span
+                key={c}
+                className="text-[11px] px-2 py-0.5 rounded-full border"
+                style={{ borderColor: C.border, color: C.slate, background: "#F4F5F7" }}
+              >
+                {c}
+              </span>
+            ))
+          ) : (
+            <span className="text-[11px]" style={{ color: C.subtle }}>
+              No suggestions
             </span>
-          ))}
+          )}
         </div>
       </div>
       <div
@@ -4210,7 +4404,7 @@ function RadarView({
   data,
   assessments,
   evidence,
-  frameworkMatrix,
+  objectives,
   wizardDraft,
   onCreateObjective,
   onStartReview,
@@ -4221,7 +4415,7 @@ function RadarView({
   data: ReturnType<typeof deriveRadarData>;
   assessments: Assessment[];
   evidence: EvidenceRecord[];
-  frameworkMatrix: unknown;
+  objectives: Objective[];
   wizardDraft: AssessmentWizardDraft | null;
   onCreateObjective: () => void;
   onStartReview: () => void;
@@ -4242,13 +4436,30 @@ function RadarView({
   // Latest + previous finalized assessments - used for "previous" series + per-question rows
   const latest = assessments[0];
   const prior = assessments[1];
-  const categoryEntries = useMemo(
-    () => resolveFrameworkCategoryEntries(frameworkMatrix),
-    [frameworkMatrix],
+  const { categories, getQuestionsForCategory } = useFramework();
+  const frameworkCategoryMap = useMemo(
+    () => {
+      if (categories.length > 0) {
+        return buildFrameworkCategoryMapFromContext(categories, getQuestionsForCategory);
+      }
+      return data.reduce<FrameworkCategoryMap>((acc, row) => {
+        const matchingAssessmentCategory = latest?.categories.find(
+          (category) =>
+            category.categoryName === row.competency ||
+            normalizeCategoryName(category.categoryName) === normalizeCategoryName(row.competency),
+        );
+        acc[row.competency] = {
+          summary: matchingAssessmentCategory?.summary ?? "",
+          items: (matchingAssessmentCategory?.questions ?? []).map((question) => question.questionText),
+        };
+        return acc;
+      }, {});
+    },
+    [categories, data, getQuestionsForCategory, latest?.categories],
   );
-  const categoryMap = useMemo(
-    () => Object.fromEntries(categoryEntries) as FrameworkCategoryMap,
-    [categoryEntries],
+  const categoryEntries = useMemo(
+    () => Object.entries(frameworkCategoryMap),
+    [frameworkCategoryMap],
   );
   const frameworkCategoryNames = useMemo(
     () => categoryEntries.map(([categoryName]) => categoryName),
@@ -4614,7 +4825,8 @@ function RadarView({
             data={data}
             latest={latest}
             evidence={evidence}
-            categoryMap={categoryMap}
+            objectives={objectives}
+            categoryMap={frameworkCategoryMap}
             onCreateObjective={onCreateObjective}
           />
         </Card>
@@ -4627,16 +4839,19 @@ function HierarchicalMatrix({
   data,
   latest,
   evidence,
+  objectives,
   categoryMap,
   onCreateObjective,
 }: {
   data: ReturnType<typeof deriveRadarData>;
   latest: Assessment | undefined;
   evidence: EvidenceRecord[];
+  objectives: Objective[];
   categoryMap: FrameworkCategoryMap;
   onCreateObjective: () => void;
 }) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [showUnmappedHistory, setShowUnmappedHistory] = useState(false);
   const categoryEntries = useMemo(() => Object.entries(categoryMap), [categoryMap]);
   const categoryNames = useMemo(() => categoryEntries.map(([category]) => category), [categoryEntries]);
 
@@ -4648,15 +4863,40 @@ function HierarchicalMatrix({
         ? "bg-red-100 text-red-800"
         : "bg-slate-100 text-slate-800";
 
-  /** Lozenge for raw gap value (current minus target). */
+  /** Lozenge for raw gap value (target minus current). */
   const gapLozenge = (gap: number) =>
-    gap >= 0
+    gap <= 0
       ? "bg-green-100 text-green-800"
-      : gap <= -1
+      : gap >= 1
         ? "bg-red-100 text-red-800"
-        : gap <= -0.5
+        : gap >= 0.5
           ? "bg-amber-100 text-amber-800"
           : "bg-slate-100 text-slate-800";
+
+  const unmappedHistory = useMemo(() => {
+    const unmappedAssessmentCategories = (latest?.categories ?? []).filter(
+      (category) =>
+        !categoryNames.some(
+          (activeCategory) =>
+            normalizeCategoryName(activeCategory) === normalizeCategoryName(category.categoryName),
+        ),
+    );
+    const unmappedEvidence = evidence.filter((record) => {
+      const matched =
+        resolveCategoryFromFramework(record.category ?? "", categoryNames) ??
+        resolveCategoryFromFramework(record.competency ?? "", categoryNames);
+      return !matched;
+    });
+    const unmappedObjectives = objectives.filter((objective) => {
+      const matched = resolveCategoryFromFramework(objective.competency ?? "", categoryNames);
+      return !matched;
+    });
+    return {
+      assessmentCategories: unmappedAssessmentCategories,
+      evidence: unmappedEvidence,
+      objectives: unmappedObjectives,
+    };
+  }, [categoryNames, evidence, latest?.categories, objectives]);
 
   return (
     <div className="overflow-x-auto">
@@ -4708,7 +4948,7 @@ function HierarchicalMatrix({
               subScores.length === 0
                 ? row?.target ?? 4
                 : +(subScores.reduce((sum, score) => sum + score.target, 0) / subScores.length).toFixed(2);
-            const gapAvg = +(curAvg - targetAvg).toFixed(2);
+            const gapAvg = +(targetAvg - curAvg).toFixed(2);
             const delta = calculateScoreDelta(prevAvg, curAvg);
             const evidenceCount = evidence.filter((record) => {
               const matchedCategory =
@@ -4756,7 +4996,7 @@ function HierarchicalMatrix({
                     <span
                       className={`px-2 py-0.5 rounded text-xs font-semibold ${gapLozenge(gapAvg)}`}
                     >
-                      {gapAvg > 0 ? `+${gapAvg}` : gapAvg}
+                      {gapAvg > 0 ? `+${gapAvg}` : `${gapAvg}`}
                     </span>
                   </Td>
                   <Td style={{ color: C.navy, fontWeight: 600 }}>{evidenceCount}</Td>
@@ -4797,7 +5037,7 @@ function HierarchicalMatrix({
                     const tgt = historical.target;
                     const note = historical.note;
                     const scale = EFFECTIVENESS_SCALE[Math.max(0, Math.min(4, cur - 1))];
-                    const subGap = +(cur - tgt).toFixed(2);
+                    const subGap = +(tgt - cur).toFixed(2);
                     const subDelta = calculateScoreDelta(prev, cur);
                     return (
                       <tr
@@ -4827,7 +5067,7 @@ function HierarchicalMatrix({
                           <span
                             className={`px-2 py-0.5 rounded text-xs font-semibold ${gapLozenge(subGap)}`}
                           >
-                            {subGap > 0 ? `+${subGap}` : subGap}
+                            {subGap > 0 ? `+${subGap}` : `${subGap}`}
                           </span>
                         </Td>
                         <Td style={{ color: C.subtle }}>-</Td>
@@ -4865,6 +5105,70 @@ function HierarchicalMatrix({
               </React.Fragment>
             );
           })}
+          {(unmappedHistory.assessmentCategories.length > 0 ||
+            unmappedHistory.evidence.length > 0 ||
+            unmappedHistory.objectives.length > 0) && (
+            <>
+              <tr className="border-t" style={{ borderColor: C.border, background: "#FFF8E6" }}>
+                <Td className="font-semibold" style={{ color: C.navy }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowUnmappedHistory((prev) => !prev)}
+                    className="inline-flex items-center gap-2 text-left"
+                  >
+                    <ChevronDown
+                      size={14}
+                      style={{ transform: showUnmappedHistory ? "rotate(0deg)" : "rotate(-90deg)" }}
+                    />
+                    Unmapped History
+                  </button>
+                </Td>
+                <td className="px-4 py-3 align-middle" colSpan={10} style={{ color: C.subtle }}>
+                  Legacy records from categories not present in the current framework.
+                </td>
+              </tr>
+              {showUnmappedHistory &&
+                unmappedHistory.assessmentCategories.map((category) => (
+                  <tr
+                    key={`unmapped-${category.categoryName}`}
+                    className="border-t bg-[#FFFDF5]"
+                    style={{ borderColor: C.border }}
+                  >
+                    <Td className="pl-12" style={{ color: C.navy }}>
+                      {category.categoryName}
+                    </Td>
+                    <Td style={{ color: C.slate }}>-</Td>
+                    <Td style={{ color: C.slate }}>{category.categoryCurrentAvg.toFixed(2)}</Td>
+                    <Td style={{ color: C.slate }}>-</Td>
+                    <Td style={{ color: C.slate }}>{category.categoryTarget.toFixed(2)}</Td>
+                    <Td style={{ color: C.slate }}>
+                      {(category.categoryTarget - category.categoryCurrentAvg).toFixed(2)}
+                    </Td>
+                    <Td style={{ color: C.slate }}>
+                      {
+                        unmappedHistory.evidence.filter((record) =>
+                          normalizeCategoryName(record.category ?? record.competency ?? "").includes(
+                            normalizeCategoryName(category.categoryName),
+                          ),
+                        ).length
+                      }
+                    </Td>
+                    <Td style={{ color: C.slate }}>{category.questions.length}</Td>
+                    <Td style={{ color: C.slate }}>
+                      {
+                        unmappedHistory.objectives.filter((objective) =>
+                          normalizeCategoryName(objective.competency ?? "").includes(
+                            normalizeCategoryName(category.categoryName),
+                          ),
+                        ).length
+                      }
+                    </Td>
+                    <Td style={{ color: C.subtle }}>Legacy category</Td>
+                    <Td style={{ color: C.subtle }}>-</Td>
+                  </tr>
+                ))}
+            </>
+          )}
         </tbody>
       </table>
     </div>
@@ -4914,20 +5218,26 @@ type EvidenceItem = EvidenceRecord;
 function EvidenceView({
   rows,
   onOpenRow,
+  onArchive,
   onPermanentDelete,
   onRestore,
 }: {
   rows: EvidenceRecord[];
   onOpenRow: (r: EvidenceItem) => void;
+  onArchive: (id: string) => void;
   onPermanentDelete: (id: string) => void;
   onRestore: (id: string) => void;
 }) {
+  const { categories: frameworkCategories } = useFramework();
   const [q, setQ] = useState("");
   const [comp, setComp] = useState("All");
   const [status, setStatus] = useState("All");
   const [source, setSource] = useState("All");
   const [showArchived, setShowArchived] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<EvidenceItem | null>(null);
+  const [confirmBulkDeleteIds, setConfirmBulkDeleteIds] = useState<string[] | null>(null);
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
 
   const visible = rows.filter((r) => (showArchived ? r.isArchived : !r.isArchived));
   const filtered = visible.filter(
@@ -4937,6 +5247,73 @@ function EvidenceView({
       (status === "All" || r.status === status) &&
       (source === "All" || r.source === source),
   );
+  const filteredIds = filtered.map((row) => row.id);
+  const competencyOptions = useMemo(() => {
+    if (frameworkCategories.length > 0) return frameworkCategories;
+    return [...new Set(rows.map((row) => row.competency).filter((value) => value.trim().length > 0))].sort(
+      (a, b) => a.localeCompare(b),
+    );
+  }, [frameworkCategories, rows]);
+  const selectedVisibleIds = filteredIds.filter((id) => selectedRows.has(id));
+  const hasVisibleRows = filteredIds.length > 0;
+  const allVisibleExpanded = hasVisibleRows && filteredIds.every((id) => expandedRows.has(id));
+  const allVisibleSelected = hasVisibleRows && filteredIds.every((id) => selectedRows.has(id));
+  const bulkActionLabel = showArchived ? "Delete Selected" : "Archive Selected";
+  const totalColumns = showArchived ? 13 : 11;
+
+  function toggleRowExpanded(rowId: string) {
+    setExpandedRows((previous) => {
+      const next = new Set(previous);
+      if (next.has(rowId)) next.delete(rowId);
+      else next.add(rowId);
+      return next;
+    });
+  }
+
+  function expandAllVisibleRows() {
+    setExpandedRows((previous) => {
+      const next = new Set(previous);
+      filteredIds.forEach((id) => next.add(id));
+      return next;
+    });
+  }
+
+  function collapseAllVisibleRows() {
+    setExpandedRows((previous) => {
+      const next = new Set(previous);
+      filteredIds.forEach((id) => next.delete(id));
+      return next;
+    });
+  }
+
+  function toggleExpandVisibleRows() {
+    if (allVisibleExpanded) {
+      collapseAllVisibleRows();
+      return;
+    }
+    expandAllVisibleRows();
+  }
+
+  function toggleRowSelected(rowId: string) {
+    setSelectedRows((previous) => {
+      const next = new Set(previous);
+      if (next.has(rowId)) next.delete(rowId);
+      else next.add(rowId);
+      return next;
+    });
+  }
+
+  function toggleSelectAllVisibleRows() {
+    setSelectedRows((previous) => {
+      const next = new Set(previous);
+      if (allVisibleSelected) {
+        filteredIds.forEach((id) => next.delete(id));
+      } else {
+        filteredIds.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  }
 
   return (
     <>
@@ -4969,69 +5346,81 @@ function EvidenceView({
         </div>
       </div>
       <Card className="overflow-hidden">
-        <div
-          className="p-4 border-b flex items-center gap-2 flex-wrap"
-          style={{ borderColor: C.border }}
-        >
-          <div className="w-72">
-            <Input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Filter by title or keyword…"
-              icon={<Search size={14} />}
-            />
+        <div className="p-4 border-b space-y-3" style={{ borderColor: C.border }}>
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="w-72">
+              <Input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Filter by title or keyword…"
+                icon={<Search size={14} />}
+              />
+            </div>
+            <div className="w-40">
+              <Select icon={<Calendar size={14} />} defaultValue="all">
+                <option value="all">All dates</option>
+                <option>Last 7 days</option>
+                <option>Last 30 days</option>
+                <option>This quarter</option>
+              </Select>
+            </div>
+            <div className="w-48">
+              <Select
+                icon={<Filter size={14} />}
+                value={comp}
+                onChange={(e) => setComp(e.target.value)}
+              >
+                <option>All</option>
+                {competencyOptions.map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </Select>
+            </div>
+            <div className="w-44">
+              <Select
+                icon={<Filter size={14} />}
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+              >
+                <option>All</option>
+                <option>Pending Review</option>
+                <option>Reviewed</option>
+              </Select>
+            </div>
+            <div className="w-40">
+              <Select
+                icon={<Filter size={14} />}
+                value={source}
+                onChange={(e) => setSource(e.target.value)}
+              >
+                <option>All</option>
+                <option>Bitbucket</option>
+                <option>Jira</option>
+                <option>GitHub</option>
+                <option>GitLab</option>
+                <option>Slack</option>
+                <option>Teams</option>
+                <option>Confluence</option>
+              </Select>
+            </div>
           </div>
-          <div className="w-40">
-            <Select icon={<Calendar size={14} />} defaultValue="all">
-              <option value="all">All dates</option>
-              <option>Last 7 days</option>
-              <option>Last 30 days</option>
-              <option>This quarter</option>
-            </Select>
-          </div>
-          <div className="w-48">
-            <Select
-              icon={<Filter size={14} />}
-              value={comp}
-              onChange={(e) => setComp(e.target.value)}
-            >
-              <option>All</option>
-              {COMPETENCIES.map((c) => (
-                <option key={c}>{c}</option>
-              ))}
-            </Select>
-          </div>
-          <div className="w-44">
-            <Select
-              icon={<Filter size={14} />}
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-            >
-              <option>All</option>
-              <option>Pending Review</option>
-              <option>Reviewed</option>
-            </Select>
-          </div>
-          <div className="w-40">
-            <Select
-              icon={<Filter size={14} />}
-              value={source}
-              onChange={(e) => setSource(e.target.value)}
-            >
-              <option>All</option>
-              <option>Bitbucket</option>
-              <option>Jira</option>
-              <option>GitHub</option>
-              <option>GitLab</option>
-              <option>Slack</option>
-              <option>Teams</option>
-              <option>Confluence</option>
-            </Select>
-          </div>
-          <div className="ml-auto flex items-center gap-3">
+          <div className="flex items-center gap-2 flex-wrap">
             <div className="text-xs" style={{ color: C.subtle }}>
               {filtered.length} of {visible.length} items
             </div>
+            <GhostBtn onClick={toggleExpandVisibleRows} disabled={!hasVisibleRows}>
+              {allVisibleExpanded ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+              {allVisibleExpanded ? "Collapse All" : "Expand All"}
+            </GhostBtn>
+            <GhostBtn
+              onClick={() => setConfirmBulkDeleteIds([...selectedVisibleIds])}
+              disabled={selectedVisibleIds.length === 0}
+              className="hover:bg-[#FFEBE6]"
+              style={{ color: C.red }}
+            >
+              <Archive size={14} />
+              {bulkActionLabel} ({selectedVisibleIds.length})
+            </GhostBtn>
             <GhostBtn
               onClick={() => {
                 const header = [
@@ -5077,7 +5466,7 @@ function EvidenceView({
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement("a");
                 a.href = url;
-                a.download = `evidence-log-${new Date().toISOString().slice(0, 10)}.csv`;
+                a.download = `evidence-log-${toLocalDateString()}.csv`;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
@@ -5092,134 +5481,245 @@ function EvidenceView({
 
         <div className="overflow-x-auto pb-1">
           <table
-            className={`w-full text-sm table-auto ${showArchived ? "min-w-[1600px]" : "min-w-[1380px]"}`}
+            className={`w-full text-sm table-fixed ${showArchived ? "min-w-[1760px]" : "min-w-[1520px]"}`}
           >
             <colgroup>
-              <col className="w-[120px]" />
-              <col className="w-[110px]" />
-              <col className="w-[130px]" />
-              <col className="w-[220px]" />
-              <col className="w-[220px]" />
-              <col className="w-[220px]" />
-              <col className="w-[90px]" />
-              <col className="w-[130px]" />
-              <col className="w-[150px]" />
+              <col className="w-10" />
+              <col className="w-10" />
+              <col className="w-32" />
+              <col className="w-36" />
+              <col className="w-40" />
+              <col className="w-48" />
+              <col className="w-[22%]" />
+              <col className="w-[30%]" />
+              <col className="w-44" />
+              <col className="w-36" />
+              <col className="w-36" />
               {showArchived && <col className="w-[100px]" />}
               {showArchived && <col className="w-[120px]" />}
             </colgroup>
             <thead style={{ background: "#F4F5F7", color: C.subtle }}>
               <tr className="text-left text-[11px] uppercase tracking-wider">
-                <Th>Date</Th>
-                <Th>Source</Th>
-                <Th>Category</Th>
-                <Th>Competency</Th>
-                <Th>Title</Th>
-                <Th>Description</Th>
-                <Th>Link</Th>
-                <Th>Match</Th>
-                <Th>Status</Th>
+                <Th className="w-10">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAllVisibleRows}
+                    className="h-3.5 w-3.5 rounded border-gray-300"
+                    aria-label={allVisibleSelected ? "Deselect all visible rows" : "Select all visible rows"}
+                  />
+                </Th>
+                <Th className="w-10" />
+                <Th className="w-32">Date</Th>
+                <Th className="w-36">Source</Th>
+                <Th className="w-40">Category</Th>
+                <Th className="w-48">Competency</Th>
+                <Th className="w-full">Title</Th>
+                <Th className="w-full">Description</Th>
+                <Th className="w-44">Link</Th>
+                <Th className="w-36">Match</Th>
+                <Th className="w-36">Status</Th>
                 {showArchived && <Th>Archived</Th>}
                 {showArchived && <Th>Actions</Th>}
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r) => (
-                <tr
-                  key={r.id}
-                  onClick={() => !showArchived && onOpenRow(r)}
-                  className={`border-t hover:bg-[#FAFBFC] transition-colors ${showArchived ? "" : "cursor-pointer"}`}
-                  style={{ borderColor: C.border }}
-                >
-                  <Td>
-                    <EvidenceDateCell date={r.date} />
-                  </Td>
-                  <Td>
-                    <SourceChip source={r.source} />
-                  </Td>
-                  <Td>
-                    <Badge tone="neutral">{r.category}</Badge>
-                  </Td>
-                  <Td>
-                    <span className="inline-block max-w-[220px] truncate text-sm" style={{ color: C.slate }}>
-                      {r.competency}
-                    </span>
-                  </Td>
-                  <Td className="font-semibold" style={{ color: C.navy }}>
-                    <span className="inline-block max-w-[220px] truncate">{r.title}</span>
-                  </Td>
-                  <Td style={{ color: C.slate }}>
-                    <span className="inline-block max-w-[220px] truncate">{r.description}</span>
-                  </Td>
-                  <Td>
-                    {r.link ? (
-                      extractFirstLink(r.link) ? (
-                        <a
-                          onClick={(e) => e.stopPropagation()}
-                          className="inline-flex items-center gap-1 hover:underline"
-                          style={{ color: C.primary }}
-                          href={extractFirstLink(r.link) ?? ""}
-                          target="_blank"
-                          rel="noreferrer"
+              {filtered.map((r) => {
+                const isExpanded = expandedRows.has(r.id);
+                const isSelected = selectedRows.has(r.id);
+                const rawLink = (r.link ?? "").trim();
+                const parsedLink = extractFirstLink(rawLink);
+                return (
+                  <React.Fragment key={r.id}>
+                    <tr
+                      onClick={() => !showArchived && onOpenRow(r)}
+                      className={`border-t hover:bg-[#FAFBFC] transition-colors ${showArchived ? "" : "cursor-pointer"}`}
+                      style={{ borderColor: C.border }}
+                    >
+                      <Td className="w-10">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={() => toggleRowSelected(r.id)}
+                          className="h-3.5 w-3.5 rounded border-gray-300"
+                          aria-label={`Select row ${r.title}`}
+                        />
+                      </Td>
+                      <Td className="w-10">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            toggleRowExpanded(r.id);
+                          }}
+                          className="inline-flex h-6 w-6 items-center justify-center rounded hover:bg-[#F4F5F7]"
+                          style={{ color: C.slate }}
+                          aria-label={isExpanded ? "Collapse row details" : "Expand row details"}
                         >
-                          <ExternalLink size={12} />
-                          Open
-                        </a>
-                      ) : (
-                        <span className="inline-block max-w-[220px] truncate" style={{ color: C.slate }}>
-                          {r.link}
+                          {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                        </button>
+                      </Td>
+                      <Td className="w-32 whitespace-nowrap">
+                        <EvidenceDateCell date={r.date} />
+                      </Td>
+                      <Td className="w-36">
+                        <span className="inline-flex max-w-full truncate align-middle">
+                          <SourceChip source={r.source} />
                         </span>
-                      )
-                    ) : (
-                      <span style={{ color: C.subtle }}>-</span>
+                      </Td>
+                      <Td className="w-40">
+                        <span className="inline-flex max-w-full truncate align-middle">
+                          <Badge tone="neutral">{r.category}</Badge>
+                        </span>
+                      </Td>
+                      <Td className="w-48" style={{ color: C.slate }}>
+                        <span className="block truncate">{r.competency}</span>
+                      </Td>
+                      <Td className="max-w-md font-semibold" style={{ color: C.navy }}>
+                        <span className="block truncate">{r.title}</span>
+                      </Td>
+                      <Td className="max-w-md" style={{ color: C.slate }}>
+                        <span className="block truncate">{r.description}</span>
+                      </Td>
+                      <Td className="w-44" style={{ color: C.slate }}>
+                        {rawLink ? (
+                          parsedLink ? (
+                            <a
+                              onClick={(event) => event.stopPropagation()}
+                              className="inline-flex max-w-full items-center gap-1 truncate hover:underline"
+                              style={{ color: C.primary }}
+                              href={parsedLink}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              <ExternalLink size={12} />
+                              <span className="truncate">Open</span>
+                            </a>
+                          ) : (
+                            <span className="block truncate">{rawLink}</span>
+                          )
+                        ) : (
+                          <span style={{ color: C.subtle }}>-</span>
+                        )}
+                      </Td>
+                      <Td className="w-36">
+                        <MatchBadge match={r.matchState} />
+                      </Td>
+                      <Td className="w-36">
+                        {r.status === "Reviewed" ? (
+                          <Badge tone="success" icon={<CheckCircle size={11} />}>
+                            Reviewed
+                          </Badge>
+                        ) : (
+                          <Badge tone="warning" icon={<Clock size={11} />}>
+                            Pending Review
+                          </Badge>
+                        )}
+                      </Td>
+                      {showArchived && (
+                        <Td className="w-28 whitespace-nowrap" style={{ color: C.slate }}>
+                          {r.archivedDate ? formatDisplayDate(r.archivedDate) : "-"}
+                        </Td>
+                      )}
+                      {showArchived && (
+                        <Td className="w-36">
+                          <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
+                            <button
+                              onClick={() => onRestore(r.id)}
+                              className="px-2 py-1 rounded text-xs font-semibold inline-flex items-center gap-1 hover:bg-[#F4F5F7]"
+                              style={{ color: C.primary }}
+                              title="Restore"
+                            >
+                              <ArchiveRestore size={12} /> Restore
+                            </button>
+                            <button
+                              onClick={() => setConfirmDelete(r)}
+                              className="px-2 py-1 rounded text-xs font-semibold inline-flex items-center gap-1 hover:bg-[#FFEBE6]"
+                              style={{ color: C.red }}
+                              title="Permanently Delete"
+                            >
+                              <Trash2 size={12} /> Delete
+                            </button>
+                          </div>
+                        </Td>
+                      )}
+                    </tr>
+                    {isExpanded && (
+                      <tr className="border-t" style={{ borderColor: C.border }}>
+                        <td colSpan={totalColumns} className="px-4 py-4 bg-gray-50 dark:bg-gray-900/40">
+                          <div className="w-full max-w-6xl space-y-3 pr-6">
+                            <div>
+                              <div className="text-[10px] font-bold uppercase tracking-wider text-[#6B778C]">
+                                Title
+                              </div>
+                              <p className="mt-1 text-sm whitespace-pre-wrap wrap-break-word" style={{ color: C.navy }}>
+                                {r.title || "-"}
+                              </p>
+                            </div>
+                            <div>
+                              <div className="text-[10px] font-bold uppercase tracking-wider text-[#6B778C]">
+                                Link
+                              </div>
+                              {rawLink ? (
+                                parsedLink ? (
+                                  <a
+                                    href={parsedLink}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="mt-1 inline-flex items-center gap-1 text-sm break-all hover:underline"
+                                    style={{ color: C.primary }}
+                                  >
+                                    {rawLink}
+                                    <ExternalLink size={12} />
+                                  </a>
+                                ) : (
+                                  <p
+                                    className="mt-1 text-sm whitespace-pre-wrap wrap-break-word"
+                                    style={{ color: C.slate }}
+                                  >
+                                    {rawLink}
+                                  </p>
+                                )
+                              ) : (
+                                <p className="mt-1 text-sm" style={{ color: C.subtle }}>
+                                  -
+                                </p>
+                              )}
+                            </div>
+                            <div>
+                              <div className="text-[10px] font-bold uppercase tracking-wider text-[#6B778C]">
+                                Description
+                              </div>
+                              <p
+                                className="mt-1 text-sm whitespace-pre-wrap wrap-break-word"
+                                style={{ color: C.slate }}
+                              >
+                                {r.description || "-"}
+                              </p>
+                            </div>
+                            <div>
+                              <div className="text-[10px] font-bold uppercase tracking-wider text-[#6B778C]">
+                                Manager Notes
+                              </div>
+                              <p
+                                className="mt-1 text-sm whitespace-pre-wrap wrap-break-word"
+                                style={{ color: C.slate }}
+                              >
+                                {r.managerNotes || "-"}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
                     )}
-                  </Td>
-                  <Td>
-                    <MatchBadge match={r.matchState} />
-                  </Td>
-                  <Td>
-                    {r.status === "Reviewed" ? (
-                      <Badge tone="success" icon={<CheckCircle size={11} />}>
-                        Reviewed
-                      </Badge>
-                    ) : (
-                      <Badge tone="warning" icon={<Clock size={11} />}>
-                        Pending Review
-                      </Badge>
-                    )}
-                  </Td>
-                  {showArchived && (
-                    <Td style={{ color: C.slate }}>
-                      {r.archivedDate ? formatDisplayDate(r.archivedDate) : "-"}
-                    </Td>
-                  )}
-                  {showArchived && (
-                    <Td>
-                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          onClick={() => onRestore(r.id)}
-                          className="px-2 py-1 rounded text-xs font-semibold inline-flex items-center gap-1 hover:bg-[#F4F5F7]"
-                          style={{ color: C.primary }}
-                          title="Restore"
-                        >
-                          <ArchiveRestore size={12} /> Restore
-                        </button>
-                        <button
-                          onClick={() => setConfirmDelete(r)}
-                          className="px-2 py-1 rounded text-xs font-semibold inline-flex items-center gap-1 hover:bg-[#FFEBE6]"
-                          style={{ color: C.red }}
-                          title="Permanently Delete"
-                        >
-                          <Trash2 size={12} /> Delete
-                        </button>
-                      </div>
-                    </Td>
-                  )}
-                </tr>
-              ))}
+                  </React.Fragment>
+                );
+              })}
               {filtered.length === 0 && (
                 <tr>
                   <td
-                    colSpan={showArchived ? 11 : 9}
+                    colSpan={totalColumns}
                     className="text-center py-12 text-sm"
                     style={{ color: C.subtle }}
                   >
@@ -5242,6 +5742,38 @@ function EvidenceView({
             onConfirm={() => {
               onPermanentDelete(confirmDelete.id);
               setConfirmDelete(null);
+            }}
+          />
+        )}
+        {confirmBulkDeleteIds && (
+          <ConfirmDialog
+            destructive
+            title={`${showArchived ? "Delete" : "Archive"} ${confirmBulkDeleteIds.length} rows?`}
+            description={
+              showArchived
+                ? "Selected archived rows will be permanently deleted. This action cannot be undone."
+                : "Selected rows will be moved to archive."
+            }
+            confirmLabel={showArchived ? "Delete selected" : "Archive selected"}
+            cancelLabel="Cancel"
+            onCancel={() => setConfirmBulkDeleteIds(null)}
+            onConfirm={() => {
+              if (showArchived) {
+                confirmBulkDeleteIds.forEach((id) => onPermanentDelete(id));
+              } else {
+                confirmBulkDeleteIds.forEach((id) => onArchive(id));
+              }
+              setExpandedRows((previous) => {
+                const next = new Set(previous);
+                confirmBulkDeleteIds.forEach((id) => next.delete(id));
+                return next;
+              });
+              setSelectedRows((previous) => {
+                const next = new Set(previous);
+                confirmBulkDeleteIds.forEach((id) => next.delete(id));
+                return next;
+              });
+              setConfirmBulkDeleteIds(null);
             }}
           />
         )}
@@ -5737,7 +6269,15 @@ function ArchivedObjectivesTable({
   );
 }
 
-function KnowledgeHubView({ items }: { items: KnowledgeHubItem[] }) {
+function KnowledgeHubView({
+  items,
+  onEdit,
+  onDelete,
+}: {
+  items: KnowledgeHubItem[];
+  onEdit: (item: KnowledgeHubItem) => void;
+  onDelete: (item: KnowledgeHubItem) => void;
+}) {
   return (
     <Card className="p-5">
       <SectionHeader
@@ -5779,15 +6319,39 @@ function KnowledgeHubView({ items }: { items: KnowledgeHubItem[] }) {
                       {item.challenge || "Knowledge log"}
                     </div>
                     <div className="text-[11px] mt-1" style={{ color: C.subtle }}>
-                      Logged on {new Date(item.createdAt).toLocaleDateString()}
+                      Logged on{" "}
+                      {formatUtcToLocal(item.createdAt, {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })}
                     </div>
                   </div>
-                  <span
-                    className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold border"
-                    style={{ background: "#EAE6FF", color: "#403294", borderColor: "#C5B8FF" }}
-                  >
-                    Knowledge
-                  </span>
+                  <div className="inline-flex items-center gap-1.5">
+                    <span
+                      className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold border"
+                      style={{ background: "#EAE6FF", color: "#403294", borderColor: "#C5B8FF" }}
+                    >
+                      Knowledge
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onEdit(item)}
+                      className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold hover:bg-[#DEEBFF]"
+                      style={{ color: C.primary, borderColor: "#B3D4FF" }}
+                    >
+                      <Edit2 size={12} />
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDelete(item)}
+                      className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold hover:bg-[#FFEBE6]"
+                      style={{ color: C.red, borderColor: "#FFBDAD" }}
+                    >
+                      <Trash2 size={12} />
+                      Delete
+                    </button>
+                  </div>
                 </div>
                 <div
                   className="min-w-0 text-sm leading-relaxed break-words whitespace-pre-wrap [overflow-wrap:break-word]"
@@ -5837,6 +6401,202 @@ function KnowledgeHubView({ items }: { items: KnowledgeHubItem[] }) {
         </div>
       )}
     </Card>
+  );
+}
+
+function KnowledgeEditorModal({
+  item,
+  isSaving,
+  onClose,
+  onSave,
+}: {
+  item: KnowledgeHubItem;
+  isSaving?: boolean;
+  onClose: () => void;
+  onSave: (payload: { challenge: string; lesson: string; referenceLinks: string[] }) => void;
+}) {
+  const [challenge, setChallenge] = useState(item.challenge ?? "");
+  const [lesson, setLesson] = useState(item.lesson ?? "");
+  const [referenceInput, setReferenceInput] = useState("");
+  const [referenceLinks, setReferenceLinks] = useState<string[]>(
+    normalizeReferenceLinks(item.referenceLinks ?? []),
+  );
+  const referenceInputValid = !referenceInput || /^https?:\/\/\S+\.\S+/i.test(referenceInput);
+
+  useEffect(() => {
+    setChallenge(item.challenge ?? "");
+    setLesson(item.lesson ?? "");
+    setReferenceInput("");
+    setReferenceLinks(normalizeReferenceLinks(item.referenceLinks ?? []));
+  }, [item.id, item.challenge, item.lesson, item.referenceLinks]);
+
+  function addReferenceLink() {
+    const trimmed = referenceInput.trim();
+    if (!trimmed) return;
+    if (!/^https?:\/\/\S+\.\S+/i.test(trimmed)) {
+      toast.error("Enter a valid URL starting with http:// or https://");
+      return;
+    }
+    setReferenceLinks((previous) => normalizeReferenceLinks([...previous, trimmed]));
+    setReferenceInput("");
+  }
+
+  function removeReferenceLink(linkToRemove: string) {
+    setReferenceLinks((previous) => previous.filter((link) => link !== linkToRemove));
+  }
+
+  return (
+    <Backdrop onClose={onClose}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.96 }}
+        transition={{ duration: 0.18 }}
+        className="bg-white rounded-lg shadow-2xl w-full max-w-3xl border"
+        style={{ borderColor: C.border }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="p-5 border-b flex items-center justify-between"
+          style={{ borderColor: C.border }}
+        >
+          <div>
+            <div
+              className="text-xs font-semibold uppercase tracking-wide"
+              style={{ color: C.subtle }}
+            >
+              Knowledge Hub
+            </div>
+            <div className="text-lg font-bold mt-0.5" style={{ color: C.navy }}>
+              Edit knowledge log
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded hover:bg-[#F4F5F7]"
+            style={{ color: C.slate }}
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="p-5 space-y-4 max-h-[80vh] overflow-y-auto">
+          <Field label="Core Activity / Challenge" required>
+            <Textarea
+              autoFocus
+              value={challenge}
+              onChange={(e) => setChallenge(e.target.value)}
+              placeholder="What challenge did you run into?"
+              rows={7}
+            />
+          </Field>
+          <Field label="Solution / Lesson Learned" required>
+            <Textarea
+              value={lesson}
+              onChange={(e) => setLesson(e.target.value)}
+              placeholder="What did you learn that you'll reuse?"
+              rows={9}
+            />
+          </Field>
+          <Field label="External Reference Links" optional>
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <LinkIcon
+                  size={14}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                  style={{ color: C.subtle }}
+                />
+                <Input
+                  value={referenceInput}
+                  onChange={(e) => setReferenceInput(e.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addReferenceLink();
+                    }
+                  }}
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  className="pl-8"
+                />
+              </div>
+              <GhostBtn
+                type="button"
+                className="border h-9 px-2.5 whitespace-nowrap"
+                onClick={addReferenceLink}
+              >
+                <Plus size={13} />
+                Add Reference Link
+              </GhostBtn>
+            </div>
+            {!referenceInputValid && (
+              <div className="text-[11px] mt-1" style={{ color: C.red }}>
+                Enter a valid URL starting with http:// or https://
+              </div>
+            )}
+            {referenceLinks.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {referenceLinks.map((link) => (
+                  <span
+                    key={link}
+                    className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]"
+                    style={{ borderColor: "#B3D4FF", background: "#DEEBFF", color: C.primary }}
+                  >
+                    <a
+                      href={link}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 hover:underline"
+                    >
+                      Link
+                      <ExternalLink size={11} />
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => removeReferenceLink(link)}
+                      className="rounded-full p-0.5 hover:bg-[#B3D4FF]"
+                      aria-label={`Remove reference link ${link}`}
+                    >
+                      <X size={10} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </Field>
+        </div>
+        <div
+          className="p-4 border-t flex items-center justify-end gap-2"
+          style={{ borderColor: C.border }}
+        >
+          <GhostBtn type="button" onClick={onClose}>
+            Cancel
+          </GhostBtn>
+          <PrimaryBtn
+            type="button"
+            disabled={isSaving || !challenge.trim() || !lesson.trim() || !referenceInputValid}
+            onClick={() =>
+              onSave({
+                challenge,
+                lesson,
+                referenceLinks,
+              })
+            }
+          >
+            {isSaving ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save size={14} />
+                Save Changes
+              </>
+            )}
+          </PrimaryBtn>
+        </div>
+      </motion.div>
+    </Backdrop>
   );
 }
 
@@ -6300,22 +7060,15 @@ function Field({
   );
 }
 
-function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+function Textarea({
+  className,
+  ...props
+}: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea
       {...props}
-      className="w-full px-3 py-2 text-sm rounded border bg-[#F4F5F7] focus:bg-white outline-none transition-all resize-none"
+      className={`w-full min-h-[150px] resize-y rounded border bg-[#F4F5F7] p-3 text-sm leading-relaxed outline-none transition-all focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 ${className ?? ""}`}
       style={{ borderColor: C.border, color: C.navy, overflowWrap: "anywhere" }}
-      onFocus={(e) => {
-        e.currentTarget.style.background = "#fff";
-        e.currentTarget.style.borderColor = C.primary;
-        e.currentTarget.style.boxShadow = `0 0 0 1px ${C.primary}`;
-      }}
-      onBlur={(e) => {
-        e.currentTarget.style.background = "#F4F5F7";
-        e.currentTarget.style.borderColor = C.border;
-        e.currentTarget.style.boxShadow = "none";
-      }}
     />
   );
 }
@@ -6346,7 +7099,7 @@ function CreateObjectiveModal({
   const [subcategory, setSubcategory] = useState(categoryMap[objCategories[0] ?? ""]?.items[0] ?? "");
   const [title, setTitle] = useState("");
   const [statement, setStatement] = useState("");
-  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [startDate, setStartDate] = useState(toLocalDateString());
   const [s, setS] = useState("");
   const [m, setM] = useState("");
   const [a, setA] = useState("");
@@ -6705,7 +7458,7 @@ function SmartField({
           Optional
         </span>
       </div>
-      <Textarea rows={2} value={value} onChange={(e) => onChange(e.target.value)} />
+      <Textarea rows={5} value={value} onChange={(e) => onChange(e.target.value)} />
       <div className="text-[11px] mt-1" style={{ color: C.subtle }}>
         {hint}
       </div>
@@ -6803,24 +7556,40 @@ function CriteriaSection({
 
 function ObjectiveSlideover({
   objective,
+  frameworkMatrix,
   onClose,
   onSave,
   onChangeStatus,
   onArchive,
 }: {
   objective: Objective;
+  frameworkMatrix: unknown;
   onClose: () => void;
   onSave: (o: Objective) => void;
   onChangeStatus: (o: Objective, next: Objective["status"]) => void;
   onArchive: (o: Objective) => void;
 }) {
-  const objCategories = Object.keys(SUBCATEGORIES);
+  const categoryMap = useMemo(() => resolveFrameworkCategoryMap(frameworkMatrix), [frameworkMatrix]);
+  const objCategories = useMemo(() => {
+    const matrixCategories = (
+      (frameworkMatrix as { categories?: Record<string, unknown> } | null)?.categories ?? {}
+    ) as Record<string, unknown>;
+    const dynamicKeys = Object.keys(matrixCategories || {});
+    if (dynamicKeys.length > 0) return dynamicKeys;
+    return Object.keys(categoryMap);
+  }, [categoryMap, frameworkMatrix]);
+  const initialCompetency =
+    resolveCategoryFromFramework(objective.competency, objCategories) ?? objCategories[0] ?? "";
   const [smartOpen, setSmartOpen] = useState(false);
   const [title, setTitle] = useState(objective.title);
-  const [competency, setCompetency] = useState(objective.competency);
-  const [targetSubcategory, setTargetSubcategory] = useState(
-    objective.targetSubcategory ?? SUBCATEGORIES[objective.competency]?.[0] ?? "",
-  );
+  const [competency, setCompetency] = useState(initialCompetency);
+  const [targetSubcategory, setTargetSubcategory] = useState(() => {
+    const subcategoryOptions = categoryMap[initialCompetency]?.items ?? [];
+    if (objective.targetSubcategory && subcategoryOptions.includes(objective.targetSubcategory)) {
+      return objective.targetSubcategory;
+    }
+    return subcategoryOptions[0] ?? "";
+  });
   const [links, setLinks] = useState(objective.links ?? []);
   const [newLink, setNewLink] = useState("");
   const [notes, setNotes] = useState(objective.notes ?? "");
@@ -6837,8 +7606,38 @@ function ObjectiveSlideover({
 
   function onObjectiveCategoryChange(nextCategory: string) {
     setCompetency(nextCategory);
-    setTargetSubcategory(SUBCATEGORIES[nextCategory]?.[0] ?? "");
+    setTargetSubcategory(categoryMap[nextCategory]?.items[0] ?? "");
   }
+
+  useEffect(() => {
+    if (!objCategories.includes(competency)) {
+      const fallbackCategory =
+        resolveCategoryFromFramework(objective.competency, objCategories) ?? objCategories[0] ?? "";
+      setCompetency(fallbackCategory);
+      const fallbackOptions = categoryMap[fallbackCategory]?.items ?? [];
+      const fallbackSubcategory =
+        objective.targetSubcategory && fallbackOptions.includes(objective.targetSubcategory)
+          ? objective.targetSubcategory
+          : fallbackOptions[0] ?? "";
+      setTargetSubcategory(fallbackSubcategory);
+      return;
+    }
+    const options = categoryMap[competency]?.items ?? [];
+    if (!options.includes(targetSubcategory)) {
+      const preferredSubcategory =
+        objective.targetSubcategory && options.includes(objective.targetSubcategory)
+          ? objective.targetSubcategory
+          : options[0] ?? "";
+      setTargetSubcategory(preferredSubcategory);
+    }
+  }, [
+    categoryMap,
+    competency,
+    objCategories,
+    objective.competency,
+    objective.targetSubcategory,
+    targetSubcategory,
+  ]);
 
   function buildUpdated(): Objective {
     return {
@@ -6865,6 +7664,12 @@ function ObjectiveSlideover({
       : objective.status === "In Progress"
         ? "Mark as Completed"
         : "";
+  const statusBadgeClass =
+    objective.status === "Completed"
+      ? "text-emerald-700 bg-emerald-50"
+      : objective.status === "In Progress"
+        ? "text-sky-700 bg-sky-50"
+        : "text-amber-700 bg-amber-50";
 
   return (
     <motion.div
@@ -6885,7 +7690,7 @@ function ObjectiveSlideover({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-6 py-5 border-b" style={{ borderColor: C.border }}>
+        <div className="px-6 pt-5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1 text-xs" style={{ color: C.subtle }}>
               <span>Objectives</span>
@@ -6930,36 +7735,39 @@ function ObjectiveSlideover({
               </button>
             </div>
           </div>
-          {isEditable ? (
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="text-lg font-semibold mt-2"
-              placeholder="Objective title"
-            />
-          ) : (
-            <div className="text-xl font-bold mt-2 leading-snug" style={{ color: C.navy }}>
-              {title}
+          <div className="border-b border-slate-100 pb-4 mb-6">
+            {isEditable ? (
+              <Input
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="mt-3 mb-4 h-11 text-xl font-bold tracking-tight text-slate-900 leading-snug"
+                placeholder="Objective title"
+              />
+            ) : (
+              <div className="text-xl font-bold tracking-tight text-slate-900 mb-4 leading-snug mt-3">
+                {title}
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2 items-center mb-3">
+              <span
+                className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium ${statusBadgeClass}`}
+              >
+                {locked && <Lock size={10} />}
+                {objective.status}
+              </span>
+              <span className="inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium text-indigo-700 bg-indigo-50">
+                {competency}
+              </span>
+              <span className="inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium text-slate-700 bg-slate-100">
+                {targetSubcategory || "No subcategory selected"}
+              </span>
+              <span className="inline-flex items-center rounded-md px-2.5 py-1 text-xs font-medium text-violet-700 bg-violet-50">
+                Due {objective.due || "Not set"}
+              </span>
+              <CountdownBadge due={objective.due} />
             </div>
-          )}
-          <div className="flex items-center gap-2 mt-3">
-            <Badge
-              tone={
-                objective.status === "Completed"
-                  ? "success"
-                  : objective.status === "In Progress"
-                    ? "info"
-                    : "warning"
-              }
-            >
-              {locked && <Lock size={10} className="inline mr-1" />}
-              {objective.status}
-            </Badge>
-            <Badge tone="info">{competency}</Badge>
-            <Badge tone="neutral">{targetSubcategory || "No subcategory selected"}</Badge>
-            <CountdownBadge due={objective.due} />
             {readOnly && (
-              <span className="text-[11px]" style={{ color: C.subtle }}>
+              <span className="text-xs text-slate-500">
                 {locked ? "Locked - read only" : "Read only after moving out of To Do"}
               </span>
             )}
@@ -6967,7 +7775,7 @@ function ObjectiveSlideover({
         </div>
 
         {/* Scrollable */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden px-6 py-5 space-y-6">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 space-y-6">
           {/* SMART accordion */}
           <div className="rounded border" style={{ borderColor: C.border }}>
             <button
@@ -7020,52 +7828,54 @@ function ObjectiveSlideover({
             </AnimatePresence>
           </div>
 
-          <section
-            className="p-4 rounded border"
-            style={{ borderColor: C.border, background: "#FAFBFC" }}
-          >
-            <div
-              className="text-[11px] font-bold uppercase tracking-wider mb-2"
-              style={{ color: C.subtle }}
-            >
-              Competency Mapping
+          <section className="space-y-5 rounded-xl border border-slate-100 bg-slate-50/70 p-4">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+                Competency Mapping
+              </label>
+              <div className="h-10 flex items-center rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700">
+                {competency || "Not provided"}
+              </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>
-                  Target Category
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+                Target Category
+              </label>
+              {isEditable ? (
+                <select
+                  value={competency}
+                  onChange={(e) => onObjectiveCategoryChange(e.target.value)}
+                  className="h-10 w-full px-3 pr-8 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                >
+                  {objCategories.map((c) => (
+                    <option key={c}>{c}</option>
+                  ))}
+                </select>
+              ) : (
+                <div className="h-10 flex items-center rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700">
+                  {competency}
                 </div>
-                {isEditable ? (
-                  <Select value={competency} onChange={(e) => onObjectiveCategoryChange(e.target.value)}>
-                    {objCategories.map((c) => (
-                      <option key={c}>{c}</option>
-                    ))}
-                  </Select>
-                ) : (
-                  <div className="text-sm" style={{ color: C.navy }}>
-                    {competency}
-                  </div>
-                )}
-              </div>
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: C.subtle }}>
-                  Target Subcategory / Question
+              )}
+            </div>
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+                Target Subcategory / Question
+              </label>
+              {isEditable ? (
+                <select
+                  value={targetSubcategory}
+                  onChange={(e) => setTargetSubcategory(e.target.value)}
+                  className="h-10 w-full px-3 pr-8 bg-white border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition-all"
+                >
+                  {(categoryMap[competency]?.items ?? []).map((sc) => (
+                    <option key={sc}>{sc}</option>
+                  ))}
+                </select>
+              ) : (
+                <div className="min-h-10 flex items-center rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-snug text-slate-700">
+                  {targetSubcategory || "Not provided"}
                 </div>
-                {isEditable ? (
-                  <Select
-                    value={targetSubcategory}
-                    onChange={(e) => setTargetSubcategory(e.target.value)}
-                  >
-                    {(SUBCATEGORIES[competency] ?? []).map((sc) => (
-                      <option key={sc}>{sc}</option>
-                    ))}
-                  </Select>
-                ) : (
-                  <div className="text-sm leading-snug" style={{ color: C.navy }}>
-                    {targetSubcategory || "Not provided"}
-                  </div>
-                )}
-              </div>
+              )}
             </div>
           </section>
 
@@ -7714,7 +8524,7 @@ function FeedbackView({ frameworkMatrix }: { frameworkMatrix: unknown }) {
 
     addFeedbackMutation.mutate(
       {
-        date: new Date().toISOString().slice(0, 10),
+        date: toLocalDateString(),
         provider: "Self 360 Evaluation",
         type: "Ad-hoc",
         notes: payload,
@@ -7731,7 +8541,7 @@ function FeedbackView({ frameworkMatrix }: { frameworkMatrix: unknown }) {
   function addRequest(reviewer: string, focus: string) {
     addFeedbackMutation.mutate(
       {
-        date: new Date().toISOString().slice(0, 10),
+        date: toLocalDateString(),
         provider: reviewer,
         type: "Manager Requested",
         notes: `Requested feedback on: ${focus}. Awaiting response.`,
@@ -8748,7 +9558,22 @@ function NotificationsSettings() {
   const [timeSlots, setTimeSlots] = useState<string[]>(["16:00"]);
   const [snoozeMinutes, setSnoozeMinutes] = useState(15);
   const [weekdaysOnly, setWeekdaysOnly] = useState(true);
-  const [timezone, setTimezone] = useState("UTC");
+  const [timezone, setTimezone] = useState(getCurrentTimeZone());
+  function normalizeWallClockTime(value: string): string | null {
+    const trimmed = value.trim();
+    const direct = trimmed.match(/^(\d{1,2}):(\d{2})$/);
+    if (direct) {
+      const hour = Number(direct[1]);
+      const minute = Number(direct[2]);
+      if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+        return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+      }
+      return null;
+    }
+    const embedded = trimmed.match(/(?:T|\s)(\d{2}):(\d{2})/);
+    if (!embedded) return null;
+    return `${embedded[1]}:${embedded[2]}`;
+  }
   const timezoneOptions = [
     { label: "London", value: "Europe/London" },
     { label: "New York", value: "America/New_York" },
@@ -8762,7 +9587,9 @@ function NotificationsSettings() {
   ];
   const validTimezoneValues = new Set(timezoneOptions.map((option) => option.value));
   function normalizeTimezoneValue(value: string | undefined) {
-    if (!value) return "UTC";
+    const systemZone = getCurrentTimeZone();
+    const fallback = validTimezoneValues.has(systemZone) ? systemZone : "UTC";
+    if (!value) return fallback;
     const trimmed = value.trim();
     if (validTimezoneValues.has(trimmed)) return trimmed;
 
@@ -8778,7 +9605,9 @@ function NotificationsSettings() {
       "UTC+10:00 (AEST)": "Australia/Sydney",
       GMT: "UTC",
     };
-    return legacyMap[trimmed] ?? "UTC";
+    const migrated = legacyMap[trimmed];
+    if (migrated && validTimezoneValues.has(migrated)) return migrated;
+    return fallback;
   }
 
   const saveProfileTimezoneMutation = useMutation({
@@ -8794,6 +9623,42 @@ function NotificationsSettings() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["profile", settingsUserId] });
+    },
+  });
+
+  const { data: profilePromptTimes = [] } = useQuery({
+    queryKey: ["profile-prompt-times", settingsUserId],
+    enabled: Boolean(settingsUserId),
+    queryFn: async (): Promise<string[]> => {
+      const { data, error } = await (supabase.from("profiles") as any)
+        .select("prompt_times")
+        .eq("id", settingsUserId)
+        .maybeSingle();
+      if (error) throw error;
+      const raw = Array.isArray(data?.prompt_times) ? (data.prompt_times as unknown[]) : [];
+      return raw
+        .map((value) => normalizeWallClockTime(String(value)))
+        .filter((value): value is string => Boolean(value));
+    },
+  });
+
+  const saveProfilePromptTimesMutation = useMutation({
+    mutationFn: async (nextPromptTimes: string[]) => {
+      if (!settingsUserId) return;
+      const sanitized = nextPromptTimes
+        .map((value) => normalizeWallClockTime(String(value)))
+        .filter((value): value is string => Boolean(value));
+      const payload = sanitized.length > 0 ? sanitized : ["16:00"];
+      const { error } = await (supabase.from("profiles") as any)
+        .update({ prompt_times: payload })
+        .eq("id", settingsUserId);
+      if (error) throw error;
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["profile-prompt-times", settingsUserId] });
     },
   });
 
@@ -8817,15 +9682,19 @@ function NotificationsSettings() {
     setB(settings.notifications.managerApprovals);
     setC(settings.notifications.weeklyDigest);
     setD(settings.notifications.browserPush);
-    setTimeSlots(
-      settings.notifications.extensionPromptTimes.length > 0
-        ? settings.notifications.extensionPromptTimes
-        : ["16:00"],
-    );
+    const normalizedProfileSlots = profilePromptTimes
+      .map((value) => normalizeWallClockTime(value))
+      .filter((value): value is string => Boolean(value));
+    const normalizedSettingsSlots = settings.notifications.extensionPromptTimes
+      .map((value) => normalizeWallClockTime(value))
+      .filter((value): value is string => Boolean(value));
+    const normalizedSlots =
+      normalizedProfileSlots.length > 0 ? normalizedProfileSlots : normalizedSettingsSlots;
+    setTimeSlots(normalizedSlots.length > 0 ? normalizedSlots : ["16:00"]);
     setSnoozeMinutes(settings.notifications.extensionSnoozeMinutes);
     setWeekdaysOnly(settings.notifications.extensionWeekdaysOnly);
     setTimezone(normalizeTimezoneValue(settings.notifications.extensionTimezone));
-  }, [settings]);
+  }, [profilePromptTimes, settings]);
 
   useEffect(() => {
     if (!settings) return;
@@ -8835,15 +9704,21 @@ function NotificationsSettings() {
   function persist(next: Partial<NotificationPrefs>) {
     if (!settings) return;
     const notifications = { ...settings.notifications, ...next };
+    const normalizedPromptTimes = (notifications.extensionPromptTimes ?? [])
+      .map((value) => normalizeWallClockTime(String(value)))
+      .filter((value): value is string => Boolean(value));
+    notifications.extensionPromptTimes =
+      normalizedPromptTimes.length > 0 ? [...new Set(normalizedPromptTimes)] : ["16:00"];
     saveNotificationsMutation.mutate(notifications);
+    saveProfilePromptTimesMutation.mutate(notifications.extensionPromptTimes);
     sendExtensionConfig(notifications);
   }
 
   function updateTimeSlot(index: number, nextValue: string) {
     const next = [...timeSlots];
-    next[index] = nextValue;
+    next[index] = normalizeWallClockTime(nextValue) ?? nextValue;
     setTimeSlots(next);
-    const sanitized = [...new Set(next.filter((v) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(v)))].sort();
+    const sanitized = [...new Set(next.map((v) => normalizeWallClockTime(v)).filter((v): v is string => Boolean(v)))].sort();
     if (sanitized.length > 0) {
       persist({ extensionPromptTimes: sanitized });
     }
@@ -8852,14 +9727,16 @@ function NotificationsSettings() {
   function addTimeSlot() {
     const next = [...timeSlots, "17:00"];
     setTimeSlots(next);
-    persist({ extensionPromptTimes: [...new Set(next)].sort() });
+    persist({
+      extensionPromptTimes: [...new Set(next.map((v) => normalizeWallClockTime(v)).filter((v): v is string => Boolean(v)))].sort(),
+    });
   }
 
   function removeTimeSlot(index: number) {
     if (timeSlots.length <= 1) return;
     const next = timeSlots.filter((_, i) => i !== index);
     setTimeSlots(next);
-    const sanitized = [...new Set(next.filter((v) => /^([01]\d|2[0-3]):([0-5]\d)$/.test(v)))].sort();
+    const sanitized = [...new Set(next.map((v) => normalizeWallClockTime(v)).filter((v): v is string => Boolean(v)))].sort();
     persist({ extensionPromptTimes: sanitized.length > 0 ? sanitized : ["16:00"] });
   }
 
@@ -9256,15 +10133,6 @@ type MatrixPillarKey = "technical_execution" | "collaboration" | "delivery_relia
 
 type MatrixSchema = Record<MatrixLevelKey, Record<MatrixPillarKey, string[]>>;
 
-type FrameworkOption = {
-  id: string;
-  name: string;
-  description: string | null;
-  is_system_default: boolean;
-  matrix: unknown;
-  created_at: string;
-};
-
 const MATRIX_PILLARS: Array<{ key: MatrixPillarKey; label: string; keywords: string[] }> = [
   {
     key: "technical_execution",
@@ -9552,23 +10420,7 @@ function FrameworkSettings() {
     },
   });
 
-  const setActiveFrameworkMutation = useMutation({
-    mutationFn: async (frameworkId: string) => {
-      const { error } = await (supabase.from("profiles") as any)
-        .update({ active_framework_id: frameworkId })
-        .eq("id", frameworkUserId);
-      if (error) throw error;
-      return frameworkId;
-    },
-    onSuccess: (frameworkId) => {
-      setSelectedFrameworkId(frameworkId);
-      void queryClient.invalidateQueries({ queryKey: ["profile-active-framework", frameworkUserId] });
-      toast.success("Active framework updated.");
-    },
-    onError: (error: Error) => {
-      toast.error(error.message);
-    },
-  });
+  const setActiveFrameworkMutation = useSetActiveFramework(frameworkUserId);
 
   const saveFrameworkMutation = useMutation({
     mutationFn: async ({
@@ -9601,8 +10453,12 @@ function FrameworkSettings() {
     onSuccess: (frameworkId) => {
       setSelectedFrameworkId(frameworkId);
       setMismatch(false);
+      queryClient.setQueryData(["profile-active-framework", frameworkUserId], frameworkId);
       void queryClient.invalidateQueries({ queryKey: ["framework-options", frameworkUserId] });
       void queryClient.invalidateQueries({ queryKey: ["profile-active-framework", frameworkUserId] });
+      void queryClient.invalidateQueries({ queryKey: ["active-framework-matrix", frameworkUserId] });
+      void queryClient.invalidateQueries({ queryKey: ["active-framework-context", frameworkUserId] });
+      void queryClient.invalidateQueries({ queryKey: ["profile", frameworkUserId] });
       toast.success("Custom framework imported and linked.");
     },
     onError: (error: Error) => {
@@ -9643,7 +10499,11 @@ function FrameworkSettings() {
       return;
     }
     setSelectedFrameworkId(nextFrameworkId);
-    setActiveFrameworkMutation.mutate(nextFrameworkId);
+    setActiveFrameworkMutation.mutate(nextFrameworkId, {
+      onSuccess: () => {
+        toast.success("Active framework updated.");
+      },
+    });
   }
 
   function downloadTemplate() {
@@ -9707,7 +10567,7 @@ function FrameworkSettings() {
     }
     const matrix = buildMatrixFromRawText(rawText);
     saveFrameworkMutation.mutate({
-      name: `Quick-Start Framework ${new Date().toISOString().slice(0, 10)}`,
+      name: `Quick-Start Framework ${toLocalDateString()}`,
       matrix,
       description: "Generated from quick-start raw text import.",
     });
@@ -9737,8 +10597,7 @@ function FrameworkSettings() {
               ) : (
                 frameworkOptions.map((framework) => (
                   <option key={framework.id} value={framework.id}>
-                    {framework.name}
-                    {framework.is_system_default ? " · System Default" : " · Custom"}
+                    {getFrameworkDisplayName(framework)}
                   </option>
                 ))
               )}
@@ -9916,7 +10775,7 @@ function FrameworkSettings() {
             value={rawText}
             onChange={(e) => setRawText(e.target.value)}
             placeholder="Paste competency descriptions, bullet points, or handbook excerpts..."
-            className="mt-3 w-full min-h-[180px] rounded border px-3 py-2 text-sm outline-none focus:ring-2"
+            className="mt-3 w-full min-h-[180px] resize-y rounded border p-3 text-sm leading-relaxed outline-none transition-all focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
             style={{ borderColor: C.border, color: C.navy }}
           />
           <div className="mt-3">
@@ -10121,7 +10980,7 @@ function EvidenceSlideover({
             <textarea
               value={draft.description}
               onChange={(e) => update("description", e.target.value)}
-              className="w-full min-h-[160px] resize-y text-sm rounded border px-3 py-2 outline-none focus:ring-2"
+              className="w-full min-h-[160px] resize-y rounded border p-3 text-sm leading-relaxed outline-none transition-all focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
               style={{ borderColor: C.border, color: C.slate, overflowWrap: "anywhere" }}
               readOnly={objectiveLinked}
             />
@@ -10258,11 +11117,10 @@ function EvidenceSlideover({
                 value={draft.managerNotes}
                 onChange={(e) => update("managerNotes", e.target.value)}
                 placeholder="Manager corroborates context, asks for more detail, suggests rewording, or links related artifacts."
-                className="w-full min-h-[120px] resize-y text-sm rounded border px-3 py-2 outline-none focus:ring-2"
+                className="w-full min-h-[150px] resize-y rounded border bg-white p-3 text-sm leading-relaxed outline-none transition-all focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
                 style={{
                   borderColor: C.border,
                   color: C.slate,
-                  background: "#fff",
                   overflowWrap: "anywhere",
                 }}
                 readOnly={objectiveLinked}
@@ -10315,7 +11173,6 @@ function ReportView({
   evidence,
   objectives,
   radarData: _radarData,
-  frameworkMatrix,
   onFlash,
   review,
   assessments,
@@ -10330,7 +11187,6 @@ function ReportView({
   evidence: EvidenceRecord[];
   objectives: Objective[];
   radarData: ReturnType<typeof deriveRadarData>;
-  frameworkMatrix: unknown;
   onFlash: (m: string) => void;
   review: ReviewSession | null;
   assessments: Assessment[];
@@ -10342,16 +11198,14 @@ function ReportView({
   onStartReview: () => void;
   onOpenHistory: () => void;
 }) {
-  const categoryEntries = useMemo(
-    () => resolveFrameworkCategoryEntries(frameworkMatrix),
-    [frameworkMatrix],
+  const { categories, getQuestionsForCategory } = useFramework();
+  const frameworkCategoryMap = useMemo(
+    () => buildFrameworkCategoryMapFromContext(categories, getQuestionsForCategory),
+    [categories, getQuestionsForCategory],
   );
+  const categoryEntries = useMemo(() => Object.entries(frameworkCategoryMap), [frameworkCategoryMap]);
   const frameworkCategoryNames = useMemo(
     () => categoryEntries.map(([categoryName]) => categoryName),
-    [categoryEntries],
-  );
-  const frameworkCategoryMap = useMemo(
-    () => Object.fromEntries(categoryEntries) as FrameworkCategoryMap,
     [categoryEntries],
   );
   const approved = evidence.filter((e) => e.status === "Reviewed" && !e.isArchived);
@@ -10699,7 +11553,7 @@ function ReportView({
                     {categoryName}
                   </div>
                   <div className="text-xs mt-1" style={{ color: C.subtle }}>
-                    {frameworkCategoryMap[categoryName]?.summary || COMPETENCY_DESC[categoryName] || "No summary provided."}
+                    {frameworkCategoryMap[categoryName]?.summary || "No summary provided."}
                   </div>
                   <div className="text-xs mt-2" style={{ color: C.slate }}>
                     Avg Score: {avgCurrent.toFixed(2)} / 5 · Evidence Logged: {mappedEvidence.length} · Rubric
@@ -10954,7 +11808,7 @@ function ReportView({
       <AnimatePresence>
         {resourceModalOpen && (
           <LearningResourceModal
-            competencies={Object.keys(review.scores)}
+            competencies={categoriesForSummary}
             onCancel={() => setResourceModalOpen(false)}
             onSave={(r) => {
               setResources((rs) => [...rs, { ...r, id: `lr-${Date.now()}` }]);
@@ -10977,13 +11831,24 @@ function LearningResourceModal({
   onCancel: () => void;
   onSave: (r: { competency: string; title: string; url: string; notes: string }) => void;
 }) {
-  const fallback = COMPETENCIES;
-  const options = competencies.length > 0 ? competencies : fallback;
+  const { categories: frameworkCategories } = useFramework();
+  const options =
+    competencies.length > 0
+      ? competencies
+      : frameworkCategories.length > 0
+        ? frameworkCategories
+        : [];
   const [competency, setCompetency] = useState(options[0] ?? "");
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
   const [notes, setNotes] = useState("");
   const canSave = title.trim() && url.trim() && competency;
+
+  useEffect(() => {
+    if (!options.includes(competency)) {
+      setCompetency(options[0] ?? "");
+    }
+  }, [competency, options]);
   return (
     <Backdrop onClose={onCancel}>
       <motion.div
@@ -11065,7 +11930,7 @@ function LearningResourceModal({
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Why this resource, and what to focus on..."
-              className="mt-1.5 w-full min-h-[80px] px-3 py-2 text-sm rounded border bg-white focus:outline-none resize-y"
+              className="mt-1.5 w-full min-h-[150px] resize-y rounded border bg-white p-3 text-sm leading-relaxed outline-none transition-all focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
               style={{ borderColor: C.border, color: C.navy }}
             />
           </div>
@@ -11179,12 +12044,22 @@ function InboxReviewSlideover({
   onConfirm,
   onDismiss,
 }: {
-  item: InboxViewItem;
+  item: InboxViewItem | null;
   frameworkMatrix: unknown;
   onClose: () => void;
   onConfirm: (payload: InboxConfirmPayload) => void;
   onDismiss: () => void;
 }) {
+  const safeItem: InboxViewItem = item ?? {
+    id: "",
+    source: "Unknown source",
+    icon: null,
+    title: "",
+    suggestion: [],
+    when: "",
+    isSample: false,
+  };
+  const hasItemData = Boolean(safeItem.id);
   const categoryEntries = useMemo(
     () => resolveFrameworkCategoryEntries(frameworkMatrix),
     [frameworkMatrix],
@@ -11194,12 +12069,21 @@ function InboxReviewSlideover({
     [categoryEntries],
   );
   const inboxCats = categoryEntries.map(([categoryName]) => categoryName);
+  const suggestionText = Array.isArray(safeItem.suggestion)
+    ? safeItem.suggestion.join(" ").toLowerCase()
+    : typeof safeItem.suggestion === "string"
+      ? safeItem.suggestion.toLowerCase()
+      : "";
   const initialCat =
-    inboxCats.find((c) => item.suggestion.toLowerCase().includes(c.toLowerCase())) ?? inboxCats[0] ?? "";
-  const [title, setTitle] = useState(item.title);
+    inboxCats.find((c) => suggestionText.includes(c.toLowerCase())) ?? inboxCats[0] ?? "";
+  const [title, setTitle] = useState(safeItem.title || "Untitled action");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState(initialCat);
   const [subcategory, setSubcategory] = useState(categoryMap[initialCat]?.items[0] ?? "");
+  const sourceLabel = safeItem.source || "Unknown source";
+  const whenLabel = safeItem.when || "recently";
+  const itemTitle = safeItem.title || "Untitled action";
+
   function onCatChange(v: string) {
     setCategory(v);
     setSubcategory(categoryMap[v]?.items[0] ?? "");
@@ -11215,6 +12099,9 @@ function InboxReviewSlideover({
       setSubcategory(options[0] ?? "");
     }
   }, [inboxCats, category, subcategory, initialCat, categoryMap]);
+  useEffect(() => {
+    setTitle(safeItem.title || "Untitled action");
+  }, [safeItem.id, safeItem.title]);
   return (
     <motion.div
       initial={{ opacity: 0 }}
@@ -11251,13 +12138,17 @@ function InboxReviewSlideover({
             </button>
           </div>
           <div className="text-[13px] mt-2" style={{ color: C.subtle }}>
-            The AI captured this event {item.when}. Confirm details before saving to your evidence
-            log.
+            The AI captured this event {whenLabel}. Confirm details before saving to your evidence log.
           </div>
         </div>
 
         {/* Scrollable */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+          {!hasItemData && (
+            <div className="rounded border px-3 py-2 text-sm" style={{ borderColor: C.border, color: C.subtle }}>
+              Loading action details...
+            </div>
+          )}
           <section>
             <label
               className="text-xs font-bold uppercase tracking-wider mb-1.5 block"
@@ -11289,14 +12180,14 @@ function InboxReviewSlideover({
                   className="w-7 h-7 rounded flex items-center justify-center shrink-0"
                   style={{ background: "#FFFFFF", color: C.slate, border: `1px solid ${C.border}` }}
                 >
-                  <SourceIcon source={item.source} size={14} />
+                  <SourceIcon source={sourceLabel} size={14} />
                 </div>
                 <div className="min-w-0">
                   <div className="text-xs font-semibold" style={{ color: C.navy }}>
-                    {item.source}
+                    {sourceLabel}
                   </div>
                   <div className="text-[11px] truncate" style={{ color: C.subtle }}>
-                    {item.title}
+                    {itemTitle}
                   </div>
                 </div>
               </div>
@@ -11322,7 +12213,7 @@ function InboxReviewSlideover({
               onChange={(e) => setDescription(e.target.value)}
               rows={6}
               placeholder="The AI captured this event, but please add context. What did you learn? What was the technical challenge?"
-              className="w-full px-3 py-2 rounded border text-sm bg-[#FAFBFC] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0052CC]/30 focus:border-[#0052CC] transition resize-none"
+              className="w-full min-h-[150px] resize-y rounded border bg-[#FAFBFC] p-3 text-sm leading-relaxed outline-none transition-all focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
               style={{ borderColor: C.border, color: C.navy }}
             />
           </section>
@@ -11340,7 +12231,10 @@ function InboxReviewSlideover({
             <div className="flex items-start gap-2 mb-3 p-2.5 rounded bg-blue-50 text-blue-800">
               <Info size={14} className="mt-0.5 shrink-0" />
               <div className="text-[12px] leading-snug">
-                AI Suggestion: Mapped based on context.
+                AI Suggestion:{" "}
+                {safeItem.suggestion?.length
+                  ? safeItem.suggestion.join(", ")
+                  : "No suggestions provided"}.
               </div>
             </div>
             <div className="grid grid-cols-1 gap-4">
@@ -11381,12 +12275,14 @@ function InboxReviewSlideover({
         >
           <button
             onClick={onDismiss}
+            disabled={!hasItemData}
             className="px-3 h-9 rounded text-sm font-medium hover:bg-[#FFEBE6] transition-colors"
             style={{ color: C.red }}
           >
-            {item.isSample ? "Close Sample" : "Dismiss Event"}
+            {safeItem.isSample ? "Close Sample" : "Dismiss Event"}
           </button>
           <PrimaryBtn
+            disabled={!hasItemData}
             onClick={() =>
               onConfirm({
                 title,
@@ -11411,7 +12307,6 @@ function InboxReviewSlideover({
 
 function ReviewWizard({
   evidence,
-  frameworkMatrix,
   onClose,
   onFinalize,
   onOpenEvidence,
@@ -11422,7 +12317,6 @@ function ReviewWizard({
   onSaveDraft,
 }: {
   evidence: EvidenceRecord[];
-  frameworkMatrix: unknown;
   onClose: () => void;
   onFinalize: (s: ReviewSession) => void;
   onOpenEvidence: (e: EvidenceRecord) => void;
@@ -11432,14 +12326,26 @@ function ReviewWizard({
   managerName: string;
   onSaveDraft: (draft: AssessmentWizardDraft) => void;
 }) {
-  const categoryEntries = useMemo(
-    () => resolveFrameworkCategoryEntries(frameworkMatrix),
-    [frameworkMatrix],
-  );
-  const categoryMap = useMemo(
-    () => Object.fromEntries(categoryEntries) as FrameworkCategoryMap,
-    [categoryEntries],
-  );
+  const {
+    categories: frameworkCategories,
+    getQuestionsForCategory,
+  } = useFramework();
+  const categoryMap = useMemo(() => {
+    if (frameworkCategories.length > 0) {
+      return buildFrameworkCategoryMapFromContext(frameworkCategories, getQuestionsForCategory);
+    }
+    if (latestAssessment) {
+      return latestAssessment.categories.reduce<FrameworkCategoryMap>((acc, category) => {
+        acc[category.categoryName] = {
+          summary: category.summary ?? "",
+          items: category.questions.map((question) => question.questionText),
+        };
+        return acc;
+      }, {});
+    }
+    return {};
+  }, [frameworkCategories, getQuestionsForCategory, latestAssessment]);
+  const categoryEntries = useMemo(() => Object.entries(categoryMap), [categoryMap]);
   const categories = useMemo(
     () => categoryEntries.map(([categoryName]) => categoryName),
     [categoryEntries],
@@ -11666,7 +12572,7 @@ function ReviewWizard({
                   {activeCat}
                 </h2>
                 <p className="text-sm mt-1 leading-relaxed" style={{ color: C.slate }}>
-                  {categoryMap[activeCat]?.summary || COMPETENCY_DESC[activeCat] || ""}
+                  {categoryMap[activeCat]?.summary || "No summary provided."}
                 </p>
               </div>
 

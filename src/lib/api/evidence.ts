@@ -5,6 +5,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { supabase } from '../supabase'
+import { toLocalDateString } from '../datetime'
 import {
   evidenceRowToRecord,
   evidenceRecordToRow,
@@ -21,7 +22,7 @@ function buildSampleEvidence(userId: string) {
   const addDays = (days: number) => {
     const d = new Date(today)
     d.setDate(d.getDate() + days)
-    return d.toISOString().slice(0, 10)
+    return toLocalDateString(d)
   }
 
   return [
@@ -283,7 +284,7 @@ export function useArchiveEvidence(userId: string) {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const today = new Date().toISOString().slice(0, 10)
+      const today = toLocalDateString()
       const { error } = await supabase
         .from('evidence')
         .update({ is_archived: true, archived_date: today })

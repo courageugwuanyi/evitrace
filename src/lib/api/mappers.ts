@@ -4,6 +4,7 @@
 
 import type { Database } from '../database.types'
 import { generateSafeId } from '../utils/generateSafeId'
+import { getCurrentTimeZone } from '../datetime'
 
 // ── DB Row type aliases ────────────────────────────────────────────────────────
 
@@ -190,6 +191,33 @@ export type IntegrationPrefs = {
 }
 
 // ── Helper utilities ───────────────────────────────────────────────────────────
+
+function normalizeWallClockTime(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const raw = value.trim()
+  if (!raw) return null
+
+  const directMatch = raw.match(/^(\d{1,2}):(\d{2})$/)
+  if (directMatch) {
+    const hour = Number(directMatch[1])
+    const minute = Number(directMatch[2])
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+      return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+    }
+    return null
+  }
+
+  // Legacy datetime-like payloads should be treated as wall-clock labels.
+  const embedded = raw.match(/(?:T|\s)(\d{2}):(\d{2})/)
+  if (embedded) {
+    const hour = Number(embedded[1])
+    const minute = Number(embedded[2])
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+      return `${embedded[1]}:${embedded[2]}`
+    }
+  }
+  return null
+}
 
 /**
  * Arithmetic mean of a number array, rounded to 2 decimal places.
@@ -538,7 +566,7 @@ export function settingsRowToSettings(
     extensionPromptTimes: ['16:00'],
     extensionSnoozeMinutes: 15,
     extensionWeekdaysOnly: true,
-    extensionTimezone: 'GMT',
+    extensionTimezone: getCurrentTimeZone(),
   }
 
   const defaultIntegrations: IntegrationPrefs = {
@@ -570,9 +598,10 @@ export function settingsRowToSettings(
     weeklyDigest: typeof rawN.weeklyDigest === 'boolean' ? rawN.weeklyDigest : defaultNotifications.weeklyDigest,
     browserPush: typeof rawN.browserPush === 'boolean' ? rawN.browserPush : defaultNotifications.browserPush,
     extensionPromptTimes:
-      Array.isArray(rawN.extensionPromptTimes) &&
-      rawN.extensionPromptTimes.every((v) => typeof v === 'string')
-        ? (rawN.extensionPromptTimes as string[])
+      Array.isArray(rawN.extensionPromptTimes)
+        ? (rawN.extensionPromptTimes as unknown[])
+            .map((v) => normalizeWallClockTime(v))
+            .filter((v): v is string => Boolean(v))
         : defaultNotifications.extensionPromptTimes,
     extensionSnoozeMinutes:
       typeof rawN.extensionSnoozeMinutes === 'number' && Number.isFinite(rawN.extensionSnoozeMinutes)

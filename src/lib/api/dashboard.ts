@@ -6,12 +6,13 @@ import { useMemo } from 'react'
 import { useEvidenceQuery } from './evidence'
 import { useObjectivesQuery } from './objectives'
 import type { EvidenceRecord, Objective } from './mappers'
+import { toLocalDateString } from '../datetime'
 
 const DASHBOARD_SAMPLE_MIN_ITEMS = 3
 const formatDateOnly = (date: Date | string | number): string => {
   const d = new Date(date)
   if (Number.isNaN(d.getTime())) return ''
-  return d.toISOString().split('T')[0]
+  return toLocalDateString(d)
 }
 
 // ── Quarter helpers ────────────────────────────────────────────────────────────
