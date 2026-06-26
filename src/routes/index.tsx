@@ -38,10 +38,16 @@ import {
   useSettingsQuery,
   type FrameworkOption,
 } from "@/lib/api/settings";
+import {
+  createManagerInvite,
+  revokeActiveInvite,
+  signOffTransfer,
+} from "@/lib/api/manager-invites.functions";
 import { supabase } from "@/lib/supabase";
 import { formatUtcToLocal, getCurrentTimeZone, toLocalDateString } from "@/lib/datetime";
 import { generateSafeId } from "@/lib/utils/generateSafeId";
 import { FrameworkProvider, useFramework } from "@/context/FrameworkContext";
+import { ManagerActionsPanel } from "@/components/ManagerActionsPanel";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import {
@@ -1887,6 +1893,18 @@ function parseKnowledgeItemRow(item: KnowledgeItemRow): KnowledgeHubItem | null 
 /* ============================================================ */
 
 const LEVEL_OPTIONS = ["L1", "L2", "L3", "L4", "L5", "L6", "L7"];
+const PENDING_INVITE_CODE_KEY = "pending_invite_code";
+const ACTIVE_INVITE_URL_STORAGE_KEY = "active_manager_invite_url";
+
+function redirectAfterAuthSuccess() {
+  const pendingInvite = sessionStorage.getItem(PENDING_INVITE_CODE_KEY);
+  if (pendingInvite) {
+    sessionStorage.removeItem(PENDING_INVITE_CODE_KEY);
+    window.location.href = `/invite?code=${encodeURIComponent(pendingInvite)}`;
+  } else {
+    window.location.href = "/?tab=dashboard";
+  }
+}
 
 function App() {
   return (
@@ -1900,6 +1918,13 @@ function App() {
 
 function AppGate() {
   const { user, loading } = useAuth();
+  useEffect(() => {
+    if (!user) return;
+    const pendingInvite = sessionStorage.getItem(PENDING_INVITE_CODE_KEY);
+    if (!pendingInvite) return;
+    sessionStorage.removeItem(PENDING_INVITE_CODE_KEY);
+    window.location.href = `/invite?code=${encodeURIComponent(pendingInvite)}`;
+  }, [user]);
   if (loading) return null;
   return user ? <EvitraceApp /> : <AuthScreens />;
 }
@@ -1982,7 +2007,9 @@ function SigninForm({ onSwitch, notice }: { onSwitch: () => void; notice?: strin
     const ok = await signin(email, password);
     if (!ok) {
       setErr("Invalid email or password. Please try again.");
+      return;
     }
+    redirectAfterAuthSuccess();
   }
   return (
     <Card className="p-7">
@@ -2066,6 +2093,8 @@ function SigninForm({ onSwitch, notice }: { onSwitch: () => void; notice?: strin
 
 function SignupForm({ onSwitch }: { onSwitch: (notice?: string) => void }) {
   const { signup } = useAuth();
+  const isManagerOnboarding =
+    typeof window !== "undefined" && !!sessionStorage.getItem("pending_invite_code");
   const [f, setF] = useState<AuthUser & { password: string }>({
     fullName: "",
     email: "",
@@ -2082,16 +2111,18 @@ function SignupForm({ onSwitch }: { onSwitch: (notice?: string) => void }) {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
-    const required: (keyof (AuthUser & { password: string }))[] = [
-      "fullName",
-      "email",
-      "password",
-      "currentLevel",
-      "targetLevel",
-      "team",
-      "manager",
-      "managerEmail",
-    ];
+    const required: (keyof (AuthUser & { password: string }))[] = isManagerOnboarding
+      ? ["fullName", "email", "password", "currentLevel"]
+      : [
+          "fullName",
+          "email",
+          "password",
+          "currentLevel",
+          "targetLevel",
+          "team",
+          "manager",
+          "managerEmail",
+        ];
     for (const k of required) {
       if (!String(f[k]).trim()) {
         setErr("Please complete all required fields marked with *.");
@@ -2106,6 +2137,17 @@ function SignupForm({ onSwitch }: { onSwitch: (notice?: string) => void }) {
         jobTitle: unifiedCurrentLevel,
       });
       if (ok) {
+        if (isManagerOnboarding) {
+          redirectAfterAuthSuccess();
+          return;
+        }
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          redirectAfterAuthSuccess();
+          return;
+        }
         onSwitch("Account created. Please verify your email, then sign in.");
       }
     } catch {
@@ -2115,11 +2157,17 @@ function SignupForm({ onSwitch }: { onSwitch: (notice?: string) => void }) {
   return (
     <Card className="p-7 sm:p-8">
       <div className="text-xl font-bold" style={{ color: C.navy }}>
-        Create your account
+        {isManagerOnboarding ? "Complete Your Manager Profile" : "Create your account"}
       </div>
       <div className="text-xs mt-1" style={{ color: C.subtle }}>
-        Fields marked <span style={{ color: "#DE350B" }}>*</span> are required. You can complete
-        optional fields later in Settings.
+        {isManagerOnboarding ? (
+          "Set your professional title to connect with your engineer's workspace metrics."
+        ) : (
+          <>
+            Fields marked <span style={{ color: "#DE350B" }}>*</span> are required. You can
+            complete optional fields later in Settings.
+          </>
+        )}
       </div>
       <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-2">
         <SsoButton provider="Google" />
@@ -2183,95 +2231,128 @@ function SignupForm({ onSwitch }: { onSwitch: (notice?: string) => void }) {
           </div>
         </section>
 
-        <section>
-          <div
-            className="text-[11px] font-bold uppercase tracking-wider mb-3"
-            style={{ color: C.subtle }}
-          >
-            Role & Levels
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field
-              label="Current Job Title / Level"
-              required
-              hint="Your current role/title in your organization (e.g. Senior Engineer, L3)."
+        {isManagerOnboarding ? (
+          <section>
+            <div
+              className="text-[11px] font-bold uppercase tracking-wider mb-3"
+              style={{ color: C.subtle }}
             >
-              <Select
-                value={f.currentLevel}
-                onChange={(e) => upd("currentLevel", e.target.value)}
-              >
-                <option value="">Select your current level</option>
-                {LEVEL_OPTIONS.map((level) => (
-                  <option key={level} value={level}>
-                    {level}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Target level" required hint="The next level you're aiming for.">
-              <Input
-                value={f.targetLevel}
-                onChange={(e) => upd("targetLevel", e.target.value)}
-                placeholder="Staff Engineer"
-              />
-            </Field>
-            <div className="sm:col-span-2">
-              <Field label="Business unit / Team" required>
-                <Input
-                  value={f.team}
-                  onChange={(e) => upd("team", e.target.value)}
-                  placeholder="Payments Platform"
-                  icon={<Building2 size={14} />}
-                />
-              </Field>
+              Manager Profile
             </div>
-          </div>
-        </section>
-
-        <section>
-          <div
-            className="text-[11px] font-bold uppercase tracking-wider mb-3"
-            style={{ color: C.subtle }}
-          >
-            Reporting
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Reporting manager" required>
-              <Input
-                value={f.manager}
-                onChange={(e) => upd("manager", e.target.value)}
-                placeholder="Alex Morgan"
-                icon={<User size={14} />}
-              />
-            </Field>
-            <Field label="Manager email" required>
-              <Input
-                type="email"
-                value={f.managerEmail}
-                onChange={(e) => upd("managerEmail", e.target.value)}
-                placeholder="alex.morgan@acme.com"
-                icon={<Mail size={14} />}
-              />
-            </Field>
-            <div className="sm:col-span-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field
-                label="Manager's Manager (Skip-Level)"
-                optional
-                hint="The engineering leader or executive your direct manager reports to."
+                label="Corporate title"
+                required
+                hint='For example: "Engineering Manager", "Director of Engineering", or "VP of Engineering".'
               >
                 <Input
-                  value={f.skipLevel}
-                  onChange={(e) => upd("skipLevel", e.target.value)}
-                  placeholder="Priya Shah"
-                  icon={<ShieldCheck size={14} />}
+                  value={f.currentLevel}
+                  onChange={(e) => upd("currentLevel", e.target.value)}
+                  placeholder="Engineering Manager"
+                />
+              </Field>
+              <Field label="Management track level" optional>
+                <Input
+                  value={f.targetLevel}
+                  onChange={(e) => upd("targetLevel", e.target.value)}
+                  placeholder="M2 (optional)"
                 />
               </Field>
             </div>
-          </div>
-        </section>
+          </section>
+        ) : (
+          <>
+            <section>
+              <div
+                className="text-[11px] font-bold uppercase tracking-wider mb-3"
+                style={{ color: C.subtle }}
+              >
+                Role & Levels
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field
+                  label="Current Job Title / Level"
+                  required
+                  hint="Your current role/title in your organization (e.g. Senior Engineer, L3)."
+                >
+                  <Select
+                    value={f.currentLevel}
+                    onChange={(e) => upd("currentLevel", e.target.value)}
+                  >
+                    <option value="">Select your current level</option>
+                    {LEVEL_OPTIONS.map((level) => (
+                      <option key={level} value={level}>
+                        {level}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="Target level" required hint="The next level you're aiming for.">
+                  <Input
+                    value={f.targetLevel}
+                    onChange={(e) => upd("targetLevel", e.target.value)}
+                    placeholder="Staff Engineer"
+                  />
+                </Field>
+                <div className="sm:col-span-2">
+                  <Field label="Business unit / Team" required>
+                    <Input
+                      value={f.team}
+                      onChange={(e) => upd("team", e.target.value)}
+                      placeholder="Payments Platform"
+                      icon={<Building2 size={14} />}
+                    />
+                  </Field>
+                </div>
+              </div>
+            </section>
+
+            <section>
+              <div
+                className="text-[11px] font-bold uppercase tracking-wider mb-3"
+                style={{ color: C.subtle }}
+              >
+                Reporting
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Reporting manager" required>
+                  <Input
+                    value={f.manager}
+                    onChange={(e) => upd("manager", e.target.value)}
+                    placeholder="Alex Morgan"
+                    icon={<User size={14} />}
+                  />
+                </Field>
+                <Field label="Manager email" required>
+                  <Input
+                    type="email"
+                    value={f.managerEmail}
+                    onChange={(e) => upd("managerEmail", e.target.value)}
+                    placeholder="alex.morgan@acme.com"
+                    icon={<Mail size={14} />}
+                  />
+                </Field>
+                <div className="sm:col-span-2">
+                  <Field
+                    label="Manager's Manager (Skip-Level)"
+                    optional
+                    hint="The engineering leader or executive your direct manager reports to."
+                  >
+                    <Input
+                      value={f.skipLevel}
+                      onChange={(e) => upd("skipLevel", e.target.value)}
+                      placeholder="Priya Shah"
+                      icon={<ShieldCheck size={14} />}
+                    />
+                  </Field>
+                </div>
+              </div>
+            </section>
+          </>
+        )}
 
         <PrimaryBtn type="submit" className="w-full justify-center">
-          Create account
+          {isManagerOnboarding ? "Complete Setup & Launch Workspace" : "Create account"}
         </PrimaryBtn>
       </form>
       <div className="text-xs text-center mt-5" style={{ color: C.subtle }}>
@@ -2430,6 +2511,20 @@ function EvitraceApp() {
   const { tab: searchTab, section: searchSection, action: searchAction } = Route.useSearch();
   const navigate = Route.useNavigate();
   const userId = authUserId ?? "";
+  const [managedEngineers, setManagedEngineers] = useState<
+    Array<{
+      id: string;
+      fullName: string;
+      email: string;
+      status: "active" | "in_handover";
+      currentUserRole: "manager" | "skip_level" | "both";
+      isOutgoingDirectManagerInHandover: boolean;
+    }>
+  >([]);
+  const [selectedEngineerId, setSelectedEngineerId] = useState<string | null>(null);
+  const [managerRelationshipsRefreshNonce, setManagerRelationshipsRefreshNonce] = useState(0);
+  const [handoverNotes, setHandoverNotes] = useState("");
+  const [isSigningOffTransfer, setIsSigningOffTransfer] = useState(false);
 
   const [tab, setTab] = useState<Tab>(() => (isTab(searchTab) ? searchTab : "dashboard"));
   const [settingsSection, setSettingsSection] = useState<SettingsSection>(() =>
@@ -2443,6 +2538,121 @@ function EvitraceApp() {
     objectives: true,
     evidence: true,
   });
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadManagedEngineers() {
+      if (!userId) {
+        if (!active) return;
+        setManagedEngineers([]);
+        setSelectedEngineerId(null);
+        return;
+      }
+
+      const { data: relationships, error: relationshipsError } = await (supabase as any)
+        .from("reporting_relationships")
+        .select("engineer_id, status, relation_type")
+        .eq("manager_id", userId)
+        .in("status", ["active", "in_handover"]);
+
+      if (relationshipsError) {
+        if (active) {
+          setManagedEngineers([]);
+          setSelectedEngineerId(null);
+        }
+        return;
+      }
+
+      const relationshipRows = (relationships ?? []) as Array<{
+        engineer_id: string;
+        status: "active" | "in_handover";
+        relation_type: "direct_manager" | "skip_level";
+      }>;
+      const statusByEngineer = relationshipRows.reduce<Record<string, "active" | "in_handover">>(
+        (acc, row) => {
+          const existing = acc[row.engineer_id];
+          if (!existing || row.status === "in_handover") {
+            acc[row.engineer_id] = row.status;
+          }
+          return acc;
+        },
+        {},
+      );
+      const rolesByEngineer = relationshipRows.reduce<
+        Record<string, { hasDirectManager: boolean; hasSkipLevel: boolean }>
+      >((acc, row) => {
+        if (!acc[row.engineer_id]) {
+          acc[row.engineer_id] = { hasDirectManager: false, hasSkipLevel: false };
+        }
+        if (row.relation_type === "direct_manager") acc[row.engineer_id].hasDirectManager = true;
+        if (row.relation_type === "skip_level") acc[row.engineer_id].hasSkipLevel = true;
+        return acc;
+      }, {});
+      const outgoingDirectHandoverByEngineer = relationshipRows.reduce<Record<string, boolean>>(
+        (acc, row) => {
+          if (row.relation_type === "direct_manager" && row.status === "in_handover") {
+            acc[row.engineer_id] = true;
+          }
+          return acc;
+        },
+        {},
+      );
+
+      const engineerIds = Object.keys(statusByEngineer);
+      if (engineerIds.length === 0) {
+        if (!active) return;
+        setManagedEngineers([]);
+        setSelectedEngineerId(null);
+        return;
+      }
+
+      const { data: profiles, error: profilesError } = await (supabase as any)
+        .from("profiles")
+        .select("id, full_name, email")
+        .in("id", engineerIds);
+
+      if (profilesError) {
+        if (active) {
+          setManagedEngineers([]);
+          setSelectedEngineerId(null);
+        }
+        return;
+      }
+
+      const nextManaged = ((profiles ?? []) as Array<{
+        id: string;
+        full_name: string | null;
+        email: string | null;
+      }>)
+        .map((profile) => ({
+          id: profile.id,
+          fullName: profile.full_name?.trim() || "Unknown Engineer",
+          email: profile.email?.trim() || "No email",
+          status: statusByEngineer[profile.id] ?? "active",
+          currentUserRole: rolesByEngineer[profile.id]?.hasDirectManager
+            ? rolesByEngineer[profile.id]?.hasSkipLevel
+              ? "both"
+              : "manager"
+            : "skip_level",
+          isOutgoingDirectManagerInHandover: Boolean(outgoingDirectHandoverByEngineer[profile.id]),
+        }))
+        .sort((a, b) => a.fullName.localeCompare(b.fullName));
+
+      if (!active) return;
+      setManagedEngineers(nextManaged);
+      setSelectedEngineerId((prev) => {
+        if (!prev) return null;
+        return nextManaged.some((engineer) => engineer.id === prev) ? prev : null;
+      });
+    }
+
+    void loadManagedEngineers();
+
+    return () => {
+      active = false;
+    };
+  }, [userId, managerRelationshipsRefreshNonce]);
 
   const { data: evidence = [] } = useEvidenceQuery(userId, { includeSamples: sampleContent.evidence });
   const { data: archivedEvidence = [] } = useEvidenceQuery(userId, { archived: true });
@@ -2465,6 +2675,13 @@ function EvitraceApp() {
   const restoreObjectiveMutation = useRestoreObjective(userId);
   const deleteObjectiveMutation = useDeleteObjective(userId);
   const { data: assessments = [] } = useAssessmentsQuery(userId);
+  const { data: selectedEngineerEvidence = [] } = useEvidenceQuery(selectedEngineerId ?? "", {
+    includeSamples: false,
+  });
+  const { data: selectedEngineerObjectives = [] } = useObjectivesQuery(selectedEngineerId ?? "", {
+    includeSamples: false,
+  });
+  const { data: selectedEngineerAssessments = [] } = useAssessmentsQuery(selectedEngineerId ?? "");
   const finalizeAssessmentMutation = useFinalizeAssessment(userId);
   const deleteAssessmentMutation = useDeleteAssessment(userId);
   const updateTopicsMutation = useUpdateOneOnOneTopics(userId);
@@ -2626,8 +2843,20 @@ function EvitraceApp() {
   }, [assessments, sampleAssessments]);
 
   const radarData = useMemo(
-    () => deriveRadarData(assessments[0], frameworkCategories, currentFramework?.matrix ?? activeFrameworkMatrix),
-    [assessments, currentFramework?.matrix, frameworkCategories, activeFrameworkMatrix],
+    () =>
+      deriveRadarData(
+        selectedEngineerId ? selectedEngineerAssessments[0] : assessments[0],
+        frameworkCategories,
+        currentFramework?.matrix ?? activeFrameworkMatrix,
+      ),
+    [
+      selectedEngineerAssessments,
+      selectedEngineerId,
+      assessments,
+      currentFramework?.matrix,
+      frameworkCategories,
+      activeFrameworkMatrix,
+    ],
   );
 
   const [showCapture, setShowCapture] = useState(false);
@@ -2805,6 +3034,20 @@ function EvitraceApp() {
       }));
     return { objectives, evidence, knowledge };
   }, [globalSearchQuery, knowledgeItems, visibleEvidence, visibleObjectives]);
+  const contextEvidence = selectedEngineerId ? selectedEngineerEvidence : visibleEvidence;
+  const contextObjectives = selectedEngineerId ? selectedEngineerObjectives : visibleObjectives;
+  const contextAssessments = selectedEngineerId ? selectedEngineerAssessments : assessments;
+  const contextHistoryAssessments = selectedEngineerId ? selectedEngineerAssessments : historyAssessments;
+  const selectedEngineerRole = useMemo(() => {
+    if (!selectedEngineerId) return null;
+    const selected = managedEngineers.find((engineer) => engineer.id === selectedEngineerId);
+    return selected?.currentUserRole ?? null;
+  }, [managedEngineers, selectedEngineerId]);
+  const showTeamTransitionCard = useMemo(() => {
+    if (!selectedEngineerId) return false;
+    const selected = managedEngineers.find((engineer) => engineer.id === selectedEngineerId);
+    return Boolean(selected?.status === "in_handover" && selected.isOutgoingDirectManagerInHandover);
+  }, [managedEngineers, selectedEngineerId]);
 
   const pageTitle: Record<Tab, string> = {
     dashboard: "Dashboard",
@@ -2964,8 +3207,103 @@ function EvitraceApp() {
           globalSearchResults={globalSearchResults}
           onGlobalSearchSelect={handleGlobalSearchSelect}
         />
+        {managedEngineers.length > 0 && (
+          <div className="bg-slate-50 border-b border-slate-200 px-6 py-3 flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+              Workspace Context
+            </span>
+            <select
+              value={selectedEngineerId ?? ""}
+              onChange={(event) => setSelectedEngineerId(event.target.value || null)}
+              className="h-9 px-3 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+            >
+              <option value="">My Personal Workspace (Engineer Mode)</option>
+              {managedEngineers.map((engineer) => (
+                <option key={engineer.id} value={engineer.id}>
+                  {`${engineer.fullName} (${engineer.email})${
+                    engineer.status === "in_handover" ? " [Incoming Transfer]" : ""
+                  }`}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <main className="flex-1 px-4 py-4 md:px-8 md:py-6 print-main">
+          {showTeamTransitionCard && selectedEngineerId && (
+            <div className="bg-amber-50/50 border border-amber-100 rounded-xl p-5 mb-6 space-y-4">
+              <div>
+                <span className="text-xs font-semibold uppercase tracking-wider text-amber-700 block">
+                  Team Transition In Progress
+                </span>
+                <h4 className="text-sm font-medium text-slate-900">
+                  Brief the incoming manager before access transfers
+                </h4>
+              </div>
+              <div className="bg-white border border-slate-100 rounded-lg p-4">
+                <div className="text-xs font-medium text-slate-400 mb-2">
+                  AI-Compiled Technical Dossier (Past 6 Months)
+                </div>
+                <p className="text-sm text-slate-600">
+                  Compiling achievements from Bitbucket and Jira logs to construct the cross-team
+                  advocacy bridge...
+                </p>
+              </div>
+              <div>
+                <div className="text-xs font-medium text-slate-500 mb-2">
+                  Manager Insights &amp; Leadership Style Notes (Optional)
+                </div>
+                <textarea
+                  value={handoverNotes}
+                  onChange={(event) => setHandoverNotes(event.target.value)}
+                  placeholder="Add any personal notes on mentorship strengths, autonomy preferences, or career goals for the incoming manager..."
+                  className="w-full min-h-[80px] p-3 text-sm bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                />
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  disabled={isSigningOffTransfer}
+                  onClick={() => {
+                    if (!selectedEngineerId) return;
+                    setIsSigningOffTransfer(true);
+                    void supabase.auth
+                      .getSession()
+                      .then(({ data: { session } }) => {
+                        const token = session?.access_token;
+                        if (!token) {
+                          throw new Error("Session expired. Please sign in again.");
+                        }
+                        return signOffTransfer({
+                          data: {
+                            engineerId: selectedEngineerId,
+                            workEthicsNotes: handoverNotes.trim(),
+                            token,
+                          },
+                        });
+                      })
+                      .then(() => {
+                        toast.success("Transfer signed off and dossier shared.");
+                        setHandoverNotes("");
+                        setManagerRelationshipsRefreshNonce((prev) => prev + 1);
+                        setSelectedEngineerId(null);
+                      })
+                      .catch((error) => {
+                        const message =
+                          error instanceof Error ? error.message : "Failed to sign off transfer.";
+                        toast.error(message);
+                      })
+                      .finally(() => {
+                        setIsSigningOffTransfer(false);
+                      });
+                  }}
+                  className="inline-flex h-10 items-center rounded-lg bg-black px-4 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {isSigningOffTransfer ? "Signing off..." : "Sign Off & Transfer Advocacy"}
+                </button>
+              </div>
+            </div>
+          )}
           <AnimatePresence mode="wait">
             <motion.div
               key={tab}
@@ -2987,10 +3325,11 @@ function EvitraceApp() {
               {tab === "radar" && (
                 <RadarView
                   data={radarData}
-                  assessments={assessments}
-                  evidence={visibleEvidence}
-                  objectives={visibleObjectives}
+                  assessments={contextAssessments}
+                  evidence={contextEvidence}
+                  objectives={contextObjectives}
                   wizardDraft={wizardDraft}
+                  selectedEngineerId={selectedEngineerId}
                   onCreateObjective={() => setShowCreateObjective(true)}
                   onStartReview={() => setShowWizard(true)}
                   onResumeDraft={() => setShowWizard(true)}
@@ -3064,13 +3403,14 @@ function EvitraceApp() {
               )}
               {tab === "report" && (
                 <ReportView
-                  evidence={visibleEvidence}
-                  objectives={visibleObjectives}
+                  evidence={contextEvidence}
+                  objectives={contextObjectives}
                   radarData={radarData}
                   onFlash={flash}
                   review={review}
-                  assessments={assessments}
-                  historyAssessments={historyAssessments}
+                  assessments={contextAssessments}
+                  historyAssessments={contextHistoryAssessments}
+                  selectedEngineerId={selectedEngineerId}
                   onOpenAssessment={(a) => setReview(assessmentToSession(a))}
                   onSaveTopics={(assessmentId, topics) => {
                     updateTopicsMutation.mutate(
@@ -3093,6 +3433,14 @@ function EvitraceApp() {
                   onSampleContentChange={setSampleContent}
                   section={settingsSection}
                   onSectionChange={handleSettingsSectionChange}
+                />
+              )}
+              {selectedEngineerId &&
+                selectedEngineerRole &&
+                (tab === "dashboard" || tab === "radar" || tab === "report") && (
+                <ManagerActionsPanel
+                  engineerId={selectedEngineerId}
+                  currentUserRole={selectedEngineerRole}
                 />
               )}
             </motion.div>
@@ -4405,6 +4753,7 @@ function RadarView({
   evidence,
   objectives,
   wizardDraft,
+  selectedEngineerId,
   onCreateObjective,
   onStartReview,
   onResumeDraft,
@@ -4416,6 +4765,7 @@ function RadarView({
   evidence: EvidenceRecord[];
   objectives: Objective[];
   wizardDraft: AssessmentWizardDraft | null;
+  selectedEngineerId: string | null;
   onCreateObjective: () => void;
   onStartReview: () => void;
   onResumeDraft: () => void;
@@ -4826,6 +5176,7 @@ function RadarView({
             evidence={evidence}
             objectives={objectives}
             categoryMap={frameworkCategoryMap}
+            selectedEngineerId={selectedEngineerId}
             onCreateObjective={onCreateObjective}
           />
         </Card>
@@ -4840,6 +5191,7 @@ function HierarchicalMatrix({
   evidence,
   objectives,
   categoryMap,
+  selectedEngineerId: _selectedEngineerId,
   onCreateObjective,
 }: {
   data: ReturnType<typeof deriveRadarData>;
@@ -4847,6 +5199,7 @@ function HierarchicalMatrix({
   evidence: EvidenceRecord[];
   objectives: Objective[];
   categoryMap: FrameworkCategoryMap;
+  selectedEngineerId: string | null;
   onCreateObjective: () => void;
 }) {
   const [open, setOpen] = useState<Record<string, boolean>>({});
@@ -9405,10 +9758,14 @@ function ProfileSettings() {
 }
 
 function TeamSettings() {
-  const { user, updateUser } = useAuth();
+  const { user, userId, updateUser } = useAuth();
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [pwd, setPwd] = useState("");
+  const [activeInviteUrl, setActiveInviteUrl] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [showInviteOptions, setShowInviteOptions] = useState(false);
   const [draft, setDraft] = useState({
     manager: user?.manager ?? "",
     managerEmail: user?.managerEmail ?? "",
@@ -9448,6 +9805,100 @@ function TeamSettings() {
     toast.success("Team & manager details updated");
     cancelEdit();
   }
+
+  async function handleGenerateInvite(type: "manager" | "skip_level") {
+    try {
+      setIsGenerating(true);
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        toast.error("Session expired. Please sign in again.");
+        return;
+      }
+      const result = await createManagerInvite({ data: { relationType: type, token } });
+      const inviteUrl = window.location.origin + "/invite?code=" + result.code;
+      setActiveInviteUrl(inviteUrl);
+      window.localStorage.setItem(ACTIVE_INVITE_URL_STORAGE_KEY, inviteUrl);
+      setCopied(false);
+      setShowInviteOptions(false);
+      toast.success("Invite link generated");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to generate invite link.";
+      toast.error(message);
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  async function handleCopyLink() {
+    if (!activeInviteUrl) return;
+    try {
+      await navigator.clipboard.writeText(activeInviteUrl);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      toast.error("Couldn't copy link. Please copy it manually.");
+    }
+  }
+
+  async function handleRevokeInvite() {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) {
+        toast.error("Session expired. Please sign in again.");
+        return;
+      }
+      await revokeActiveInvite({ data: { token } });
+      setActiveInviteUrl(null);
+      window.localStorage.removeItem(ACTIVE_INVITE_URL_STORAGE_KEY);
+      setCopied(false);
+      toast.error("Invitation link deactivated. A new link can now be generated safely.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to deactivate invite link.";
+      toast.error(message);
+    }
+  }
+
+  useEffect(() => {
+    let active = true;
+
+    async function restoreActiveInvite() {
+      if (!userId) {
+        if (!active) return;
+        setActiveInviteUrl(null);
+        return;
+      }
+
+      const { data: existingInvite, error } = await supabase
+        .from("manager_invites")
+        .select("id, expires_at")
+        .eq("engineer_id", userId)
+        .is("used_at", null)
+        .gt("expires_at", new Date().toISOString())
+        .maybeSingle<{ id: string; expires_at: string }>();
+
+      if (!active) return;
+      if (error || !existingInvite) {
+        window.localStorage.removeItem(ACTIVE_INVITE_URL_STORAGE_KEY);
+        setActiveInviteUrl(null);
+        return;
+      }
+
+      const cachedInviteUrl = window.localStorage.getItem(ACTIVE_INVITE_URL_STORAGE_KEY);
+      setActiveInviteUrl(cachedInviteUrl ?? null);
+    }
+
+    void restoreActiveInvite();
+
+    return () => {
+      active = false;
+    };
+  }, [userId]);
 
   return (
     <Card className="p-6">
@@ -9506,6 +9957,92 @@ function TeamSettings() {
             onChange={(e) => setDraft((d) => ({ ...d, skipLevel: e.target.value }))}
           />
         </Field>
+      </div>
+      <div className="mt-6 bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+        <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 block mb-1">
+          Reporting Lines
+        </span>
+        <h3 className="text-sm font-medium text-slate-900 mb-4">
+          Connect your workspace to your team manager
+        </h3>
+
+        {!activeInviteUrl ? (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600">
+              No active manager linked. Invite your manager so they can review your evidence logs
+              and track objectives dynamically.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleGenerateInvite("manager")}
+                disabled={isGenerating}
+                className="inline-flex h-10 items-center justify-center rounded-lg bg-black px-4 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isGenerating ? "Generating..." : "Generate Invite Link"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowInviteOptions((prev) => !prev)}
+                className="inline-flex h-10 items-center justify-center rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
+              >
+                More options
+              </button>
+            </div>
+            {showInviteOptions && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs text-slate-600 mb-2">
+                  Need a different reporting type? Generate a skip-level invite instead.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void handleGenerateInvite("skip_level")}
+                  disabled={isGenerating}
+                  className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Generate Skip-level Invite
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 max-w-xl w-full">
+              <input
+                type="text"
+                readOnly
+                value={activeInviteUrl}
+                className="flex-1 h-9 px-3 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-600 outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => void handleCopyLink()}
+                className="h-9 px-4 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium rounded-lg transition-colors whitespace-nowrap flex items-center gap-1.5"
+              >
+                {copied ? (
+                  <>
+                    <CheckCircle2 size={14} />
+                    Copied!
+                  </>
+                ) : (
+                  "Copy Link"
+                )}
+              </button>
+            </div>
+            <div className="flex items-center justify-between max-w-xl w-full mt-2 text-xs">
+              <span className="text-amber-700 bg-amber-50/60 px-2 py-0.5 rounded font-medium">
+                Expires in 30 days
+              </span>
+              <button
+                type="button"
+                onClick={() => void handleRevokeInvite()}
+                className="text-slate-400 hover:text-rose-600 font-medium transition-colors"
+              >
+                Deactivate & revoke link
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <AnimatePresence>
@@ -11208,6 +11745,7 @@ function ReportView({
   review,
   assessments,
   historyAssessments,
+  selectedEngineerId: _selectedEngineerId,
   onOpenAssessment,
   onSaveTopics,
   onDeleteHistoryAssessment,
@@ -11222,6 +11760,7 @@ function ReportView({
   review: ReviewSession | null;
   assessments: Assessment[];
   historyAssessments: Assessment[];
+  selectedEngineerId: string | null;
   onOpenAssessment: (a: Assessment) => void;
   onSaveTopics: (assessmentId: string, topics: string[]) => void;
   onDeleteHistoryAssessment: (assessmentId: string) => void;
