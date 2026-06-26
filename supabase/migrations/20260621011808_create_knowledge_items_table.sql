@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS public.knowledge_items (
 
 ALTER TABLE public.knowledge_items ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can manage their own knowledge items" ON public.knowledge_items;
+
 CREATE POLICY "Users can manage their own knowledge items"
     ON public.knowledge_items
     FOR ALL

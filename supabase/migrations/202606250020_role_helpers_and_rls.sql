@@ -33,6 +33,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP POLICY IF EXISTS "Engineers and managers can view active reporting relationships"
+    ON public.reporting_relationships;
+
 CREATE POLICY "Engineers and managers can view active reporting relationships"
     ON public.reporting_relationships FOR SELECT
     USING (
@@ -42,6 +45,7 @@ CREATE POLICY "Engineers and managers can view active reporting relationships"
     );
 
 DROP POLICY IF EXISTS "Users can select own evidence" ON public.evidence;
+DROP POLICY IF EXISTS "Evitrace Unified Read Evidence Policy" ON public.evidence;
 
 CREATE POLICY "Evitrace Unified Read Evidence Policy"
     ON public.evidence FOR SELECT

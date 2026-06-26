@@ -1,7 +1,14 @@
-CREATE TYPE management_relationship_role AS ENUM ('direct_manager', 'skip_level');
-CREATE TYPE management_transition_status AS ENUM ('active', 'in_handover', 'archived');
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'management_relationship_role') THEN
+        CREATE TYPE management_relationship_role AS ENUM ('direct_manager', 'skip_level');
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'management_transition_status') THEN
+        CREATE TYPE management_transition_status AS ENUM ('active', 'in_handover', 'archived');
+    END IF;
+END $$;
 
-CREATE TABLE public.reporting_relationships (
+CREATE TABLE IF NOT EXISTS public.reporting_relationships (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     engineer_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     manager_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -14,10 +21,10 @@ CREATE TABLE public.reporting_relationships (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE UNIQUE INDEX unique_active_direct_manager ON public.reporting_relationships (engineer_id) 
+CREATE UNIQUE INDEX IF NOT EXISTS unique_active_direct_manager ON public.reporting_relationships (engineer_id) 
 WHERE (status IN ('active', 'in_handover') AND relation_type = 'direct_manager');
 
-CREATE UNIQUE INDEX unique_active_skip_level ON public.reporting_relationships (engineer_id) 
+CREATE UNIQUE INDEX IF NOT EXISTS unique_active_skip_level ON public.reporting_relationships (engineer_id) 
 WHERE (status = 'active' AND relation_type = 'skip_level');
 
 ALTER TABLE public.reporting_relationships ENABLE ROW LEVEL SECURITY;
