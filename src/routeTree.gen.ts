@@ -9,12 +9,60 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as ReportRouteImport } from './routes/report'
+import { Route as RadarRouteImport } from './routes/radar'
+import { Route as ObjectivesRouteImport } from './routes/objectives'
+import { Route as KnowledgeRouteImport } from './routes/knowledge'
 import { Route as InviteRouteImport } from './routes/invite'
+import { Route as FeedbackRouteImport } from './routes/feedback'
+import { Route as EvidenceRouteImport } from './routes/evidence'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SettingsTeamRouteImport } from './routes/settings.team'
+import { Route as SettingsProfileRouteImport } from './routes/settings.profile'
+import { Route as SettingsNotificationsRouteImport } from './routes/settings.notifications'
+import { Route as SettingsFrameworkRouteImport } from './routes/settings.framework'
+import { Route as SettingsExtensionRouteImport } from './routes/settings.extension'
+import { Route as SettingsDashboardRouteImport } from './routes/settings.dashboard'
 
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ReportRoute = ReportRouteImport.update({
+  id: '/report',
+  path: '/report',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RadarRoute = RadarRouteImport.update({
+  id: '/radar',
+  path: '/radar',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ObjectivesRoute = ObjectivesRouteImport.update({
+  id: '/objectives',
+  path: '/objectives',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KnowledgeRoute = KnowledgeRouteImport.update({
+  id: '/knowledge',
+  path: '/knowledge',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InviteRoute = InviteRouteImport.update({
   id: '/invite',
   path: '/invite',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FeedbackRoute = FeedbackRouteImport.update({
+  id: '/feedback',
+  path: '/feedback',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EvidenceRoute = EvidenceRouteImport.update({
+  id: '/evidence',
+  path: '/evidence',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -22,40 +70,211 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsTeamRoute = SettingsTeamRouteImport.update({
+  id: '/team',
+  path: '/team',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsProfileRoute = SettingsProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsNotificationsRoute = SettingsNotificationsRouteImport.update({
+  id: '/notifications',
+  path: '/notifications',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsFrameworkRoute = SettingsFrameworkRouteImport.update({
+  id: '/framework',
+  path: '/framework',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsExtensionRoute = SettingsExtensionRouteImport.update({
+  id: '/extension',
+  path: '/extension',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsDashboardRoute = SettingsDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => SettingsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/evidence': typeof EvidenceRoute
+  '/feedback': typeof FeedbackRoute
   '/invite': typeof InviteRoute
+  '/knowledge': typeof KnowledgeRoute
+  '/objectives': typeof ObjectivesRoute
+  '/radar': typeof RadarRoute
+  '/report': typeof ReportRoute
+  '/settings': typeof SettingsRouteWithChildren
+  '/settings/dashboard': typeof SettingsDashboardRoute
+  '/settings/extension': typeof SettingsExtensionRoute
+  '/settings/framework': typeof SettingsFrameworkRoute
+  '/settings/notifications': typeof SettingsNotificationsRoute
+  '/settings/profile': typeof SettingsProfileRoute
+  '/settings/team': typeof SettingsTeamRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/evidence': typeof EvidenceRoute
+  '/feedback': typeof FeedbackRoute
   '/invite': typeof InviteRoute
+  '/knowledge': typeof KnowledgeRoute
+  '/objectives': typeof ObjectivesRoute
+  '/radar': typeof RadarRoute
+  '/report': typeof ReportRoute
+  '/settings': typeof SettingsRouteWithChildren
+  '/settings/dashboard': typeof SettingsDashboardRoute
+  '/settings/extension': typeof SettingsExtensionRoute
+  '/settings/framework': typeof SettingsFrameworkRoute
+  '/settings/notifications': typeof SettingsNotificationsRoute
+  '/settings/profile': typeof SettingsProfileRoute
+  '/settings/team': typeof SettingsTeamRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/evidence': typeof EvidenceRoute
+  '/feedback': typeof FeedbackRoute
   '/invite': typeof InviteRoute
+  '/knowledge': typeof KnowledgeRoute
+  '/objectives': typeof ObjectivesRoute
+  '/radar': typeof RadarRoute
+  '/report': typeof ReportRoute
+  '/settings': typeof SettingsRouteWithChildren
+  '/settings/dashboard': typeof SettingsDashboardRoute
+  '/settings/extension': typeof SettingsExtensionRoute
+  '/settings/framework': typeof SettingsFrameworkRoute
+  '/settings/notifications': typeof SettingsNotificationsRoute
+  '/settings/profile': typeof SettingsProfileRoute
+  '/settings/team': typeof SettingsTeamRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/invite'
+  fullPaths:
+    | '/'
+    | '/evidence'
+    | '/feedback'
+    | '/invite'
+    | '/knowledge'
+    | '/objectives'
+    | '/radar'
+    | '/report'
+    | '/settings'
+    | '/settings/dashboard'
+    | '/settings/extension'
+    | '/settings/framework'
+    | '/settings/notifications'
+    | '/settings/profile'
+    | '/settings/team'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/invite'
-  id: '__root__' | '/' | '/invite'
+  to:
+    | '/'
+    | '/evidence'
+    | '/feedback'
+    | '/invite'
+    | '/knowledge'
+    | '/objectives'
+    | '/radar'
+    | '/report'
+    | '/settings'
+    | '/settings/dashboard'
+    | '/settings/extension'
+    | '/settings/framework'
+    | '/settings/notifications'
+    | '/settings/profile'
+    | '/settings/team'
+  id:
+    | '__root__'
+    | '/'
+    | '/evidence'
+    | '/feedback'
+    | '/invite'
+    | '/knowledge'
+    | '/objectives'
+    | '/radar'
+    | '/report'
+    | '/settings'
+    | '/settings/dashboard'
+    | '/settings/extension'
+    | '/settings/framework'
+    | '/settings/notifications'
+    | '/settings/profile'
+    | '/settings/team'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  EvidenceRoute: typeof EvidenceRoute
+  FeedbackRoute: typeof FeedbackRoute
   InviteRoute: typeof InviteRoute
+  KnowledgeRoute: typeof KnowledgeRoute
+  ObjectivesRoute: typeof ObjectivesRoute
+  RadarRoute: typeof RadarRoute
+  ReportRoute: typeof ReportRoute
+  SettingsRoute: typeof SettingsRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/report': {
+      id: '/report'
+      path: '/report'
+      fullPath: '/report'
+      preLoaderRoute: typeof ReportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/radar': {
+      id: '/radar'
+      path: '/radar'
+      fullPath: '/radar'
+      preLoaderRoute: typeof RadarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/objectives': {
+      id: '/objectives'
+      path: '/objectives'
+      fullPath: '/objectives'
+      preLoaderRoute: typeof ObjectivesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/knowledge': {
+      id: '/knowledge'
+      path: '/knowledge'
+      fullPath: '/knowledge'
+      preLoaderRoute: typeof KnowledgeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/invite': {
       id: '/invite'
       path: '/invite'
       fullPath: '/invite'
       preLoaderRoute: typeof InviteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/feedback': {
+      id: '/feedback'
+      path: '/feedback'
+      fullPath: '/feedback'
+      preLoaderRoute: typeof FeedbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/evidence': {
+      id: '/evidence'
+      path: '/evidence'
+      fullPath: '/evidence'
+      preLoaderRoute: typeof EvidenceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -65,12 +284,83 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/team': {
+      id: '/settings/team'
+      path: '/team'
+      fullPath: '/settings/team'
+      preLoaderRoute: typeof SettingsTeamRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/profile': {
+      id: '/settings/profile'
+      path: '/profile'
+      fullPath: '/settings/profile'
+      preLoaderRoute: typeof SettingsProfileRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/notifications': {
+      id: '/settings/notifications'
+      path: '/notifications'
+      fullPath: '/settings/notifications'
+      preLoaderRoute: typeof SettingsNotificationsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/framework': {
+      id: '/settings/framework'
+      path: '/framework'
+      fullPath: '/settings/framework'
+      preLoaderRoute: typeof SettingsFrameworkRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/extension': {
+      id: '/settings/extension'
+      path: '/extension'
+      fullPath: '/settings/extension'
+      preLoaderRoute: typeof SettingsExtensionRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/dashboard': {
+      id: '/settings/dashboard'
+      path: '/dashboard'
+      fullPath: '/settings/dashboard'
+      preLoaderRoute: typeof SettingsDashboardRouteImport
+      parentRoute: typeof SettingsRoute
+    }
   }
 }
 
+interface SettingsRouteChildren {
+  SettingsDashboardRoute: typeof SettingsDashboardRoute
+  SettingsExtensionRoute: typeof SettingsExtensionRoute
+  SettingsFrameworkRoute: typeof SettingsFrameworkRoute
+  SettingsNotificationsRoute: typeof SettingsNotificationsRoute
+  SettingsProfileRoute: typeof SettingsProfileRoute
+  SettingsTeamRoute: typeof SettingsTeamRoute
+}
+
+const SettingsRouteChildren: SettingsRouteChildren = {
+  SettingsDashboardRoute: SettingsDashboardRoute,
+  SettingsExtensionRoute: SettingsExtensionRoute,
+  SettingsFrameworkRoute: SettingsFrameworkRoute,
+  SettingsNotificationsRoute: SettingsNotificationsRoute,
+  SettingsProfileRoute: SettingsProfileRoute,
+  SettingsTeamRoute: SettingsTeamRoute,
+}
+
+const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
+  SettingsRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  EvidenceRoute: EvidenceRoute,
+  FeedbackRoute: FeedbackRoute,
   InviteRoute: InviteRoute,
+  KnowledgeRoute: KnowledgeRoute,
+  ObjectivesRoute: ObjectivesRoute,
+  RadarRoute: RadarRoute,
+  ReportRoute: ReportRoute,
+  SettingsRoute: SettingsRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

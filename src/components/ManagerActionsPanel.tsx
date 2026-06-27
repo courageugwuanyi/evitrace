@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { useAuth } from "@/lib/auth";
+import { sendNotification } from "@/lib/api/notifications.functions";
 import { supabase } from "@/lib/supabase";
 
 type ManagerActionsPanelProps = {
@@ -174,15 +175,24 @@ export function ManagerActionsPanel({ engineerId, currentUserRole }: ManagerActi
 
   async function saveFeedback() {
     if (!userId || !feedbackDraft.trim()) return;
+    const feedbackContent = feedbackDraft.trim();
     const { error } = await (supabase as any).from("manager_feedback").insert({
       engineer_id: engineerId,
       manager_id: userId,
-      content: feedbackDraft.trim(),
+      content: feedbackContent,
     });
     if (error) {
       toast.error(error.message);
       return;
     }
+    await sendNotification({
+      data: {
+        userId: engineerId,
+        type: "feedback",
+        title: "Manager added feedback",
+        description: `Your manager left notes: "${feedbackContent.slice(0, 96)}${feedbackContent.length > 96 ? "..." : ""}"`,
+      },
+    });
     setFeedbackDraft("");
     toast.success("Feedback saved");
     const { data } = await (supabase as any)

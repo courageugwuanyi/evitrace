@@ -8,14 +8,12 @@ const RELATION_TYPES = ["manager", "skip_level"] as const;
 
 type InviteRelationType = (typeof RELATION_TYPES)[number];
 type RelationshipType = "direct_manager" | "skip_level";
-type AccountRole = "engineer" | "manager" | "both";
 
 type VerifiedInviteRow = {
   id: string;
   engineer_id: string;
   relation_type: InviteRelationType;
   expires_at: string;
-  engineer_email: string | null;
 };
 
 type ReportingRelationshipRow = {
@@ -25,6 +23,64 @@ type ReportingRelationshipRow = {
   relation_type: RelationshipType;
   status: "active" | "in_handover" | "archived";
 };
+
+type TeamOverviewRelationshipRow = {
+  engineer_id: string;
+  status: "active" | "in_handover";
+};
+
+type TeamOverviewProfileRow = {
+  id: string;
+  full_name: string | null;
+  job_title: string | null;
+  avatar_url: string | null;
+};
+
+type TeamOverviewObjectiveRow = {
+  user_id: string;
+  status: string | null;
+};
+
+type TeamOverviewEvidenceRow = {
+  user_id: string;
+  status: string | null;
+  created_at: string | null;
+};
+
+export type ManagerTeamOverviewItem = {
+  engineerId: string;
+  fullName: string;
+  currentTitle: string | null;
+  avatarUrl: string | null;
+  pendingReviewsCount: number;
+  lastActivityAt: string | null;
+  completedObjectivesCount: number;
+  totalObjectivesCount: number;
+  promotionReadinessIndex: number;
+  relationshipStatus: "active" | "in_handover";
+};
+
+type AcceptManagerInviteRpcErrorCode =
+  | "INVALID_OR_EXPIRED"
+  | "DOMAIN_MISMATCH"
+  | "ACTIVE_MANAGER_CONFLICT"
+  | "ALREADY_LINKED";
+
+type AcceptManagerInviteRpcResponse =
+  | {
+      success: true;
+      engineer_id?: string;
+      relation_type?: InviteRelationType;
+      already_linked?: boolean;
+    }
+  | {
+      success: false;
+      error_code: AcceptManagerInviteRpcErrorCode;
+      message?: string;
+      expected_domain?: string;
+      received_domain?: string;
+      active_manager?: string;
+    };
 
 function getSupabaseConfig() {
   const url = process.env.VITE_SUPABASE_URL;
@@ -77,20 +133,6 @@ function generateInviteCode(): string {
 
 function mapInviteToRelationshipType(inviteType: InviteRelationType): RelationshipType {
   return inviteType === "manager" ? "direct_manager" : "skip_level";
-}
-
-function extractDomain(email: string): string {
-  const domain = email.split("@")[1]?.trim().toLowerCase() ?? "";
-  if (!domain) throw new Error("Unable to validate email domain for invite redemption.");
-  return domain;
-}
-
-function nextRoleForManager(
-  existingRole: AccountRole | null,
-): Extract<AccountRole, "manager" | "both"> {
-  if (existingRole === "both") return "both";
-  if (existingRole === "engineer") return "both";
-  return "manager";
 }
 
 export const createManagerInvite = createServerFn({ method: "POST" })
@@ -172,22 +214,6 @@ export const redeemManagerInvite = createServerFn({ method: "POST" })
       throw new Error("This invitation link is invalid or has expired.");
     }
 
-    const managerEmail = managerUser.email?.trim().toLowerCase();
-    if (!managerEmail) {
-      throw new Error("Unable to redeem invite: your account email is missing.");
-    }
-
-    const engineerEmail = invite.engineer_email?.trim().toLowerCase();
-    if (!engineerEmail) {
-      throw new Error("Unable to redeem invite: engineer profile email is missing.");
-    }
-
-    const engineerDomain = extractDomain(engineerEmail);
-    const managerDomain = extractDomain(managerEmail);
-    if (engineerDomain !== managerDomain) {
-      throw new Error("Use your company email to join this engineer workspace.");
-    }
-
     const { data: response, error: rpcError } = await supabase.rpc("accept_manager_invite", {
       target_hash: codeHash,
       current_manager_id: managerUser.id,
@@ -208,7 +234,20 @@ export const redeemManagerInvite = createServerFn({ method: "POST" })
       throw new Error(message);
     }
 
-    const responseRow = Array.isArray(response) ? response[0] : response;
+    const responseRow = (
+      Array.isArray(response) ? response[0] : response
+    ) as AcceptManagerInviteRpcResponse | null;
+    if (responseRow && typeof responseRow === "object" && responseRow.success === false) {
+      return {
+        success: false as const,
+        error_code: responseRow.error_code,
+        message: responseRow.message ?? null,
+        expected_domain: responseRow.expected_domain ?? null,
+        received_domain: responseRow.received_domain ?? null,
+        active_manager: responseRow.active_manager ?? null,
+      };
+    }
+
     const engineerId =
       responseRow && typeof responseRow === "object" && "engineer_id" in responseRow
         ? String((responseRow as { engineer_id: string }).engineer_id)
@@ -265,4 +304,140 @@ export const signOffTransfer = createServerFn({ method: "POST" })
     if (archiveError) throw new Error(archiveError.message);
 
     return { success: true as const, engineerId: data.engineerId };
+  });
+
+function isPendingStatus(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, "_");
+  return (
+    normalized === "pending_approval"
+    || normalized === "pending_review"
+    || normalized === "awaiting_approval"
+  );
+}
+
+function isCompletedStatus(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, "_");
+  return normalized === "completed";
+}
+
+export const getManagerTeamOverview = createServerFn({ method: "POST" })
+  .validator(z.object({ token: z.string().min(1) }))
+  .handler(async ({ data }) => {
+    const { supabase, user } = await requireAuthenticatedUser(data.token);
+
+    const { data: relationships, error: relationshipsError } = await supabase
+      .from("reporting_relationships")
+      .select("engineer_id, status")
+      .eq("manager_id", user.id)
+      .in("status", ["active", "in_handover"]);
+    if (relationshipsError) throw new Error(relationshipsError.message);
+
+    const relationshipRows = (relationships ?? []) as TeamOverviewRelationshipRow[];
+    if (relationshipRows.length === 0) return [] as ManagerTeamOverviewItem[];
+
+    const statusByEngineer = relationshipRows.reduce<Record<string, "active" | "in_handover">>(
+      (acc, row) => {
+        const existing = acc[row.engineer_id];
+        if (!existing || row.status === "in_handover") {
+          acc[row.engineer_id] = row.status;
+        }
+        return acc;
+      },
+      {},
+    );
+
+    const engineerIds = Object.keys(statusByEngineer);
+    const { data: profiles, error: profilesError } = await supabase
+      .from("profiles")
+      .select("id, full_name, job_title, avatar_url")
+      .in("id", engineerIds);
+    if (profilesError) throw new Error(profilesError.message);
+
+    const { data: objectives, error: objectivesError } = await supabase
+      .from("objectives")
+      .select("user_id, status")
+      .in("user_id", engineerIds)
+      .eq("is_archived", false);
+    if (objectivesError) throw new Error(objectivesError.message);
+
+    const { data: evidence, error: evidenceError } = await supabase
+      .from("evidence")
+      .select("user_id, status, created_at")
+      .in("user_id", engineerIds)
+      .eq("is_archived", false);
+    if (evidenceError) throw new Error(evidenceError.message);
+
+    const objectiveRows = (objectives ?? []) as TeamOverviewObjectiveRow[];
+    const evidenceRows = (evidence ?? []) as TeamOverviewEvidenceRow[];
+
+    const objectiveStatsByEngineer = objectiveRows.reduce<
+      Record<string, { completedCount: number; totalCount: number; pendingCount: number }>
+    >((acc, row) => {
+      if (!acc[row.user_id]) {
+        acc[row.user_id] = { completedCount: 0, totalCount: 0, pendingCount: 0 };
+      }
+      acc[row.user_id].totalCount += 1;
+      if (isCompletedStatus(row.status)) acc[row.user_id].completedCount += 1;
+      if (isPendingStatus(row.status)) acc[row.user_id].pendingCount += 1;
+      return acc;
+    }, {});
+
+    const evidenceStatsByEngineer = evidenceRows.reduce<
+      Record<string, { pendingCount: number; lastActivityAt: string | null }>
+    >((acc, row) => {
+      if (!acc[row.user_id]) {
+        acc[row.user_id] = { pendingCount: 0, lastActivityAt: null };
+      }
+      if (isPendingStatus(row.status)) acc[row.user_id].pendingCount += 1;
+      const existing = acc[row.user_id].lastActivityAt;
+      if (row.created_at && (!existing || row.created_at > existing)) {
+        acc[row.user_id].lastActivityAt = row.created_at;
+      }
+      return acc;
+    }, {});
+
+    const profileMap = new Map(
+      ((profiles ?? []) as TeamOverviewProfileRow[]).map((profile) => [profile.id, profile]),
+    );
+
+    const overviewRows = engineerIds
+      .map((engineerId) => {
+        const profile = profileMap.get(engineerId);
+        const objectiveStats = objectiveStatsByEngineer[engineerId] ?? {
+          completedCount: 0,
+          totalCount: 0,
+          pendingCount: 0,
+        };
+        const evidenceStats = evidenceStatsByEngineer[engineerId] ?? {
+          pendingCount: 0,
+          lastActivityAt: null,
+        };
+        const pendingReviewsCount = objectiveStats.pendingCount + evidenceStats.pendingCount;
+        const promotionReadinessIndex =
+          objectiveStats.totalCount > 0
+            ? Math.round((objectiveStats.completedCount / objectiveStats.totalCount) * 100)
+            : 0;
+
+        return {
+          engineerId,
+          fullName: profile?.full_name?.trim() || "Unknown Engineer",
+          currentTitle: profile?.job_title?.trim() || null,
+          avatarUrl: profile?.avatar_url ?? null,
+          pendingReviewsCount,
+          lastActivityAt: evidenceStats.lastActivityAt,
+          completedObjectivesCount: objectiveStats.completedCount,
+          totalObjectivesCount: objectiveStats.totalCount,
+          promotionReadinessIndex,
+          relationshipStatus: statusByEngineer[engineerId] ?? "active",
+        } as ManagerTeamOverviewItem;
+      })
+      .sort((a, b) => {
+        const aTs = a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : 0;
+        const bTs = b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : 0;
+        return bTs - aTs;
+      });
+
+    return overviewRows;
   });

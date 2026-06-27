@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { supabase } from "../supabase";
 import { toLocalDateString } from "../datetime";
 import { objectiveRowToObjective, objectiveToRow, type Objective } from "./mappers";
+import { sendNotification } from "./notifications.functions";
 
 // ── Exported interfaces ────────────────────────────────────────────────────────
 
@@ -410,6 +411,17 @@ export function useMoveObjective(userId: string) {
           .eq("source", "Objective")
           .eq("manager_notes", objectiveEvidenceMarker(id));
         if (cleanupError) throw cleanupError;
+      }
+
+      if (previousStatus === "Pending Approval" && status === "In Progress") {
+        await sendNotification({
+          data: {
+            userId,
+            type: "objective",
+            title: "Objective approved",
+            description: `Your growth metric "${objective.title}" was moved to Approved after manager review.`,
+          },
+        });
       }
     },
 

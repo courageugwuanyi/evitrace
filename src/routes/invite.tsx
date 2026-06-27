@@ -7,10 +7,17 @@ import { supabase } from "@/lib/supabase";
 
 type InviteStatus = "loading" | "success" | "error" | "auth_required";
 const PENDING_INVITE_CODE_KEY = "pending_invite_code";
+const MANAGER_ONBOARDING_CONTEXT_KEY = "manager_onboarding_context";
 
 const MISSING_CODE_MESSAGE =
   "Missing invitation code. Please ask your engineer for a valid transition link.";
-const DOMAIN_MISMATCH_MESSAGE = "Use your company email to join this engineer workspace.";
+type InviteErrorState = {
+  code: "DOMAIN_MISMATCH" | "ACTIVE_MANAGER_CONFLICT" | "INVALID_OR_EXPIRED" | "UNKNOWN";
+  expected?: string;
+  received?: string;
+  activeManager?: string;
+  message?: string;
+};
 
 export const Route = createFileRoute("/invite")({
   component: InviteRedeemPage,
@@ -19,8 +26,19 @@ export const Route = createFileRoute("/invite")({
 function InviteRedeemPage() {
   const [status, setStatus] = useState<InviteStatus>("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<InviteErrorState | null>(null);
   const redirectTimerRef = useRef<number | null>(null);
   const hasFired = useRef(false);
+
+  async function handleSignOutAndRedirect() {
+    try {
+      await supabase.auth.signOut();
+    } finally {
+      sessionStorage.removeItem(PENDING_INVITE_CODE_KEY);
+      sessionStorage.removeItem(MANAGER_ONBOARDING_CONTEXT_KEY);
+      window.location.assign("/");
+    }
+  }
 
   useEffect(() => {
     if (hasFired.current) return;
@@ -43,6 +61,7 @@ function InviteRedeemPage() {
       try {
         setStatus("loading");
         setErrorMessage(null);
+        setInviteError(null);
         const {
           data: { session },
         } = await supabase.auth.getSession();
@@ -59,23 +78,62 @@ function InviteRedeemPage() {
         if (!inviteCodeToRedeem) {
           throw new Error(MISSING_CODE_MESSAGE);
         }
-        await redeemManagerInvite({ data: { rawCode: inviteCodeToRedeem, token } });
+        sessionStorage.setItem(MANAGER_ONBOARDING_CONTEXT_KEY, "1");
+        const response = await redeemManagerInvite({
+          data: { rawCode: inviteCodeToRedeem, token },
+        });
+        if (!response.success) {
+          setStatus("error");
+          if (response.error_code === "DOMAIN_MISMATCH") {
+            setInviteError({
+              code: "DOMAIN_MISMATCH",
+              expected: response.expected_domain ?? undefined,
+              received: response.received_domain ?? undefined,
+            });
+            setErrorMessage(
+              "This workspace is restricted to enterprise accounts. Please sign out and retry with your company email.",
+            );
+            return;
+          }
+          if (response.error_code === "ACTIVE_MANAGER_CONFLICT") {
+            setInviteError({
+              code: "ACTIVE_MANAGER_CONFLICT",
+              activeManager: response.active_manager ?? undefined,
+            });
+            setErrorMessage(
+              "This engineer already has an active direct manager assigned. Ask the engineer to revoke old manager access before using a new direct-manager invite.",
+            );
+            return;
+          }
+          if (response.error_code === "INVALID_OR_EXPIRED") {
+            setInviteError({
+              code: "INVALID_OR_EXPIRED",
+              message: response.message ?? undefined,
+            });
+            setErrorMessage(response.message ?? "This invitation link is invalid or has expired.");
+            return;
+          }
+          setInviteError({
+            code: "UNKNOWN",
+            message: response.message ?? undefined,
+          });
+          setErrorMessage(response.message ?? "Invitation could not be completed.");
+          return;
+        }
         sessionStorage.removeItem(PENDING_INVITE_CODE_KEY);
+        sessionStorage.removeItem(MANAGER_ONBOARDING_CONTEXT_KEY);
 
         if (!active) return;
         setStatus("success");
         redirectTimerRef.current = window.setTimeout(() => {
-          window.location.assign("/?tab=dashboard");
+          window.location.assign("/");
         }, 1500);
       } catch (error) {
         if (!active) return;
         const message = error instanceof Error ? error.message : "Failed to redeem invitation.";
-        const normalized = message.toLowerCase();
-        const isDomainMismatch =
-          normalized.includes("company email") || normalized.includes("domain");
-
         setStatus("error");
-        setErrorMessage(isDomainMismatch ? DOMAIN_MISMATCH_MESSAGE : message);
+        setInviteError({ code: "UNKNOWN", message });
+        setErrorMessage(message);
       }
     }
 
@@ -107,14 +165,30 @@ function InviteRedeemPage() {
           <span className="text-rose-700 bg-rose-50 px-2.5 py-1 rounded text-xs font-semibold uppercase tracking-wider">
             Invite issue
           </span>
-          <h1 className="mt-4 text-xl font-semibold text-slate-900">Invitation could not be completed</h1>
-          <p className="mt-3 text-sm text-slate-600">{errorMessage}</p>
+          <h1 className="mt-4 text-xl font-semibold text-slate-900">
+            {inviteError?.code === "DOMAIN_MISMATCH"
+              ? "Corporate Domain Mismatch"
+              : inviteError?.code === "ACTIVE_MANAGER_CONFLICT"
+                ? "Active Manager Conflict Detected"
+                : "Invitation could not be completed"}
+          </h1>
+          <p className="mt-3 text-sm text-slate-600">
+            {inviteError?.code === "DOMAIN_MISMATCH"
+              ? `This workspace is restricted to enterprise accounts. The engineer belongs to @${inviteError.expected ?? "company-domain"}, but you signed up using @${inviteError.received ?? "personal-domain"}.`
+              : inviteError?.code === "ACTIVE_MANAGER_CONFLICT"
+                ? `This engineer workspace is currently connected to an active direct manager (${inviteError.activeManager ?? "another manager"}). To protect historical metrics, please have the engineer revoke access or initiate a transfer sequence before claiming this link.`
+                : errorMessage}
+          </p>
           <button
             type="button"
-            onClick={() => window.location.assign("/")}
+            onClick={() => {
+              void handleSignOutAndRedirect();
+            }}
             className="mt-6 inline-flex h-10 items-center justify-center rounded-lg bg-black px-4 text-sm font-medium text-white transition-colors hover:bg-slate-800"
           >
-            Return to Home
+            {inviteError?.code === "DOMAIN_MISMATCH"
+              ? "Sign Out & Use Company Email"
+              : "Disconnect & Clear Session"}
           </button>
         </div>
       )}
@@ -147,9 +221,7 @@ function InviteRedeemPage() {
             <CheckCircle2 size={28} />
           </div>
           <h1 className="text-xl font-semibold text-slate-900">Workspace Connected!</h1>
-          <p className="mt-2 text-sm text-slate-600">
-            Redirecting you to your team dashboard...
-          </p>
+          <p className="mt-2 text-sm text-slate-600">Redirecting you to your team dashboard...</p>
         </div>
       )}
     </div>

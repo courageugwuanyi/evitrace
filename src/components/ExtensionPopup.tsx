@@ -42,8 +42,8 @@ type KnowledgeEntry = {
 };
 
 const WEB_APP_BASE_URL = "http://192.168.1.130:8080";
-const SETTINGS_URL = `${WEB_APP_BASE_URL}/?tab=settings`;
-const PROFILE_SETTINGS_URL = `${WEB_APP_BASE_URL}/?tab=settings&section=profile`;
+const SETTINGS_URL = `${WEB_APP_BASE_URL}/settings/profile`;
+const PROFILE_SETTINGS_URL = `${WEB_APP_BASE_URL}/settings/profile`;
 const BRAND_ICON_SRC = "/icons/icon128.png?v=20260621";
 const KNOWLEDGE_LOG_STORAGE_KEY_PREFIX = "evitrace.extension.knowledgeLog";
 
