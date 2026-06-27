@@ -484,6 +484,90 @@ export type Database = {
         ]
       }
 
+      // ── three_sixty_feedback ───────────────────────────────────────────────────
+      three_sixty_feedback: {
+        Row: {
+          id: string
+          engineer_id: string
+          reviewer_id: string
+          relationship_type:
+            | 'peer_engineer'
+            | 'ux_partner'
+            | 'product_manager'
+            | 'pmm_partner'
+            | 'quality_engineer'
+          status: 'pending' | 'submitted'
+          continue_feedback: string | null
+          stop_feedback: string | null
+          start_feedback: string | null
+          execution_vector:
+            | 'working_below'
+            | 'meeting_expectations'
+            | 'executing_above'
+            | null
+          created_at: string
+          submitted_at: string | null
+        }
+        Insert: {
+          id?: string
+          engineer_id: string
+          reviewer_id: string
+          relationship_type:
+            | 'peer_engineer'
+            | 'ux_partner'
+            | 'product_manager'
+            | 'pmm_partner'
+            | 'quality_engineer'
+          status?: 'pending' | 'submitted'
+          continue_feedback?: string | null
+          stop_feedback?: string | null
+          start_feedback?: string | null
+          execution_vector?:
+            | 'working_below'
+            | 'meeting_expectations'
+            | 'executing_above'
+            | null
+          created_at?: string
+          submitted_at?: string | null
+        }
+        Update: {
+          id?: string
+          engineer_id?: string
+          reviewer_id?: string
+          relationship_type?:
+            | 'peer_engineer'
+            | 'ux_partner'
+            | 'product_manager'
+            | 'pmm_partner'
+            | 'quality_engineer'
+          status?: 'pending' | 'submitted'
+          continue_feedback?: string | null
+          stop_feedback?: string | null
+          start_feedback?: string | null
+          execution_vector?:
+            | 'working_below'
+            | 'meeting_expectations'
+            | 'executing_above'
+            | null
+          created_at?: string
+          submitted_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'three_sixty_feedback_engineer_id_fkey'
+            columns: ['engineer_id']
+            referencedRelation: 'users'
+            referencedColumns: ['id']
+          },
+          {
+            foreignKeyName: 'three_sixty_feedback_reviewer_id_fkey'
+            columns: ['reviewer_id']
+            referencedRelation: 'users'
+            referencedColumns: ['id']
+          }
+        ]
+      }
+
       // ── inbox_events ──────────────────────────────────────────────────────────
       inbox_events: {
         Row: {
@@ -635,3 +719,27 @@ export type TablesInsert<T extends keyof Database['public']['Tables']> =
 
 export type TablesUpdate<T extends keyof Database['public']['Tables']> =
   Database['public']['Tables'][T]['Update']
+
+export interface ThreeSixtyFeedback {
+  id: string
+  engineer_id: string
+  reviewer_id: string
+  relationship_type:
+    | 'peer_engineer'
+    | 'ux_partner'
+    | 'product_manager'
+    | 'pmm_partner'
+    | 'quality_engineer'
+  status: 'pending' | 'submitted'
+  continue_feedback: string | null
+  stop_feedback: string | null
+  start_feedback: string | null
+  execution_vector: 'working_below' | 'meeting_expectations' | 'executing_above' | null
+  created_at: string
+  submitted_at: string | null
+  profiles?: {
+    full_name: string
+    job_title: string
+    avatar_url: string | null
+  }
+}

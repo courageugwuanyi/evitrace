@@ -30,12 +30,22 @@ export type FrameworkOption = {
 
 const SYSTEM_DEFAULT_NAME_SUFFIX_REGEX = /\s*\((?:system default|built-in template)\)\s*$/i
 
+function normalizeFrameworkName(rawName: string): string {
+  const cleaned = rawName
+    .replace(SYSTEM_DEFAULT_NAME_SUFFIX_REGEX, '')
+    .replace(/^company\s+custom\s+/i, '')
+    .replace(/\breference guide\b/i, 'Framework')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+  return cleaned || rawName.trim() || rawName
+}
+
 export function getFrameworkDisplayName(framework: Pick<FrameworkOption, 'name' | 'is_system_default'>): string {
-  const cleanTemplateName = framework.name.replace(SYSTEM_DEFAULT_NAME_SUFFIX_REGEX, '').trim()
+  const cleanTemplateName = normalizeFrameworkName(framework.name)
   if (framework.is_system_default) {
-    return `${cleanTemplateName || framework.name} (Built-in Template)`
+    return `${cleanTemplateName || framework.name} (Built-in)`
   }
-  return framework.name.trim() || framework.name
+  return cleanTemplateName
 }
 
 function normalizeWallClockTime(value: unknown): string | null {

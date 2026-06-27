@@ -1,755 +1,730 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { ExternalLink, Link as LinkIcon, MessageCircleHeart, Save, Send, Share2, X } from "lucide-react";
-import React, { useEffect, useMemo, useState } from "react";
+import { ChevronDown, Loader2 } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
-import { useAddFeedback, useFeedbackQuery } from "@/lib/api/feedback";
-import { toLocalDateString } from "@/lib/datetime";
-import type { FrameworkCategoryDefinition } from "@/features/home/shared/framework-taxonomy";
-import { buildFeedbackScoreMap, resolveFrameworkCategoryEntries, resolveFrameworkEffectivenessScale } from "@/features/home/shared/framework-taxonomy";
-import { formatDisplayDate } from "@/features/home/shared/formatters";
-import { Badge, C, Card, Field, GhostBtn, Input, Pill, PrimaryBtn, Select } from "@/features/home/shared/ui-kit";
-import { useFramework } from "@/context/FrameworkContext";
+import {
+  getEngineerFeedbackDossier,
+  getIncomingFeedbackRequests,
+  getOutgoingFeedbackRequests,
+  requestPeerFeedback,
+  submitPeerFeedback,
+} from "@/lib/api/feedback";
+import { sendNotification } from "@/lib/api/notifications.functions";
+import { supabase } from "@/lib/supabase";
+import type { ThreeSixtyFeedback } from "@/lib/database.types";
+import { Card, PrimaryBtn, C, Select } from "@/features/home/shared/ui-kit";
 
-type FeedbackType = "Manager Requested" | "Ad-hoc" | "Peer Review";
+type FeedbackViewMode = "my_insights" | "requests";
+type RelationshipType = ThreeSixtyFeedback["relationship_type"];
+type ExecutionVector = NonNullable<ThreeSixtyFeedback["execution_vector"]>;
 
-function FeedbackTypeBadge({ type }: { type: FeedbackType }) {
-  const tone: "info" | "success" | "neutral" =
-    type === "Manager Requested" ? "info" : type === "Peer Review" ? "success" : "neutral";
-  return <Badge tone={tone}>{type}</Badge>;
-}
-
-type SeniorityBand = "Junior / Associate" | "Mid-Level" | "Senior / Lead / Staff";
-
-const SENIORITY_TEMPLATE: Record<
-  SeniorityBand,
-  {
-    prompt: string;
-    focusAreas: string[];
-    requestFocusSeed: string;
-  }
-> = {
-  "Junior / Associate": {
-    prompt: "Template tuned for early-career growth and execution consistency.",
-    focusAreas: [
-      "Learning acceleration and speed of skill acquisition.",
-      "Executing assigned ticket mechanics with clarity and quality.",
-      "Applying pull request code review notes in follow-up work.",
-    ],
-    requestFocusSeed:
-      "How effectively am I applying code review feedback and accelerating my learning on assigned tickets?",
-  },
-  "Mid-Level": {
-    prompt: "Template tuned for independent delivery and broader team contribution.",
-    focusAreas: [
-      "Feature branch ownership from planning through merge readiness.",
-      "Prompt pull request testing and issue resolution.",
-      "Self-sufficient debugging and active cross-functional participation.",
-    ],
-    requestFocusSeed:
-      "How effectively am I owning features end-to-end, testing PRs promptly, and collaborating across functions?",
-  },
-  "Senior / Lead / Staff": {
-    prompt: "Template tuned for technical leadership and organizational impact.",
-    focusAreas: [
-      "Scalable systems architecture and long-term maintainability.",
-      "Technical mentorship and raising engineering standards.",
-      "Risk mitigation, trade-off decisions, and product alignment.",
-    ],
-    requestFocusSeed:
-      "How effectively am I driving scalable architecture, mentoring others, and balancing engineering risk with product goals?",
-  },
+type TeamMember = {
+  id: string;
+  fullName: string;
+  jobTitle: string;
+  avatarUrl: string | null;
 };
 
-function resolveSeniorityBand(level: string | undefined): SeniorityBand {
-  const value = (level ?? "").trim().toLowerCase();
-  if (value.includes("junior") || value.includes("associate")) return "Junior / Associate";
-  if (value.includes("senior") || value.includes("lead") || value.includes("staff")) {
-    return "Senior / Lead / Staff";
+type FormStateByRequest = Record<
+  string,
+  {
+    continueText: string;
+    stopText: string;
+    startText: string;
+    vector: ExecutionVector;
   }
-  return "Mid-Level";
+>;
+
+const RELATION_OPTIONS: Array<{ value: RelationshipType; label: string }> = [
+  { value: "peer_engineer", label: "Peer Engineer" },
+  { value: "ux_partner", label: "UX Partner" },
+  { value: "product_manager", label: "Product Manager" },
+  { value: "pmm_partner", label: "PMM" },
+  { value: "quality_engineer", label: "Quality Engineer" },
+];
+
+const EXECUTION_VECTOR_OPTIONS: Array<{ value: ExecutionVector; label: string }> = [
+  { value: "working_below", label: "Working below current level baseline" },
+  { value: "meeting_expectations", label: "Fully meeting level expectations" },
+  { value: "executing_above", label: "Actively executing at the next level up" },
+];
+
+function EmptySlate({ message }: { message: string }) {
+  return (
+    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-5 py-8 text-center text-sm text-slate-500">
+      {message}
+    </div>
+  );
 }
 
-function normalizeExternalUrl(raw: string): string | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  try {
-    const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-    const parsed = new URL(withProtocol);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
-    return parsed.toString();
-  } catch {
-    return null;
+function requestLabel(member: TeamMember | null): string {
+  if (!member) return "";
+  return member.jobTitle ? `${member.fullName} (${member.jobTitle})` : member.fullName;
+}
+
+function initialsFor(name: string): string {
+  const parts = name
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return "TM";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
+}
+
+function shuffleStrings(values: string[]): string[] {
+  const shuffled = [...values];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
+  return shuffled;
 }
 
-function FeedbackTextarea({
-  value,
-  onChange,
-  rows = 4,
-  placeholder,
-}: {
-  value: string;
-  onChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
-  rows?: number;
-  placeholder?: string;
-}) {
-  return (
-    <textarea
-      value={value}
-      onChange={onChange}
-      rows={rows}
-      placeholder={placeholder}
-      className="w-full rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#4C9AFF] focus:border-[#2684FF]"
-      style={{ borderColor: C.border, color: C.navy }}
-    />
-  );
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "object" && error !== null && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim().length > 0) return message;
+  }
+  return fallback;
 }
 
-function ModalBackdrop({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
-  return (
-    <motion.div
-      className="fixed inset-0 z-50 flex items-center justify-center p-5"
-      style={{ background: "rgba(9, 30, 66, 0.54)" }}
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      onClick={onClose}
-    >
-      {children}
-    </motion.div>
-  );
+function formatDateLabel(isoDate: string): string {
+  return new Date(isoDate).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 }
 
-function AskFeedbackModal({
-  initialFocus,
-  onClose,
-  onSubmit,
-}: {
-  initialFocus: string;
-  onClose: () => void;
-  onSubmit: (reviewer: string, focus: string) => void;
-}) {
-  const [reviewer, setReviewer] = useState("");
-  const [focus, setFocus] = useState(initialFocus);
-  const canSend = reviewer.trim().length > 0 && focus.trim().length > 0;
-
-  return (
-    <ModalBackdrop onClose={onClose}>
-      <motion.div
-        initial={{ opacity: 0, scale: 0.97, y: 8 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.97, y: 8 }}
-        transition={{ duration: 0.2 }}
-        className="bg-white rounded-lg shadow-2xl w-full max-w-lg border"
-        style={{ borderColor: C.border }}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div
-          className="p-5 border-b flex items-center justify-between"
-          style={{ borderColor: C.border }}
-        >
-          <div className="flex items-center gap-2">
-            <div
-              className="w-8 h-8 rounded flex items-center justify-center"
-              style={{ background: C.primarySoft, color: C.primary }}
-            >
-              <MessageCircleHeart size={16} />
-            </div>
-            <div>
-              <div className="text-sm font-bold" style={{ color: C.navy }}>
-                Request 360 Feedback
-              </div>
-              <div className="text-xs" style={{ color: C.subtle }}>
-                Responses can be submitted anonymously.
-              </div>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded hover:bg-[#F4F5F7]"
-            style={{ color: C.slate }}
-          >
-            <X size={16} />
-          </button>
-        </div>
-        <div className="p-5 space-y-4">
-          <Field label="Reviewer (name or email)">
-            <Input
-              value={reviewer}
-              onChange={(event) => setReviewer(event.target.value)}
-              placeholder="e.g. Daniela Espitia"
-            />
-          </Field>
-          <Field label="Focus area">
-            <FeedbackTextarea
-              value={focus}
-              onChange={(event) => setFocus(event.target.value)}
-              rows={4}
-              placeholder="What would you like feedback on? e.g. Collaboration on the payments migration."
-            />
-          </Field>
-        </div>
-        <div className="p-4 border-t flex justify-end gap-2" style={{ borderColor: C.border }}>
-          <GhostBtn onClick={onClose}>Cancel</GhostBtn>
-          <PrimaryBtn
-            onClick={() => canSend && onSubmit(reviewer.trim(), focus.trim())}
-            disabled={!canSend}
-          >
-            <Send size={14} />
-            Send Request
-          </PrimaryBtn>
-        </div>
-      </motion.div>
-    </ModalBackdrop>
-  );
+function addMonths(base: Date, months: number): Date {
+  const next = new Date(base);
+  next.setMonth(next.getMonth() + months);
+  return next;
 }
 
 export function FeedbackView() {
-  const { userId, user } = useAuth();
-  const { categories, getQuestionsForCategory, currentFramework } = useFramework();
-  const feedbackUserId = userId ?? "";
-  const { data: items = [] } = useFeedbackQuery(feedbackUserId);
-  const addFeedbackMutation = useAddFeedback(feedbackUserId);
-  const [filter, setFilter] = useState<"All" | FeedbackType>("All");
-  const [asking, setAsking] = useState(false);
-  const [seniorityBand, setSeniorityBand] = useState<SeniorityBand>(() =>
-    resolveSeniorityBand(user?.currentLevel),
-  );
-  const [seniorityOverridden, setSeniorityOverridden] = useState(false);
-  const categoryEntries = useMemo(() => {
-    if (categories.length > 0) {
-      return categories.map(
-        (categoryName) =>
-          [
-            categoryName,
-            {
-              summary: "",
-              items: getQuestionsForCategory(categoryName),
-            },
-          ] as [string, FrameworkCategoryDefinition],
-      );
-    }
-    return resolveFrameworkCategoryEntries(currentFramework?.matrix ?? null);
-  }, [categories, currentFramework?.matrix, getQuestionsForCategory]);
-  const effectivenessScale = useMemo(
-    () => resolveFrameworkEffectivenessScale(currentFramework?.matrix ?? null),
-    [currentFramework?.matrix],
-  );
-  const defaultScaleValue =
-    effectivenessScale.find((point) => point.value === 3)?.value ?? effectivenessScale[0]?.value ?? 1;
-  const [scores, setScores] = useState<Record<string, Record<string, number>>>(() =>
-    buildFeedbackScoreMap(categoryEntries, defaultScaleValue),
-  );
-  const [strengthNarrative, setStrengthNarrative] = useState("");
-  const [improvementNarrative, setImprovementNarrative] = useState("");
-  const [nextSkillNarrative, setNextSkillNarrative] = useState("");
-  const [externalSurveyDraft, setExternalSurveyDraft] = useState("");
-  const [externalSurveyUrl, setExternalSurveyUrl] = useState("");
-  const [requestLink, setRequestLink] = useState("");
+  const { userId } = useAuth();
+  const activeUserId = userId ?? "";
+  const [activeView, setActiveView] = useState<FeedbackViewMode>("my_insights");
+  const [selectedReviewerId, setSelectedReviewerId] = useState("");
+  const [selectedRelationType, setSelectedRelationType] =
+    useState<RelationshipType>("peer_engineer");
+  const [expandedIncomingId, setExpandedIncomingId] = useState<string | null>(null);
+  const [incomingRequests, setIncomingRequests] = useState<ThreeSixtyFeedback[]>([]);
+  const [outgoingRequests, setOutgoingRequests] = useState<ThreeSixtyFeedback[]>([]);
+  const [dossierRows, setDossierRows] = useState<ThreeSixtyFeedback[]>([]);
+  const [requestCadenceMonths, setRequestCadenceMonths] = useState<1 | 2 | 3 | 6>(3);
+  const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const [isSubmittingRequest, setIsSubmittingRequest] = useState(false);
+  const [isSubmittingEvaluation, setIsSubmittingEvaluation] = useState(false);
+  const [formState, setFormState] = useState<FormStateByRequest>({});
 
-  const filtered = useMemo(
-    () => (filter === "All" ? items : items.filter((item) => item.type === filter)),
-    [items, filter],
-  );
-  const activeTemplate = SENIORITY_TEMPLATE[seniorityBand];
-  const ratedItemsCount = useMemo(
-    () => categoryEntries.reduce((sum, [, details]) => sum + details.items.length, 0),
-    [categoryEntries],
-  );
-  const avgScore = useMemo(
-    () =>
-      Number(
-        (
-          Object.values(scores)
-            .flatMap((itemScores) => Object.values(itemScores))
-            .reduce((sum, score) => sum + score, 0) /
-          Math.max(ratedItemsCount, 1)
-        ).toFixed(2),
-      ),
-    [ratedItemsCount, scores],
-  );
+  const { data: teammates = [] } = useQuery({
+    queryKey: ["three-sixty-team-members", activeUserId],
+    enabled: Boolean(activeUserId),
+    queryFn: async (): Promise<TeamMember[]> => {
+      if (!activeUserId) return [];
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, full_name, job_title, avatar_url")
+        .neq("id", activeUserId)
+        .order("full_name", { ascending: true })
+        .limit(50);
+      if (error) throw error;
+      return (
+        (data ?? []) as Array<{
+          id: string;
+          full_name: string | null;
+          job_title: string | null;
+          avatar_url: string | null;
+        }>
+      )
+        .filter((row) => Boolean(row.id) && Boolean(row.full_name))
+        .map((row) => ({
+          id: row.id,
+          fullName: row.full_name ?? "Unknown teammate",
+          jobTitle: row.job_title ?? "",
+          avatarUrl: row.avatar_url ?? null,
+        }));
+    },
+  });
 
-  const canSubmitEvaluation =
-    strengthNarrative.trim().length > 0 &&
-    improvementNarrative.trim().length > 0 &&
-    nextSkillNarrative.trim().length > 0;
-
-  useEffect(() => {
-    if (!seniorityOverridden) {
-      setSeniorityBand(resolveSeniorityBand(user?.currentLevel));
-    }
-  }, [user?.currentLevel, seniorityOverridden]);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !feedbackUserId) return;
-    const saved = window.localStorage.getItem(`evitrace.external-feedback-url.${feedbackUserId}`);
-    if (!saved) return;
-    setExternalSurveyUrl(saved);
-    setExternalSurveyDraft(saved);
-  }, [feedbackUserId]);
-
-  useEffect(() => {
-    setScores((previous) => {
-      const next = buildFeedbackScoreMap(categoryEntries, defaultScaleValue);
-      categoryEntries.forEach(([category, details]) => {
-        details.items.forEach((item) => {
-          const previousValue = previous[category]?.[item];
-          if (typeof previousValue === "number") {
-            next[category][item] = previousValue;
-          }
-        });
-      });
-      return next;
-    });
-  }, [categoryEntries, defaultScaleValue]);
-
-  function updateCapabilityScore(category: string, item: string, value: number) {
-    setScores((previous) => ({
-      ...previous,
-      [category]: {
-        ...(previous[category] ?? {}),
-        [item]: value,
-      },
-    }));
-  }
-
-  function saveExternalSurveyUrl() {
-    if (!feedbackUserId) {
-      toast.error("Please sign in before saving external survey links.");
+  const loadFeedbackData = useCallback(async () => {
+    if (!activeUserId) {
+      setIncomingRequests([]);
+      setOutgoingRequests([]);
+      setDossierRows([]);
+      setIsBootstrapping(false);
       return;
     }
-    if (!externalSurveyDraft.trim()) {
-      if (typeof window !== "undefined") {
-        window.localStorage.removeItem(`evitrace.external-feedback-url.${feedbackUserId}`);
+    setIsBootstrapping(true);
+    try {
+      const [incoming, dossier, outgoing] = await Promise.all([
+        getIncomingFeedbackRequests(),
+        getEngineerFeedbackDossier(activeUserId),
+        getOutgoingFeedbackRequests(activeUserId),
+      ]);
+      setIncomingRequests(incoming);
+      setDossierRows(dossier);
+      setOutgoingRequests(outgoing);
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Failed to load feedback data."));
+    } finally {
+      setIsBootstrapping(false);
+    }
+  }, [activeUserId]);
+
+  useEffect(() => {
+    void loadFeedbackData();
+  }, [loadFeedbackData]);
+
+  const submittedCount = dossierRows.length;
+  const thresholdMet = submittedCount >= 3;
+  const pendingCount = incomingRequests.length;
+  const uniqueRequestedReviewerCount = useMemo(
+    () => new Set(outgoingRequests.map((row) => row.reviewer_id)).size,
+    [outgoingRequests],
+  );
+  const reviewersNeededForAnonymousCohort = Math.max(0, 3 - uniqueRequestedReviewerCount);
+  const hasMinimumAnonymousPool = uniqueRequestedReviewerCount >= 3;
+  const isSmallAvailableTeam = teammates.length > 0 && teammates.length < 3;
+  const latestByReviewer = useMemo(() => {
+    const byReviewer = new Map<string, ThreeSixtyFeedback>();
+    for (const row of outgoingRequests) {
+      const existing = byReviewer.get(row.reviewer_id);
+      if (!existing) {
+        byReviewer.set(row.reviewer_id, row);
+        continue;
       }
-      setExternalSurveyUrl("");
-      toast.success("External survey link removed");
+      if (new Date(row.created_at).getTime() > new Date(existing.created_at).getTime()) {
+        byReviewer.set(row.reviewer_id, row);
+      }
+    }
+    return byReviewer;
+  }, [outgoingRequests]);
+  const selectedReviewerLatestRequest = selectedReviewerId
+    ? latestByReviewer.get(selectedReviewerId)
+    : undefined;
+  const nextEligibleDate = selectedReviewerLatestRequest
+    ? addMonths(new Date(selectedReviewerLatestRequest.created_at), requestCadenceMonths)
+    : null;
+  const canRequestSelectedReviewer = !nextEligibleDate || Date.now() >= nextEligibleDate.getTime();
+
+  const shuffledContinue = useMemo(
+    () =>
+      shuffleStrings(
+        dossierRows
+          .map((row) => row.continue_feedback?.trim() ?? "")
+          .filter((value) => value.length > 0),
+      ),
+    [dossierRows],
+  );
+  const shuffledStop = useMemo(
+    () =>
+      shuffleStrings(
+        dossierRows.map((row) => row.stop_feedback?.trim() ?? "").filter((value) => value.length > 0),
+      ),
+    [dossierRows],
+  );
+  const shuffledStart = useMemo(
+    () =>
+      shuffleStrings(
+        dossierRows.map((row) => row.start_feedback?.trim() ?? "").filter((value) => value.length > 0),
+      ),
+    [dossierRows],
+  );
+
+  async function handleRequestPeerFeedback() {
+    if (!activeUserId) {
+      toast.error("Please sign in to request feedback.");
       return;
     }
-    const normalized = normalizeExternalUrl(externalSurveyDraft);
-    if (!normalized) {
-      toast.error("Please provide a valid HTTP(S) URL.");
+    if (!selectedReviewerId) {
+      toast.error("Select a teammate first.");
       return;
     }
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(`evitrace.external-feedback-url.${feedbackUserId}`, normalized);
+    if (!canRequestSelectedReviewer && nextEligibleDate) {
+      toast.error(
+        `Request already sent recently. You can send the next request on ${formatDateLabel(nextEligibleDate.toISOString())}.`,
+      );
+      return;
     }
-    setExternalSurveyUrl(normalized);
-    setExternalSurveyDraft(normalized);
-    toast.success("External survey link saved");
+    setIsSubmittingRequest(true);
+    try {
+      await requestPeerFeedback(activeUserId, selectedReviewerId, selectedRelationType);
+      try {
+        await sendNotification({
+          data: {
+            userId: selectedReviewerId,
+            type: "feedback",
+            title: "New 360 feedback request",
+            description:
+              "A teammate requested your Start/Stop/Continue feedback. Open Teammate Requests to respond.",
+          },
+        });
+      } catch {
+        // Best-effort only; request should still succeed.
+      }
+      setSelectedReviewerId("");
+      setSelectedRelationType("peer_engineer");
+      toast.success("Review request sent");
+      await loadFeedbackData();
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Unable to send request."));
+    } finally {
+      setIsSubmittingRequest(false);
+    }
   }
 
-  function buildRequestLink() {
-    if (typeof window === "undefined") return "";
-    const params = new URLSearchParams();
-    params.set("tab", "feedback");
-    params.set("request", "1");
-    if (feedbackUserId) params.set("profile", feedbackUserId);
-    if (user?.fullName) params.set("engineer", user.fullName);
-    if (user?.team) params.set("team", user.team);
-    params.set("seniority", seniorityBand);
-    const base = `${window.location.origin}${window.location.pathname}`;
-    return `${base}?${params.toString()}`;
-  }
-
-  function handleRequestFeedbackLink() {
-    const nextLink = buildRequestLink();
-    if (!nextLink) {
-      toast.error("Unable to generate feedback request link.");
+  async function handleSubmitEvaluation(request: ThreeSixtyFeedback) {
+    const currentForm = formState[request.id];
+    if (!currentForm) {
+      toast.error("Complete all required fields first.");
       return;
     }
-    setRequestLink(nextLink);
-    if (typeof navigator !== "undefined" && navigator.clipboard) {
-      navigator.clipboard
-        .writeText(nextLink)
-        .then(() => toast.success("Request feedback link copied"))
-        .catch(() => toast.success("Request feedback link generated"));
+    if (
+      currentForm.continueText.trim().length === 0 ||
+      currentForm.stopText.trim().length === 0 ||
+      currentForm.startText.trim().length === 0
+    ) {
+      toast.error("All three text sections are required.");
       return;
     }
-    toast.success("Request feedback link generated");
-  }
-
-  function submitQualitativeEvaluation() {
-    if (!canSubmitEvaluation) {
-      toast.error("Please complete all mandatory qualitative prompts.");
-      return;
+    setIsSubmittingEvaluation(true);
+    try {
+      await submitPeerFeedback(request.id, {
+        continueText: currentForm.continueText.trim(),
+        stopText: currentForm.stopText.trim(),
+        startText: currentForm.startText.trim(),
+        vector: currentForm.vector,
+      });
+      toast.success("Evaluation submitted");
+      setIncomingRequests((previous) => previous.filter((item) => item.id !== request.id));
+      setExpandedIncomingId(null);
+      setFormState((previous) => {
+        const next = { ...previous };
+        delete next[request.id];
+        return next;
+      });
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Unable to submit evaluation."));
+    } finally {
+      setIsSubmittingEvaluation(false);
     }
-    const scoreRows = categoryEntries.flatMap(([categoryName, details]) =>
-      details.items.map((item) => {
-        const currentScore = scores[categoryName]?.[item] ?? defaultScaleValue;
-        const scoreLabel = effectivenessScale.find((point) => point.value === currentScore)?.label ?? "";
-        return `- Category: ${categoryName} | Item: ${item} | Effectiveness: ${currentScore}${scoreLabel ? ` (${scoreLabel})` : ""}`;
-      }),
-    );
-    const payload =
-      `Seniority Template: ${seniorityBand}\n` +
-      `Framework Matrix Average (1-5): ${avgScore}\n` +
-      `Framework Ratings:\n${scoreRows.join("\n")}\n` +
-      `Strength: ${strengthNarrative.trim()}\n` +
-      `Improvement Example: ${improvementNarrative.trim()}\n` +
-      `Next Skill: ${nextSkillNarrative.trim()}`;
-
-    addFeedbackMutation.mutate(
-      {
-        date: toLocalDateString(),
-        provider: "Self 360 Evaluation",
-        type: "Ad-hoc",
-        notes: payload,
-        anonymous: false,
-      },
-      {
-        onSuccess: () => {
-          toast.success("360 evaluation saved");
-        },
-      },
-    );
-  }
-
-  function addRequest(reviewer: string, focus: string) {
-    addFeedbackMutation.mutate(
-      {
-        date: toLocalDateString(),
-        provider: reviewer,
-        type: "Manager Requested",
-        notes: `Requested feedback on: ${focus}. Awaiting response.`,
-        anonymous: false,
-      },
-      {
-        onSuccess: () => {
-          setAsking(false);
-          toast.success("Feedback request sent");
-        },
-      },
-    );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <Card className="xl:col-span-2 px-6 py-8 md:px-8">
-          <div className="flex flex-col gap-5">
-            <div>
-              <div className="text-lg font-semibold" style={{ color: C.navy }}>
-                360-Degree Feedback
-              </div>
-              <div className="text-sm mt-1" style={{ color: C.subtle }}>
-                Seniority-tailored 360 survey, qualitative coaching inputs, and historical feedback in one workspace.
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Pill active={filter === "All"} onClick={() => setFilter("All")}>
-                All
-              </Pill>
-              <Pill
-                active={filter === "Manager Requested"}
-                onClick={() => setFilter("Manager Requested")}
-              >
-                Manager Requested
-              </Pill>
-              <Pill active={filter === "Peer Review"} onClick={() => setFilter("Peer Review")}>
-                Peer
-              </Pill>
-              <Pill active={filter === "Ad-hoc"} onClick={() => setFilter("Ad-hoc")}>
-                Ad-hoc
-              </Pill>
-            </div>
-          </div>
-        </Card>
-        <Card className="p-6 md:p-7 min-h-[220px] h-auto flex flex-col gap-4 justify-between">
-          <div>
-            <div className="text-sm font-semibold" style={{ color: C.navy }}>
-              Ask for feedback
-            </div>
-            <div className="text-xs mt-1" style={{ color: C.subtle }}>
-              Generate a shareable request link or log a direct feedback request with full-text prompts.
-            </div>
-          </div>
-          <div className="grid grid-cols-1 gap-2">
-            <GhostBtn
-              onClick={handleRequestFeedbackLink}
-              className="w-full h-auto min-h-[2.75rem] px-4 py-2.5 justify-center whitespace-normal break-words leading-snug"
-            >
-              <Share2 size={14} />
-              Request Feedback Link
-            </GhostBtn>
-            <PrimaryBtn
-              onClick={() => setAsking(true)}
-              className="w-full h-auto min-h-[2.75rem] px-4 py-2.5 justify-center whitespace-normal break-words leading-snug"
-            >
-              <Send size={14} />
-              Log Feedback Request
-            </PrimaryBtn>
-          </div>
-        </Card>
+    <div className="max-w-7xl mx-auto w-full mt-4 space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">360 Feedback</h2>
+          <p className="text-sm text-slate-500">
+            Confidential Start/Stop/Continue loops with threshold-gated anonymity.
+          </p>
+        </div>
+        <div className="inline-flex items-center rounded-full border border-slate-200 bg-white p-1">
+          <button
+            type="button"
+            onClick={() => setActiveView("my_insights")}
+            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+              activeView === "my_insights"
+                ? "bg-slate-900 text-white"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            My Insights
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveView("requests")}
+            className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+              activeView === "requests"
+                ? "bg-slate-900 text-white"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            Teammate Requests{pendingCount > 0 ? ` (${pendingCount})` : ""}
+          </button>
+        </div>
       </div>
 
-      <Card className="p-0 overflow-hidden">
-        <div className="px-5 py-4 border-b" style={{ borderColor: C.border }}>
-          <div className="text-sm font-semibold" style={{ color: C.navy }}>
-            Historical Feedback
-          </div>
-          <div className="text-xs mt-1" style={{ color: C.subtle }}>
-            Received and requested feedback entries, ordered by date.
-          </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr
-                className="text-left text-[11px] uppercase tracking-wide"
-                style={{ background: "#F4F5F7", color: C.subtle }}
-              >
-                <th className="px-4 py-3 font-semibold whitespace-nowrap">Date</th>
-                <th className="px-4 py-3 font-semibold whitespace-nowrap">Provider</th>
-                <th className="px-4 py-3 font-semibold whitespace-nowrap">Type</th>
-                <th className="px-4 py-3 font-semibold">Feedback Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 && (
-                <tr>
-                  <td
-                    colSpan={4}
-                    className="px-4 py-12 text-center text-sm"
-                    style={{ color: C.subtle }}
-                  >
-                    No feedback in this filter yet.
-                  </td>
-                </tr>
-              )}
-              {filtered.map((feedbackItem) => (
-                <tr key={feedbackItem.id} className="border-t align-top" style={{ borderColor: C.border }}>
-                  <td className="px-4 py-3 whitespace-nowrap" style={{ color: C.slate }}>
-                    {formatDisplayDate(feedbackItem.date)}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-semibold text-white"
-                        style={{ background: feedbackItem.anonymous ? "#6B778C" : "#5243AA" }}
-                      >
-                        {feedbackItem.anonymous
-                          ? "?"
-                          : feedbackItem.provider
-                              .split(" ")
-                              .map((part) => part[0])
-                              .slice(0, 2)
-                              .join("")}
-                      </div>
-                      <span className="font-semibold" style={{ color: C.navy }}>
-                        {feedbackItem.provider}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <FeedbackTypeBadge type={feedbackItem.type} />
-                  </td>
-                  <td className="px-4 py-3" style={{ color: C.slate }}>
-                    <div className="max-w-2xl leading-relaxed">{feedbackItem.notes}</div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-
-      <Card className="p-5 space-y-5">
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-4 lg:items-end">
-          <Field
-            label="Feedback Template Seniority Tier"
-            hint="Defaults to your profile level, but you can override it for a custom review context."
-          >
-            <Select
-              value={seniorityBand}
-              onChange={(event) => {
-                setSeniorityOverridden(true);
-                setSeniorityBand(event.target.value as SeniorityBand);
-              }}
-            >
-              <option value="Junior / Associate">Junior / Associate</option>
-              <option value="Mid-Level">Mid-Level</option>
-              <option value="Senior / Lead / Staff">Senior / Lead / Staff</option>
-            </Select>
-          </Field>
-          <div className="text-xs rounded border px-3 py-2" style={{ borderColor: C.border, color: C.slate }}>
-            Active profile: <span className="font-semibold" style={{ color: C.navy }}>{user?.currentLevel || "Not set"}</span>
-          </div>
-        </div>
-        <div className="rounded-lg border p-4" style={{ borderColor: C.border, background: "#F8FAFF" }}>
-          <div className="text-sm font-semibold" style={{ color: C.navy }}>
-            {activeTemplate.prompt}
-          </div>
-          <ul className="mt-2 space-y-1 text-sm list-disc pl-5" style={{ color: C.slate }}>
-            {activeTemplate.focusAreas.map((focus) => (
-              <li key={focus}>{focus}</li>
-            ))}
-          </ul>
-        </div>
-      </Card>
-
-      <Card className="p-5 space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <div className="text-sm font-semibold" style={{ color: C.navy }}>
-              Corporate Competency Evaluation Matrix
+      {activeView === "my_insights" ? (
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(280px,380px)_minmax(0,1fr)]">
+          <Card className="p-5 space-y-6">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">Nominate Peer Pool</h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Add cross-functional reviewers for this quarter feedback cycle.
+              </p>
             </div>
-            <div className="text-xs mt-0.5" style={{ color: C.subtle }}>
-              Rate each framework item using your active matrix effectiveness scale.
-            </div>
-          </div>
-          <Badge tone="info">Average Score: {avgScore.toFixed(2)} / 5</Badge>
-        </div>
-        <div className="space-y-3">
-          {categoryEntries.map(([categoryName, details]) => (
-            <div key={categoryName} className="border rounded-lg p-3" style={{ borderColor: C.border }}>
-              <div className="text-sm font-semibold" style={{ color: C.navy }}>
-                {categoryName}
+
+            <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-4">
+              <label className="space-y-1.5">
+                <span className="text-xs font-semibold text-slate-600">Teammate</span>
+                <Select
+                  value={selectedReviewerId}
+                  onChange={(event) => setSelectedReviewerId(event.target.value)}
+                >
+                  <option value="">Select teammate</option>
+                  {teammates.map((member) => (
+                    <option key={member.id} value={member.id}>
+                      {requestLabel(member)}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+              {isSmallAvailableTeam ? (
+                <div className="mt-2 w-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800">
+                  Small team detected in your visible teammate set. To preserve anonymity, include
+                  cross-functional reviewers (for example UX, PM, or adjacent engineering partners)
+                  so your cohort reaches at least 3 distinct reviewers.
+                </div>
+              ) : null}
+              <div className="space-y-1.5">
+                <span className="text-xs font-semibold text-slate-600">Relationship type</span>
+                <div className="flex flex-wrap gap-2">
+                  {RELATION_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setSelectedRelationType(option.value)}
+                      className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                        selectedRelationType === option.value
+                          ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+                          : "border-slate-200 bg-white text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-              {details.summary && (
-                <div className="text-xs mt-0.5 leading-relaxed" style={{ color: C.subtle }}>
-                  {details.summary}
+              <PrimaryBtn
+                type="button"
+                onClick={handleRequestPeerFeedback}
+                disabled={isSubmittingRequest || !selectedReviewerId || !canRequestSelectedReviewer}
+                className="w-full justify-center bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60"
+                style={{ background: "#4F46E5" }}
+              >
+                {isSubmittingRequest ? <Loader2 size={14} className="animate-spin" /> : null}
+                Request Review
+              </PrimaryBtn>
+            </div>
+
+            <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-3">
+              <label className="space-y-1.5">
+                <span className="text-xs font-semibold text-slate-700">
+                  Request cadence guardrail
+                </span>
+                <p className="text-xs text-slate-500">
+                  Restrict how often this teammate can receive a new request from you.
+                </p>
+                <Select
+                  value={String(requestCadenceMonths)}
+                  onChange={(event) =>
+                    setRequestCadenceMonths(Number(event.target.value) as 1 | 2 | 3 | 6)
+                  }
+                >
+                  <option value="1">Every 1 month</option>
+                  <option value="2">Every 2 months</option>
+                  <option value="3">Every 3 months</option>
+                  <option value="6">Every 6 months</option>
+                </Select>
+              </label>
+              {selectedReviewerLatestRequest ? (
+                <div className="mt-2 w-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800">
+                  Last request sent on {formatDateLabel(selectedReviewerLatestRequest.created_at)}.
+                  {nextEligibleDate
+                    ? ` Next eligible request date: ${formatDateLabel(nextEligibleDate.toISOString())}.`
+                    : ""}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="space-y-2">
+              <div className="rounded-lg bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">
+                {submittedCount} of 3 reviews submitted
+              </div>
+              <div
+                className={`w-full rounded-lg px-3 py-2.5 text-xs leading-relaxed ${
+                  hasMinimumAnonymousPool
+                    ? "border border-emerald-200 bg-emerald-50 text-emerald-800"
+                    : "border border-slate-200 bg-white text-slate-700"
+                }`}
+              >
+                {hasMinimumAnonymousPool
+                  ? `Anonymous cohort ready: ${uniqueRequestedReviewerCount} distinct reviewers nominated.`
+                  : `Anonymous cohort incomplete: add ${reviewersNeededForAnonymousCohort} more distinct reviewer${reviewersNeededForAnonymousCohort === 1 ? "" : "s"} to reach the 3-person minimum.`}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-slate-600">Request activity</p>
+              {outgoingRequests.length === 0 ? (
+                <p className="text-xs text-slate-500">No requests sent yet.</p>
+              ) : (
+                <div className="max-h-40 space-y-2 overflow-y-auto pr-1">
+                  {outgoingRequests.slice(0, 8).map((row) => (
+                    <div
+                      key={row.id}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600"
+                    >
+                      <div className="font-medium text-slate-800">
+                        {row.profiles?.full_name ?? "Teammate"}
+                      </div>
+                      <div>
+                        Sent {formatDateLabel(row.created_at)} -{" "}
+                        {row.status === "pending" ? "Awaiting response" : "Submitted"}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
-              <div className="mt-3 space-y-2">
-                {details.items.map((item) => (
-                  <div
-                    key={`${categoryName}-${item}`}
-                    className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_auto] gap-3 border rounded-lg px-3 py-3"
-                    style={{ borderColor: C.border }}
-                  >
-                    <div className="text-xs leading-relaxed" style={{ color: C.slate }}>
-                      {item}
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      {effectivenessScale.map((point) => {
-                        const active = (scores[categoryName]?.[item] ?? defaultScaleValue) === point.value;
-                        return (
-                          <button
-                            key={`${categoryName}-${item}-${point.value}`}
-                            type="button"
-                            onClick={() => updateCapabilityScore(categoryName, item, point.value)}
-                            title={`${point.value} - ${point.label}`}
-                            className="w-8 h-8 rounded border text-xs font-semibold transition-colors"
-                            style={{
-                              borderColor: active ? C.primary : C.border,
-                              color: active ? C.primary : C.slate,
-                              background: active ? C.primarySoft : "#fff",
-                            }}
-                          >
-                            {point.value}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
             </div>
-          ))}
-        </div>
-        <div className="space-y-4 pt-1">
-          <Field
-            label="What specific technical or collaborative strength does this engineer demonstrate that significantly impacts the team's success?"
-            required
-          >
-            <FeedbackTextarea
-              value={strengthNarrative}
-              onChange={(event) => setStrengthNarrative(event.target.value)}
-              rows={4}
-              placeholder="Describe the strongest recurring contribution and why it matters."
-            />
-          </Field>
-          <Field
-            label="Can you share an example of a recent project or pull request (PR) where this engineer could have improved their approach, code quality, or communication?"
-            required
-          >
-            <FeedbackTextarea
-              value={improvementNarrative}
-              onChange={(event) => setImprovementNarrative(event.target.value)}
-              rows={4}
-              placeholder="Reference a concrete project, pull request, or communication moment."
-            />
-          </Field>
-          <Field
-            label="What is the single most important skill this engineer should focus on next to advance to the next level?"
-            required
-          >
-            <FeedbackTextarea
-              value={nextSkillNarrative}
-              onChange={(event) => setNextSkillNarrative(event.target.value)}
-              rows={4}
-              placeholder="Identify one high-leverage skill and the expected impact."
-            />
-          </Field>
-        </div>
-        <div className="flex justify-end">
-          <PrimaryBtn onClick={submitQualitativeEvaluation} disabled={!canSubmitEvaluation}>
-            <Save size={14} />
-            Save 360 Evaluation
-          </PrimaryBtn>
-        </div>
-      </Card>
+          </Card>
 
-      <Card className="p-5 space-y-4">
-        <div>
-          <div className="text-sm font-semibold" style={{ color: C.navy }}>
-            Share Links & External Platform Configuration
-          </div>
-          <div className="text-xs mt-1" style={{ color: C.subtle }}>
-            Add one central survey URL (Google Forms, Typeform, Confluence Forms, etc.) and share a profile-aware request link.
-          </div>
+          <Card className="p-5 space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">My Insights</h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Feedback is batch-released only when anonymity safeguards are satisfied.
+              </p>
+            </div>
+            {isBootstrapping ? (
+              <div className="rounded-xl border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
+                Loading feedback pool...
+              </div>
+            ) : !thresholdMet ? (
+              <div className="bg-slate-50 border border-dashed border-slate-200 rounded-xl p-8 text-center max-w-md mx-auto mt-8">
+                <h4 className="text-base font-semibold text-slate-900">
+                  Your feedback summary is not ready yet
+                </h4>
+                <p className="mt-2 text-sm font-medium text-slate-700">
+                  Reviews submitted: {submittedCount} of 3
+                </p>
+                <p className="mt-2 text-sm font-medium text-slate-700">
+                  Reviewers nominated: {uniqueRequestedReviewerCount} of 3
+                </p>
+                <p className="mt-2 text-sm text-slate-600">
+                  To protect anonymity, feedback stays hidden until at least 3 different teammates
+                  submit reviews. Once that happens, your summary appears automatically.
+                </p>
+                {!hasMinimumAnonymousPool ? (
+                  <p className="mt-2 text-sm text-slate-600">
+                    Next step: request feedback from more cross-functional teammates (for example
+                    PM, UX, PMM, or QA). Two-person loops cannot safely provide anonymous results.
+                  </p>
+                ) : null}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="space-y-2 rounded-xl border border-slate-200 bg-white px-4 py-3">
+                  <p className="text-xs font-semibold text-slate-500">What to Continue</p>
+                  {shuffledContinue.map((item, idx) => (
+                    <p key={`continue-${idx}`} className="text-sm text-slate-700">
+                      {item}
+                    </p>
+                  ))}
+                </div>
+                <div className="space-y-2 rounded-xl border border-slate-200 bg-white px-4 py-3">
+                  <p className="text-xs font-semibold text-slate-500">What to Stop</p>
+                  {shuffledStop.map((item, idx) => (
+                    <p key={`stop-${idx}`} className="text-sm text-slate-700">
+                      {item}
+                    </p>
+                  ))}
+                </div>
+                <div className="space-y-2 rounded-xl border border-slate-200 bg-white px-4 py-3">
+                  <p className="text-xs font-semibold text-slate-500">What to Start</p>
+                  {shuffledStart.map((item, idx) => (
+                    <p key={`start-${idx}`} className="text-sm text-slate-700">
+                      {item}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Card>
         </div>
-        <Field label="External Survey URL" optional>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Input
-              value={externalSurveyDraft}
-              onChange={(event) => setExternalSurveyDraft(event.target.value)}
-              placeholder="https://forms.gle/... or https://typeform.com/..."
-            />
-            <GhostBtn onClick={saveExternalSurveyUrl} className="sm:whitespace-nowrap">
-              <Save size={14} />
-              Save Anchor
-            </GhostBtn>
+      ) : (
+        <Card className="p-5 space-y-4">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">Teammate Requests</h3>
+            <p className="mt-1 text-xs text-slate-500">
+              Complete incoming review requests to support your peers.
+            </p>
           </div>
-        </Field>
-        {externalSurveyUrl && (
-          <a
-            href={externalSurveyUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs font-semibold"
-            style={{ color: C.primary }}
-          >
-            <ExternalLink size={12} />
-            Open external survey anchor
-          </a>
-        )}
-        <Field label="Request Feedback Link" optional>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Input
-              value={requestLink}
-              readOnly
-              placeholder="Click 'Request Feedback' above to generate a profile-aware link."
-            />
-            <GhostBtn onClick={handleRequestFeedbackLink} className="sm:whitespace-nowrap">
-              <LinkIcon size={14} />
-              Generate
-            </GhostBtn>
-          </div>
-        </Field>
-      </Card>
+          {isBootstrapping ? (
+            <div className="rounded-xl border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
+              Loading requests...
+            </div>
+          ) : incomingRequests.length === 0 ? (
+            <EmptySlate message="Your request queue is clear. Teammates' feedback invitations will appear here." />
+          ) : (
+            <div className="space-y-3">
+              {incomingRequests.map((request) => {
+                const expanded = expandedIncomingId === request.id;
+                const currentForm = formState[request.id] ?? {
+                  continueText: "",
+                  stopText: "",
+                  startText: "",
+                  vector: "meeting_expectations" as ExecutionVector,
+                };
+                const canSubmit =
+                  currentForm.continueText.trim().length > 0 &&
+                  currentForm.stopText.trim().length > 0 &&
+                  currentForm.startText.trim().length > 0;
+                const requesterName = request.profiles?.full_name || "Teammate";
 
-      <AnimatePresence>
-        {asking && (
-          <AskFeedbackModal
-            initialFocus={activeTemplate.requestFocusSeed}
-            onClose={() => setAsking(false)}
-            onSubmit={addRequest}
-          />
-        )}
-      </AnimatePresence>
+                return (
+                  <div key={request.id} className="rounded-xl border border-slate-200 bg-white">
+                    <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-50 text-xs font-semibold text-indigo-700">
+                          {initialsFor(requesterName)}
+                        </div>
+                        <div className="text-sm font-semibold text-slate-900">
+                          {requesterName} requested your performance feedback for their quarter
+                          review.
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedIncomingId((previous) =>
+                            previous === request.id ? null : request.id,
+                          )
+                        }
+                        className="inline-flex h-9 items-center justify-center rounded-md bg-indigo-600 px-4 text-xs font-semibold text-white transition-colors hover:bg-indigo-500"
+                      >
+                        Complete Review (Takes 4m)
+                        <ChevronDown
+                          size={14}
+                          className={`ml-2 transition-transform ${expanded ? "rotate-180" : ""}`}
+                        />
+                      </button>
+                    </div>
+                    <AnimatePresence initial={false}>
+                      {expanded && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          className="overflow-hidden border-t border-slate-100"
+                        >
+                          <div className="space-y-4 px-4 py-4">
+                            <label className="space-y-1.5">
+                              <span className="text-xs font-semibold text-slate-600">
+                                What does this person do exceptionally well that they should
+                                CONTINUE doing?
+                              </span>
+                              <textarea
+                                value={currentForm.continueText}
+                                onChange={(event) =>
+                                  setFormState((previous) => ({
+                                    ...previous,
+                                    [request.id]: {
+                                      ...currentForm,
+                                      continueText: event.target.value,
+                                    },
+                                  }))
+                                }
+                                rows={4}
+                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                              />
+                            </label>
+                            <label className="space-y-1.5">
+                              <span className="text-xs font-semibold text-slate-600">
+                                What should this person STOP doing or adjust to reduce team
+                                friction?
+                              </span>
+                              <textarea
+                                value={currentForm.stopText}
+                                onChange={(event) =>
+                                  setFormState((previous) => ({
+                                    ...previous,
+                                    [request.id]: {
+                                      ...currentForm,
+                                      stopText: event.target.value,
+                                    },
+                                  }))
+                                }
+                                rows={4}
+                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                              />
+                            </label>
+                            <label className="space-y-1.5">
+                              <span className="text-xs font-semibold text-slate-600">
+                                What is one concrete skill or focus area they should START learning
+                                next?
+                              </span>
+                              <textarea
+                                value={currentForm.startText}
+                                onChange={(event) =>
+                                  setFormState((previous) => ({
+                                    ...previous,
+                                    [request.id]: {
+                                      ...currentForm,
+                                      startText: event.target.value,
+                                    },
+                                  }))
+                                }
+                                rows={4}
+                                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                              />
+                            </label>
+                            <label className="space-y-1.5">
+                              <span className="text-xs font-semibold text-slate-600">
+                                Workspace Execution Vector
+                              </span>
+                              <Select
+                                value={currentForm.vector}
+                                onChange={(event) =>
+                                  setFormState((previous) => ({
+                                    ...previous,
+                                    [request.id]: {
+                                      ...currentForm,
+                                      vector: event.target.value as ExecutionVector,
+                                    },
+                                  }))
+                                }
+                              >
+                                {EXECUTION_VECTOR_OPTIONS.map((option) => (
+                                  <option key={option.value} value={option.value}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </Select>
+                            </label>
+                            <div className="flex justify-end pt-2">
+                              <PrimaryBtn
+                                type="button"
+                                onClick={() => void handleSubmitEvaluation(request)}
+                                disabled={!canSubmit || isSubmittingEvaluation}
+                                className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-60"
+                                style={{ background: C.green }}
+                              >
+                                {isSubmittingEvaluation ? (
+                                  <Loader2 size={14} className="animate-spin" />
+                                ) : null}
+                                Submit Evaluation
+                              </PrimaryBtn>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+      )}
     </div>
   );
 }

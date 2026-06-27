@@ -1,4 +1,4 @@
-import { Bell, Layers, LayoutDashboard, Puzzle, User, Users } from "lucide-react";
+import { Bell, Layers, LayoutDashboard, Puzzle, User } from "lucide-react";
 import type { SettingsSection } from "@/features/home/shared/navigation";
 
 export type ProfileTeamDraft = {
@@ -71,7 +71,6 @@ export const SETTINGS_SECTION_ITEMS: Array<{
   icon: React.ComponentType<{ size?: number }>;
 }> = [
   { id: "profile", label: "Profile", icon: User },
-  { id: "team", label: "Team & Manager", icon: Users },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "extension", label: "Extension Preferences", icon: Puzzle },
   { id: "framework", label: "Competency Framework", icon: Layers },
