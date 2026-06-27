@@ -93,6 +93,19 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     ],
     links: [
       {
+        rel: "icon",
+        type: "image/png",
+        href: "/icons/favicon.png?v=20260621",
+      },
+      {
+        rel: "shortcut icon",
+        href: "/icons/favicon.png?v=20260621",
+      },
+      {
+        rel: "apple-touch-icon",
+        href: "/icons/icon128.png?v=20260621",
+      },
+      {
         rel: "stylesheet",
         href: appCss,
       },
@@ -125,7 +138,7 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
-      <Toaster richColors position="top-center" closeButton expand />
+      <Toaster position="top-right" closeButton />
     </QueryClientProvider>
   );
 }
