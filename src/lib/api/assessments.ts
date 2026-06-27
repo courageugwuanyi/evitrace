@@ -107,7 +107,18 @@ export function useFinalizeAssessment(userId: string) {
         throw new Error('Cannot finalize assessment: Unauthenticated user session')
       }
       if (sessionUserId !== ownerId) {
-        throw new Error('Cannot finalize assessment: Authenticated user mismatch')
+        const { data: relationship, error: relationshipError } = await supabase
+          .from('reporting_relationships')
+          .select('manager_id')
+          .eq('manager_id', sessionUserId)
+          .eq('engineer_id', ownerId)
+          .eq('relation_type', 'direct_manager')
+          .in('status', ['active', 'in_handover'])
+          .maybeSingle()
+        if (relationshipError) throw relationshipError
+        if (!relationship?.manager_id) {
+          throw new Error('Cannot finalize assessment: missing manager relationship for this engineer')
+        }
       }
 
       const { assessment: assessmentRow, categories, questions } = assessmentToRows(
@@ -151,8 +162,14 @@ export function useFinalizeAssessment(userId: string) {
       toast.error(error.message)
     },
 
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: assessmentsKey(userId) })
+    onSuccess: (_data, variables) => {
+      const ownerId = (variables.userId ?? userId ?? '').trim()
+      if (ownerId) {
+        void queryClient.invalidateQueries({ queryKey: assessmentsKey(ownerId) })
+      }
+      if (userId && ownerId !== userId) {
+        void queryClient.invalidateQueries({ queryKey: assessmentsKey(userId) })
+      }
     },
   })
 }

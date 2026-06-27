@@ -5,6 +5,7 @@ import {
   buildSamplePinnedResources,
   type PinnedResourceRow,
 } from "@/features/home/shared/pinned-resource-samples";
+import { parsePinnedKnowledgeId } from "@/features/home/shared/pinned-resource-targets";
 
 type HomeGlobalSearchResults = {
   objectives: GlobalSearchResultItem[];
@@ -32,10 +33,7 @@ export function buildHomeGlobalSearchResults(args: {
 
   const objectives = args.visibleObjectives
     .filter((item) =>
-      matches(
-        item.title,
-        item.statement ?? item.notes ?? item.specific ?? item.measurable ?? "",
-      ),
+      matches(item.title, item.statement ?? item.notes ?? item.specific ?? item.measurable ?? ""),
     )
     .slice(0, 6)
     .map((item) => ({
@@ -83,6 +81,7 @@ export function buildVisiblePinnedResources(args: {
 export function buildPinnedResourceLookups(pinnedResources: PinnedResourceRow[]) {
   const pinnedObjectiveIdToPinId = new Map<string, string>();
   const pinnedEvidenceIdToPinId = new Map<string, string>();
+  const pinnedKnowledgeIdToPinId = new Map<string, string>();
 
   pinnedResources.forEach((pin) => {
     if (pin.resource_type === "objective" && pin.objective_id) {
@@ -91,12 +90,18 @@ export function buildPinnedResourceLookups(pinnedResources: PinnedResourceRow[])
     if (pin.resource_type === "evidence" && pin.evidence_id) {
       pinnedEvidenceIdToPinId.set(pin.evidence_id, pin.id);
     }
+    if (pin.resource_type === "generic") {
+      const knowledgeId = parsePinnedKnowledgeId(pin.url);
+      if (knowledgeId) pinnedKnowledgeIdToPinId.set(knowledgeId, pin.id);
+    }
   });
 
   return {
     pinnedObjectiveIdToPinId,
     pinnedEvidenceIdToPinId,
+    pinnedKnowledgeIdToPinId,
     pinnedObjectiveIds: new Set(Array.from(pinnedObjectiveIdToPinId.keys())),
     pinnedEvidenceIds: new Set(Array.from(pinnedEvidenceIdToPinId.keys())),
+    pinnedKnowledgeIds: new Set(Array.from(pinnedKnowledgeIdToPinId.keys())),
   };
 }

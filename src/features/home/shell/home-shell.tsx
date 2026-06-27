@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
+import { useWorkspace } from "@/features/home/context/WorkspaceContext";
 import { C, BrandMark, Input, PrimaryBtn } from "@/features/home/shared/ui-kit";
 import { getDisplayName } from "@/features/home/shared/text-utils";
 import {
@@ -25,6 +26,9 @@ import {
   PanelLeft,
   Menu,
   X,
+  User,
+  Terminal,
+  ClipboardCheck,
 } from "lucide-react";
 import { MessageCircleHeart } from "lucide-react";
 
@@ -45,6 +49,8 @@ export type HomeGlobalSearchResultItem = {
   section: "objectives" | "evidence" | "knowledge";
 };
 
+type WorkspaceMode = "engineer" | "manager";
+
 export function Sidebar({
   tab,
   setTab,
@@ -52,6 +58,11 @@ export function Sidebar({
   onToggleCollapse,
   mobileOpen,
   onCloseMobile,
+  managedEngineers = [],
+  selectedEngineerId = null,
+  onSelectEngineer,
+  onOpenTeamOverview,
+  managerDirectoryActive = false,
 }: {
   tab: HomeTab;
   setTab: (t: HomeTab) => void;
@@ -59,8 +70,19 @@ export function Sidebar({
   onToggleCollapse: () => void;
   mobileOpen: boolean;
   onCloseMobile: () => void;
+  managedEngineers?: Array<{
+    id: string;
+    fullName: string;
+    email: string;
+    status: "active" | "in_handover";
+  }>;
+  selectedEngineerId?: string | null;
+  onSelectEngineer?: (id: string) => void;
+  onOpenTeamOverview?: () => void;
+  managerDirectoryActive?: boolean;
 }) {
   const { user, signout } = useAuth();
+  const { mode, setMode, isManagerAccount, loading } = useWorkspace();
   const hasFullName = Boolean(user?.fullName?.trim());
   const displayName = getDisplayName(user?.fullName, user?.email);
   const displayEmail = user?.email ?? "";
@@ -84,19 +106,57 @@ export function Sidebar({
     label: string;
     sub: string;
     icon: React.ComponentType<{ size?: number }>;
+    visibleIn: WorkspaceMode | "all";
   }[] = [
-    { id: "dashboard", label: "Dashboard", sub: "Daily Actions", icon: LayoutDashboard },
-    { id: "evidence", label: "Evidence Log", sub: "Data Table", icon: TableProperties },
-    { id: "objectives", label: "Objectives", sub: "Skill Gap Planning", icon: Target },
-    { id: "knowledge", label: "Knowledge Hub", sub: "Learned Insights", icon: BookOpen },
+    {
+      id: "dashboard",
+      label: "Dashboard",
+      sub: "Daily Actions",
+      icon: LayoutDashboard,
+      visibleIn: "all",
+    },
+    {
+      id: "evidence",
+      label: "Evidence Log",
+      sub: "Data Table",
+      icon: TableProperties,
+      visibleIn: "all",
+    },
+    {
+      id: "objectives",
+      label: "Objectives",
+      sub: "Skill Gap Planning",
+      icon: Target,
+      visibleIn: "all",
+    },
+    {
+      id: "knowledge",
+      label: "Knowledge Hub",
+      sub: "Learned Insights",
+      icon: BookOpen,
+      visibleIn: "engineer",
+    },
     {
       id: "feedback",
       label: "360 Feedback",
       sub: "Peer & Manager Reviews",
       icon: MessageCircleHeart,
+      visibleIn: "engineer",
     },
-    { id: "radar", label: "Promotion Readiness", sub: "Assessment & Gaps", icon: TrendingUp },
-    { id: "report", label: "Reviews & Reports", sub: "Archive & 1-on-1 Prep", icon: FileText },
+    {
+      id: "radar",
+      label: "Promotion Readiness",
+      sub: "Assessment & Gaps",
+      icon: TrendingUp,
+      visibleIn: "all",
+    },
+    {
+      id: "report",
+      label: "Reviews & Reports",
+      sub: "Archive & 1-on-1 Prep",
+      icon: FileText,
+      visibleIn: "all",
+    },
   ];
   const settingsItem = {
     id: "settings" as HomeTab,
@@ -104,7 +164,16 @@ export function Sidebar({
     sub: "App & Profile",
     icon: SettingsIcon,
   };
-
+  const [engineerQuery, setEngineerQuery] = useState("");
+  const normalizedEngineerQuery = engineerQuery.trim().toLowerCase();
+  const filteredEngineers = useMemo(() => {
+    if (!normalizedEngineerQuery) return managedEngineers;
+    return managedEngineers.filter((engineer) => {
+      const fullName = engineer.fullName.toLowerCase();
+      const email = engineer.email.toLowerCase();
+      return fullName.includes(normalizedEngineerQuery) || email.includes(normalizedEngineerQuery);
+    });
+  }, [managedEngineers, normalizedEngineerQuery]);
   const NavButton = ({ n }: { n: (typeof mainNav)[number] }) => {
     const active = tab === n.id;
     const isSettings = n.id === "settings";
@@ -150,7 +219,9 @@ export function Sidebar({
         className={`h-16 ${collapsed ? "px-1.5" : "px-5"} flex items-center gap-2 border-b`}
         style={{ borderColor: C.border }}
       >
-        <div className={`flex items-center min-w-0 ${collapsed ? "justify-center flex-1" : "gap-2"}`}>
+        <div
+          className={`flex items-center min-w-0 ${collapsed ? "justify-center flex-1" : "gap-2"}`}
+        >
           <BrandMark size={32} />
           {!collapsed && (
             <div className="leading-tight">
@@ -165,10 +236,151 @@ export function Sidebar({
         </div>
       </div>
 
-      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-        {mainNav.map((n) => (
-          <NavButton key={n.id} n={n} />
-        ))}
+      <nav className="flex-1 p-3 space-y-3 overflow-y-auto">
+        {!collapsed && (
+          <div className="p-3 bg-slate-50 border border-slate-200/60 rounded-xl flex items-center justify-between">
+            <div className="flex flex-col">
+              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
+                Active View Mode
+              </span>
+              <span className="text-xs font-bold text-slate-800">
+                {mode === "manager" ? "Manager Workspace" : "Developer Space"}
+              </span>
+            </div>
+            <span className="text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100">
+              {mode.toUpperCase()}
+            </span>
+          </div>
+        )}
+        {loading && !collapsed && (
+          <div className="h-10 w-full rounded-md bg-slate-100 animate-pulse" />
+        )}
+        {mode === "manager" && managedEngineers.length > 0 && !collapsed && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between px-2">
+              <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block">
+                Squad Roster ({managedEngineers.length})
+              </label>
+              {selectedEngineerId && (
+                <button
+                  type="button"
+                  onClick={onOpenTeamOverview}
+                  className="text-[10px] text-indigo-600 font-bold hover:underline cursor-pointer"
+                >
+                  View Dashboard
+                </button>
+              )}
+            </div>
+            <div className="relative mx-1">
+              <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+              <input
+                value={engineerQuery}
+                onChange={(event) => setEngineerQuery(event.target.value)}
+                placeholder="Quick-filter team members..."
+                className="w-full text-xs bg-slate-50 border border-slate-200 pl-8 pr-3 py-1.5 rounded-lg outline-none focus:bg-white focus:border-slate-300 transition-all text-slate-800"
+              />
+            </div>
+            <div className="space-y-0.5 max-h-44 overflow-y-auto border border-slate-100 rounded-lg p-1 bg-slate-50/50">
+              <button
+                type="button"
+                onClick={onOpenTeamOverview}
+                className={`w-full rounded-md px-2.5 py-1.5 text-left text-xs font-semibold transition-colors ${
+                  managerDirectoryActive
+                    ? "bg-indigo-50 text-indigo-900 border border-indigo-100"
+                    : "bg-white text-slate-600 hover:bg-slate-50 border border-transparent"
+                }`}
+              >
+                Team Overview
+              </button>
+              {filteredEngineers.length === 0 ? (
+                <p className="text-[11px] text-slate-400 italic p-2 text-center">
+                  No matching profiles found.
+                </p>
+              ) : (
+                filteredEngineers.map((engineer) => {
+                  const isActive = selectedEngineerId === engineer.id;
+                  return (
+                    <button
+                      key={engineer.id}
+                      type="button"
+                      onClick={() => onSelectEngineer?.(engineer.id)}
+                      className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-xs font-semibold rounded-md text-left transition-all cursor-pointer ${
+                        isActive
+                          ? "bg-slate-900 text-white shadow-xs font-bold scale-[1.01]"
+                          : "text-slate-600 hover:text-slate-900 hover:bg-white border border-transparent hover:border-slate-200/60"
+                      }`}
+                      title={engineer.email}
+                    >
+                      <User className={`h-3 w-3 shrink-0 ${isActive ? "text-indigo-400" : "text-slate-400"}`} />
+                      <span className="truncate">{engineer.fullName}</span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        )}
+        {mode === "manager" && selectedEngineerId && !collapsed && (
+          <div className="space-y-1 pt-2 border-t border-slate-100">
+            <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block px-2 mb-1">
+              Inspection Controls
+            </label>
+            <button
+              type="button"
+              onClick={() => setTab("evidence")}
+              className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-md text-left transition-colors ${
+                tab === "evidence"
+                  ? "bg-indigo-50 text-indigo-800 border border-indigo-100"
+                  : "text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              <Terminal
+                className={`h-3.5 w-3.5 ${tab === "evidence" ? "text-indigo-600" : "text-slate-400"}`}
+              />{" "}
+              Evidence Log
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("objectives")}
+              className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-md text-left transition-colors ${
+                tab === "objectives"
+                  ? "bg-indigo-50 text-indigo-800 border border-indigo-100"
+                  : "text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              <ClipboardCheck
+                className={`h-3.5 w-3.5 ${tab === "objectives" ? "text-indigo-600" : "text-slate-400"}`}
+              />{" "}
+              Objectives Board
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("radar")}
+              className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-md text-left transition-colors ${
+                tab === "radar"
+                  ? "bg-indigo-50 text-indigo-800 border border-indigo-100"
+                  : "text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              <TrendingUp
+                className={`h-3.5 w-3.5 ${tab === "radar" ? "text-indigo-600" : "text-slate-400"}`}
+              />{" "}
+              Promotion Readiness
+            </button>
+          </div>
+        )}
+        {mainNav
+          .filter((n) => n.visibleIn === "all" || n.visibleIn === mode)
+          .filter((n) => {
+            if (mode !== "manager") return true;
+            if (selectedEngineerId) {
+              return n.id === "evidence" || n.id === "objectives" || n.id === "radar";
+            }
+            return n.id === "dashboard";
+          })
+          .map((n) => (
+            <NavButton key={n.id} n={n} />
+          ))}
       </nav>
 
       <div className="px-3 pb-2">
@@ -184,7 +396,19 @@ export function Sidebar({
       </div>
 
       <div className="p-3 border-t space-y-2" style={{ borderColor: C.border }}>
-        <NavButton n={settingsItem} />
+        {isManagerAccount && (
+          <button
+            onClick={() => setMode(mode === "manager" ? "engineer" : "manager")}
+            title={collapsed ? "Switch workspace profile" : undefined}
+            className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "justify-between"} p-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200/60 rounded-xl text-left transition-all cursor-pointer text-xs font-bold text-slate-600`}
+          >
+            {!collapsed && (
+              <span>Switch Workspace Profile</span>
+            )}
+            <span className="text-[10px] text-slate-400">Flip</span>
+          </button>
+        )}
+        {mode !== "manager" && <NavButton n={settingsItem} />}
         {!collapsed && (
           <div className="px-1 pt-1 rounded-md border" style={{ borderColor: C.border }}>
             <div className="flex items-center gap-2 min-w-0">
@@ -280,12 +504,106 @@ export function Sidebar({
                 </button>
               </div>
               <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-                {mainNav.map((n) => (
-                  <NavButton key={n.id} n={n} />
-                ))}
+                {mode === "manager" && managedEngineers.length > 0 && (
+                  <div
+                    className="mb-3 rounded-lg border p-2.5"
+                    style={{ borderColor: C.border, background: "#FAFBFC" }}
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div
+                        className="text-[10px] font-bold uppercase tracking-wider"
+                        style={{ color: C.subtle }}
+                      >
+                        Squad Roster ({managedEngineers.length})
+                      </div>
+                      {selectedEngineerId && (
+                        <button
+                          type="button"
+                          onClick={onOpenTeamOverview}
+                          className="text-[10px] font-bold text-indigo-600 hover:underline"
+                        >
+                          View Dashboard
+                        </button>
+                      )}
+                    </div>
+                    <div className="relative mb-2">
+                      <Search
+                        size={12}
+                        className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-400"
+                      />
+                      <input
+                        value={engineerQuery}
+                        onChange={(event) => setEngineerQuery(event.target.value)}
+                        placeholder="Quick-filter team members..."
+                        className="h-8 w-full rounded border border-slate-200 bg-white pl-7 pr-2 text-xs text-slate-700 outline-none transition-all focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={onOpenTeamOverview}
+                      className={`mb-1 w-full rounded px-2 py-1.5 text-left text-xs font-semibold transition-colors ${
+                        managerDirectoryActive ? "bg-white" : "hover:bg-white"
+                      }`}
+                      style={{
+                        color: managerDirectoryActive ? C.primary : C.slate,
+                        border: `1px solid ${C.border}`,
+                      }}
+                    >
+                      Team Overview
+                    </button>
+                    <div className="max-h-44 space-y-1 overflow-y-auto pr-1">
+                      {filteredEngineers.map((engineer) => {
+                        const active = engineer.id === selectedEngineerId;
+                        return (
+                          <button
+                            key={engineer.id}
+                            type="button"
+                            onClick={() => onSelectEngineer?.(engineer.id)}
+                            className={`w-full rounded border px-2 py-1.5 text-left text-xs transition-colors ${
+                              active ? "bg-indigo-50" : "bg-white hover:bg-slate-50"
+                            }`}
+                            style={{
+                              borderColor: active ? "#C7D2FE" : C.border,
+                              color: active ? C.primary : C.slate,
+                            }}
+                            title={engineer.email}
+                          >
+                            <div className="truncate font-semibold">{engineer.fullName}</div>
+                          </button>
+                        );
+                      })}
+                      {filteredEngineers.length === 0 && (
+                        <div className="rounded border border-dashed border-slate-200 px-2 py-2 text-[11px] text-slate-500">
+                          No matching profiles found.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {mainNav
+                  .filter((n) => n.visibleIn === "all" || n.visibleIn === mode)
+                  .filter((n) => {
+                    if (mode !== "manager") return true;
+                    if (selectedEngineerId) {
+                      return n.id === "evidence" || n.id === "objectives" || n.id === "radar";
+                    }
+                    return n.id === "dashboard";
+                  })
+                  .map((n) => (
+                    <NavButton key={n.id} n={n} />
+                  ))}
               </nav>
               <div className="p-3 border-t space-y-2" style={{ borderColor: C.border }}>
-                <NavButton n={settingsItem} />
+                {isManagerAccount && (
+                  <button
+                    onClick={() => setMode(mode === "manager" ? "engineer" : "manager")}
+                    className="w-full flex items-center justify-between p-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200/60 rounded-xl text-left transition-all cursor-pointer text-xs font-bold text-slate-600"
+                  >
+                    <span>Switch Workspace Profile</span>
+                    <span className="text-[10px] text-slate-400">Flip</span>
+                  </button>
+                )}
+                {mode !== "manager" && <NavButton n={settingsItem} />}
                 <button
                   onClick={handleSignout}
                   className="w-full flex items-center gap-3 px-3 py-2.5 rounded text-left text-sm font-semibold hover:bg-[#F4F5F7]"
@@ -360,8 +678,9 @@ export function TopHeader({
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.setQueryData<HeaderNotification[]>(["header-notifications", userId], (rows = []) =>
-        rows.map((row) => ({ ...row, is_read: true })),
+      queryClient.setQueryData<HeaderNotification[]>(
+        ["header-notifications", userId],
+        (rows = []) => rows.map((row) => ({ ...row, is_read: true })),
       );
       void queryClient.invalidateQueries({ queryKey: ["header-notifications", userId] });
     },
@@ -399,9 +718,12 @@ export function TopHeader({
     return `${elapsedDays}d ago`;
   }
   function getNotificationVisual(type: "feedback" | "auto_capture" | "objective" | "assessment") {
-    if (type === "feedback") return { Icon: MessageSquare, iconClassName: "bg-blue-50 text-blue-600" };
-    if (type === "auto_capture") return { Icon: Sparkles, iconClassName: "bg-blue-50 text-indigo-600" };
-    if (type === "objective") return { Icon: UserCheck, iconClassName: "bg-blue-50 text-emerald-600" };
+    if (type === "feedback")
+      return { Icon: MessageSquare, iconClassName: "bg-blue-50 text-blue-600" };
+    if (type === "auto_capture")
+      return { Icon: Sparkles, iconClassName: "bg-blue-50 text-indigo-600" };
+    if (type === "objective")
+      return { Icon: UserCheck, iconClassName: "bg-blue-50 text-emerald-600" };
     return { Icon: FileText, iconClassName: "bg-blue-50 text-slate-600" };
   }
   function toggle() {
@@ -463,10 +785,16 @@ export function TopHeader({
                             className="w-full rounded-md border px-2.5 py-2 text-left hover:bg-[#F8FAFF] transition-colors"
                             style={{ borderColor: C.border }}
                           >
-                            <div className="text-sm font-semibold truncate" style={{ color: C.navy }}>
+                            <div
+                              className="text-sm font-semibold truncate"
+                              style={{ color: C.navy }}
+                            >
                               {item.title}
                             </div>
-                            <div className="text-xs mt-0.5 line-clamp-2 break-words" style={{ color: C.slate }}>
+                            <div
+                              className="text-xs mt-0.5 line-clamp-2 break-words"
+                              style={{ color: C.slate }}
+                            >
                               {item.description}
                             </div>
                           </button>
@@ -575,7 +903,9 @@ export function TopHeader({
           <PrimaryBtn onClick={onCapture}>
             <Plus size={16} />
             <span className="hidden sm:inline">{captureLabel}</span>
-            <span className="sm:hidden">Capture</span>
+            <span className="sm:hidden">
+              {captureLabel.toLowerCase().includes("knowledge") ? "Log" : "Capture"}
+            </span>
           </PrimaryBtn>
         </div>
       </div>

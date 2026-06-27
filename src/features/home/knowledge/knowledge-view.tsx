@@ -1,6 +1,16 @@
 import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { Edit2, ExternalLink, Link as LinkIcon, Loader2, Plus, Save, Trash2, X } from "lucide-react";
+import {
+  Edit2,
+  ExternalLink,
+  Link as LinkIcon,
+  Loader2,
+  Pin,
+  Plus,
+  Save,
+  Trash2,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { formatUtcToLocal } from "@/lib/datetime";
 import { C, Card, Field, GhostBtn, Input, PrimaryBtn } from "@/features/home/shared/ui-kit";
@@ -27,10 +37,7 @@ function Backdrop({ children, onClose }: { children: React.ReactNode; onClose: (
   );
 }
 
-function Textarea({
-  className,
-  ...props
-}: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+function Textarea({ className, ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea
       {...props}
@@ -40,13 +47,7 @@ function Textarea({
   );
 }
 
-function SectionHeader({
-  title,
-  sub,
-}: {
-  title: string;
-  sub?: string;
-}) {
+function SectionHeader({ title, sub }: { title: string; sub?: string }) {
   return (
     <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
       <div className="min-w-0">
@@ -65,13 +66,33 @@ function SectionHeader({
 
 export function KnowledgeHubView({
   items,
+  pinnedKnowledgeIds,
+  focusedItemId,
+  onTogglePin,
   onEdit,
   onDelete,
 }: {
   items: KnowledgeHubItem[];
+  pinnedKnowledgeIds: Set<string>;
+  focusedItemId: string | null;
+  onTogglePin: (item: KnowledgeHubItem) => void;
   onEdit: (item: KnowledgeHubItem) => void;
   onDelete: (item: KnowledgeHubItem) => void;
 }) {
+  const [highlightedItemId, setHighlightedItemId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!focusedItemId) return;
+    const target = document.getElementById(`knowledge-card-${focusedItemId}`);
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightedItemId(focusedItemId);
+    const timer = window.setTimeout(() => {
+      setHighlightedItemId((current) => (current === focusedItemId ? null : current));
+    }, 2000);
+    return () => window.clearTimeout(timer);
+  }, [focusedItemId, items]);
+
   return (
     <Card className="p-5">
       <SectionHeader
@@ -101,26 +122,36 @@ export function KnowledgeHubView({
             return (
               <div
                 key={item.id}
-                className="min-w-0 rounded-xl border p-4 space-y-3 flex flex-col overflow-hidden"
-                style={{ borderColor: C.border, background: "#FFFFFF" }}
+                id={`knowledge-card-${item.id}`}
+                className={`min-w-0 rounded-xl border p-4 space-y-3 flex flex-col overflow-hidden transition-colors ${
+                  highlightedItemId === item.id
+                    ? "ring-2 ring-indigo-300 border-indigo-300 bg-indigo-50/20"
+                    : ""
+                }`}
+                style={{
+                  borderColor: highlightedItemId === item.id ? "#A5B4FC" : C.border,
+                  background: "#FFFFFF",
+                }}
               >
-                <div className="flex items-start justify-between gap-2 min-w-0">
-                  <div className="min-w-0 flex-1">
-                    <div
-                      className="text-sm font-semibold break-words whitespace-pre-wrap [overflow-wrap:break-word]"
-                      style={{ color: C.navy }}
+                <div className="space-y-2 min-w-0">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => onTogglePin(item)}
+                      className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold ${
+                        pinnedKnowledgeIds.has(item.id)
+                          ? "bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
+                          : "hover:bg-[#DEEBFF]"
+                      }`}
+                      style={
+                        pinnedKnowledgeIds.has(item.id)
+                          ? undefined
+                          : { color: C.primary, borderColor: "#B3D4FF" }
+                      }
                     >
-                      {item.challenge || "Knowledge log"}
-                    </div>
-                    <div className="text-[11px] mt-1" style={{ color: C.subtle }}>
-                      Logged on{" "}
-                      {formatUtcToLocal(item.createdAt, {
-                        dateStyle: "medium",
-                        timeStyle: "short",
-                      })}
-                    </div>
-                  </div>
-                  <div className="inline-flex items-center gap-1.5">
+                      <Pin size={12} />
+                      {pinnedKnowledgeIds.has(item.id) ? "Pinned" : "Pin"}
+                    </button>
                     <span
                       className="inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold border"
                       style={{ background: "#EAE6FF", color: "#403294", borderColor: "#C5B8FF" }}
@@ -145,6 +176,21 @@ export function KnowledgeHubView({
                       <Trash2 size={12} />
                       Delete
                     </button>
+                  </div>
+                  <div className="min-w-0">
+                    <div
+                      className="text-sm font-semibold break-words whitespace-pre-wrap [overflow-wrap:break-word]"
+                      style={{ color: C.navy }}
+                    >
+                      {item.challenge || "Knowledge log"}
+                    </div>
+                    <div className="text-[11px] mt-1" style={{ color: C.subtle }}>
+                      Logged on{" "}
+                      {formatUtcToLocal(item.createdAt, {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      })}
+                    </div>
                   </div>
                 </div>
                 <div

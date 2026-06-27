@@ -4,6 +4,8 @@ import { pinResource, unpinResource } from "@/lib/api/pinned-resources.functions
 import { supabase } from "@/lib/supabase";
 import type { EvidenceRecord, Objective } from "@/features/home/shared/models";
 import type { PinnedResourceRow } from "@/features/home/shared/pinned-resource-samples";
+import type { KnowledgeHubItem } from "@/features/home/knowledge/knowledge";
+import { buildKnowledgePinUrl } from "@/features/home/shared/pinned-resource-targets";
 
 type UseHomePinnedResourcesActionsParams = {
   activeWorkspaceId: string;
@@ -20,6 +22,7 @@ type UseHomePinnedResourcesActionsParams = {
   setIsPinnedQuickAddOpen: React.Dispatch<React.SetStateAction<boolean>>;
   pinnedObjectiveIdToPinId: Map<string, string>;
   pinnedEvidenceIdToPinId: Map<string, string>;
+  pinnedKnowledgeIdToPinId: Map<string, string>;
   onFlash: (message: string) => void;
 };
 
@@ -38,6 +41,7 @@ export function useHomePinnedResourcesActions({
   setIsPinnedQuickAddOpen,
   pinnedObjectiveIdToPinId,
   pinnedEvidenceIdToPinId,
+  pinnedKnowledgeIdToPinId,
   onFlash,
 }: UseHomePinnedResourcesActionsParams) {
   const loadPinnedResources = useCallback(async () => {
@@ -48,7 +52,9 @@ export function useHomePinnedResourcesActions({
 
     const { data, error } = await (supabase as any)
       .from("pinned_resources")
-      .select("id, title, url, resource_type, evidence_id, objective_id, workspace_id, pinned_by, created_at")
+      .select(
+        "id, title, url, resource_type, evidence_id, objective_id, workspace_id, pinned_by, created_at",
+      )
       .eq("workspace_id", activeWorkspaceId)
       .order("created_at", { ascending: false });
 
@@ -255,11 +261,47 @@ export function useHomePinnedResourcesActions({
     [handlePinEvidenceResource, handleUnpin, onFlash, pinnedEvidenceIdToPinId],
   );
 
+  const handlePinKnowledgeResource = useCallback(
+    async (item: KnowledgeHubItem) => {
+      const title = item.challenge.trim();
+      if (!title) {
+        toast.error("Unable to pin this knowledge card because it has no title.");
+        return;
+      }
+      try {
+        await handlePinResource({
+          title,
+          url: buildKnowledgePinUrl(item.id),
+          resourceType: "generic",
+        });
+        onFlash("Knowledge card pinned to workspace");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to pin knowledge card.";
+        toast.error(message);
+      }
+    },
+    [handlePinResource, onFlash],
+  );
+
+  const handleToggleKnowledgePin = useCallback(
+    async (item: KnowledgeHubItem) => {
+      const existingPinId = pinnedKnowledgeIdToPinId.get(item.id);
+      if (existingPinId) {
+        const didUnpin = await handleUnpin(existingPinId);
+        if (didUnpin) onFlash("Knowledge card unpinned from workspace");
+        return;
+      }
+      await handlePinKnowledgeResource(item);
+    },
+    [handlePinKnowledgeResource, handleUnpin, onFlash, pinnedKnowledgeIdToPinId],
+  );
+
   return {
     loadPinnedResources,
     handleUnpin,
     handlePinGenericResource,
     handleToggleObjectivePin,
     handleToggleEvidencePin,
+    handleToggleKnowledgePin,
   };
 }

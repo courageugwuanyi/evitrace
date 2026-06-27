@@ -51,7 +51,10 @@ import {
 } from "@/features/home/shared/ui-kit";
 import { Backdrop, ConfirmDialog, Textarea } from "@/features/home/shared/overlays";
 import { HomeAuthApp } from "@/features/home/auth/auth";
-import { MANAGER_ONBOARDING_CONTEXT_KEY } from "@/features/home/shared/constants";
+import {
+  MANAGER_ONBOARDING_CONTEXT_KEY,
+  PENDING_WORKSPACE_INVITE_HASH_KEY,
+} from "@/features/home/shared/constants";
 import {
   initialRadar,
   initialEvidence,
@@ -80,13 +83,11 @@ import type {
   InboxConfirmPayload,
   InboxViewItem,
 } from "@/features/home/shell/home-route-contracts";
-import {
-  formatWorkspaceActivityStatus,
-  getWorkspaceMemberInitials,
-  HOME_PAGE_TITLES,
-} from "@/features/home/shell/home-route-view-model";
+import { HOME_PAGE_TITLES } from "@/features/home/shell/home-route-view-model";
 import { SettingsView } from "@/features/home/settings/settings-view";
+import { WorkspaceProvider, useWorkspace } from "@/features/home/context/WorkspaceContext";
 import { type PinnedResourceRow } from "@/features/home/shared/pinned-resource-samples";
+import { isHttpUrl, parsePinnedKnowledgeId } from "@/features/home/shared/pinned-resource-targets";
 import {
   buildHomeGlobalSearchResults,
   buildPinnedResourceLookups,
@@ -122,6 +123,9 @@ import {
 } from "@/features/home/shared/framework-taxonomy";
 import { formatDisplayDate, formatObjectiveCode } from "@/features/home/shared/formatters";
 import { Sidebar, TopHeader } from "@/features/home/shell/home-shell";
+import { BusinessCaseTab } from "@/features/home/components/BusinessCaseTab";
+import { OneOnOneWorkspace } from "@/features/home/components/OneOnOneWorkspace";
+import { ManagerDashboardView } from "@/features/home/components/ManagerDashboardView";
 import {
   CreateObjectiveModal,
   ObjectiveSlideover,
@@ -265,11 +269,13 @@ export function HomeRouteApp({
   return (
     <HomeAuthApp
       EvitraceApp={() => (
-        <EvitraceApp
-          activeTab={activeTab}
-          activeSettingsSection={activeSettingsSection}
-          openCaptureOnLoad={openCaptureOnLoad}
-        />
+        <WorkspaceProvider>
+          <EvitraceApp
+            activeTab={activeTab}
+            activeSettingsSection={activeSettingsSection}
+            openCaptureOnLoad={openCaptureOnLoad}
+          />
+        </WorkspaceProvider>
       )}
     />
   );
@@ -285,13 +291,22 @@ function EvitraceApp({
   openCaptureOnLoad: boolean;
 }) {
   const { user, userId: authUserId, signout } = useAuth();
+  const {
+    mode,
+    isManagerAccount,
+    selectedEngineerId: workspaceSelectedEngineerId,
+    setSelectedEngineerId: setWorkspaceSelectedEngineerId,
+    refreshWorkspace,
+    loading: workspaceContextLoading,
+  } = useWorkspace();
   const { categories: frameworkCategories, currentFramework } = useFramework();
   const navigate = useNavigate();
   const userId = authUserId ?? "";
   const {
     managedEngineers,
-    selectedEngineerId,
-    setSelectedEngineerId,
+    selectedEngineerId: relationshipSelectedEngineerId,
+    setSelectedEngineerId: setRelationshipSelectedEngineerId,
+    isLoadingManagedEngineers,
     activeView,
     setActiveView,
     managerRelationshipsRefreshNonce,
@@ -300,22 +315,137 @@ function EvitraceApp({
     setHandoverNotes,
     isSigningOffTransfer,
     setIsSigningOffTransfer,
-    hasManagerOnboardingContext,
-    setHasManagerOnboardingContext,
   } = useManagerRelationships(userId);
+  const isManagerMode = mode === "manager";
+  const managerWorkspaceEnabled = mode === "manager" && isManagerAccount;
+  const managedEngineersInScope = isManagerMode ? managedEngineers : [];
+  const selectedEngineerId = isManagerMode ? workspaceSelectedEngineerId : null;
+  const isManagerScopedToEngineer = managerWorkspaceEnabled && Boolean(selectedEngineerId);
+  const reportSubjectEngineerId =
+    managerWorkspaceEnabled && selectedEngineerId ? selectedEngineerId : userId;
+  const assessmentWorkspaceUserId = reportSubjectEngineerId;
+
+  useEffect(() => {
+    if (!isManagerMode) {
+      setWorkspaceSelectedEngineerId(null);
+      setRelationshipSelectedEngineerId(null);
+      return;
+    }
+    if (relationshipSelectedEngineerId !== workspaceSelectedEngineerId) {
+      setRelationshipSelectedEngineerId(workspaceSelectedEngineerId);
+    }
+  }, [
+    isManagerMode,
+    relationshipSelectedEngineerId,
+    setRelationshipSelectedEngineerId,
+    setWorkspaceSelectedEngineerId,
+    workspaceSelectedEngineerId,
+  ]);
 
   const tab = activeTab;
   const settingsSection = activeSettingsSection;
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [managerProfileSubTab, setManagerProfileSubTab] = useState<
+    "tracking_workspace" | "compilation_dossier" | "one_on_one_sync"
+  >("tracking_workspace");
   const [globalSearchQuery, setGlobalSearchQuery] = useState("");
+  const hasProcessedPendingInviteRef = useRef(false);
   const { sampleContent, setSampleContent } = useHomeSampleContentVisibility();
+
+  useEffect(() => {
+    if (!managerWorkspaceEnabled) {
+      setActiveView("profile");
+      setManagerProfileSubTab("tracking_workspace");
+      return;
+    }
+    if (
+      selectedEngineerId &&
+      !managedEngineersInScope.some((engineer) => engineer.id === selectedEngineerId)
+    ) {
+      setWorkspaceSelectedEngineerId(null);
+      setRelationshipSelectedEngineerId(null);
+      setActiveView("directory");
+      return;
+    }
+    if (managedEngineersInScope.length === 0) {
+      setWorkspaceSelectedEngineerId(null);
+      setRelationshipSelectedEngineerId(null);
+      setManagerProfileSubTab("tracking_workspace");
+    }
+  }, [
+    selectedEngineerId,
+    managedEngineersInScope.length,
+    managedEngineersInScope,
+    managerWorkspaceEnabled,
+    setActiveView,
+    setRelationshipSelectedEngineerId,
+    setWorkspaceSelectedEngineerId,
+  ]);
+
+  useEffect(() => {
+    if (!selectedEngineerId || activeView !== "profile") {
+      setManagerProfileSubTab("tracking_workspace");
+    }
+  }, [activeView, selectedEngineerId]);
+
+  useEffect(() => {
+    if (!isManagerMode) return;
+    if (selectedEngineerId) {
+      if (tab === "evidence" || tab === "objectives" || tab === "radar" || tab === "report") return;
+      void navigate({ to: getTabPath("evidence"), replace: true });
+      return;
+    }
+    if (tab === "dashboard") return;
+    void navigate({ to: getTabPath("dashboard"), replace: true });
+  }, [isManagerMode, navigate, selectedEngineerId, tab]);
+
+  useEffect(() => {
+    if (!userId || hasProcessedPendingInviteRef.current || typeof window === "undefined") return;
+    const storedHash = window.localStorage.getItem(PENDING_WORKSPACE_INVITE_HASH_KEY)?.trim();
+    if (!storedHash) return;
+    hasProcessedPendingInviteRef.current = true;
+
+    async function acceptPendingWorkspaceInvite() {
+      try {
+        const { data, error } = await supabase.rpc("accept_manager_invite", {
+          target_hash: storedHash,
+          current_manager_id: userId,
+        });
+        const response = (Array.isArray(data) ? data[0] : data) as {
+          success?: boolean;
+          message?: string;
+        } | null;
+        if (error || response?.success === false) {
+          toast.error(
+            response?.message ??
+              error?.message ??
+              "Workspace connection linking transaction failed.",
+          );
+          return;
+        }
+        toast.success(
+          response?.message ??
+            "Teammate profile successfully added to your organization hierarchy.",
+        );
+        await refreshWorkspace();
+        setManagerRelationshipsRefreshNonce((prev) => prev + 1);
+      } catch {
+        toast.error("Network synchronization timeout during invite activation.");
+      } finally {
+        window.localStorage.removeItem(PENDING_WORKSPACE_INVITE_HASH_KEY);
+      }
+    }
+
+    void acceptPendingWorkspaceInvite();
+  }, [refreshWorkspace, userId, setManagerRelationshipsRefreshNonce]);
 
   const { data: evidence = [] } = useEvidenceQuery(userId, {
     includeSamples: sampleContent.evidence,
   });
   const { data: archivedEvidence = [] } = useEvidenceQuery(userId, { archived: true });
   const saveEvidenceMutation = useSaveEvidence(userId);
+  const saveSelectedEngineerEvidenceMutation = useSaveEvidence(selectedEngineerId ?? "");
   const archiveEvidenceMutation = useArchiveEvidence(userId);
   const restoreEvidenceMutation = useRestoreEvidence(userId);
   const deleteEvidenceMutation = useDeleteEvidence(userId);
@@ -330,6 +460,8 @@ function EvitraceApp({
   const createObjectiveMutation = useCreateObjective(userId);
   const moveObjectiveMutation = useMoveObjective(userId);
   const saveObjectiveMutation = useSaveObjective(userId);
+  const moveSelectedEngineerObjectiveMutation = useMoveObjective(selectedEngineerId ?? "");
+  const saveSelectedEngineerObjectiveMutation = useSaveObjective(selectedEngineerId ?? "");
   const archiveObjectiveMutation = useArchiveObjective(userId);
   const restoreObjectiveMutation = useRestoreObjective(userId);
   const deleteObjectiveMutation = useDeleteObjective(userId);
@@ -356,9 +488,13 @@ function EvitraceApp({
   );
   const { data: selectedEngineerInbox = [] } = useInboxQuery(selectedEngineerId ?? "");
   const { data: selectedEngineerAssessments = [] } = useAssessmentsQuery(selectedEngineerId ?? "");
-  const { data: managerTeamOverview = [], isLoading: isManagerTeamOverviewLoading } = useQuery({
+  const {
+    data: managerTeamOverview = [],
+    isLoading: isManagerTeamOverviewLoading,
+    isError: isManagerTeamOverviewError,
+  } = useQuery({
     queryKey: ["manager-team-overview", userId, managerRelationshipsRefreshNonce],
-    enabled: Boolean(userId) && managedEngineers.length > 0,
+    enabled: Boolean(userId) && managedEngineersInScope.length > 0,
     queryFn: async () => {
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
@@ -372,9 +508,38 @@ function EvitraceApp({
       });
     },
   });
-  const finalizeAssessmentMutation = useFinalizeAssessment(userId);
-  const deleteAssessmentMutation = useDeleteAssessment(userId);
-  const updateTopicsMutation = useUpdateOneOnOneTopics(userId);
+  const { data: assessmentManagerName = "" } = useQuery({
+    queryKey: [
+      "assessment-manager-name",
+      reportSubjectEngineerId,
+      selectedEngineerId,
+      managerWorkspaceEnabled,
+    ],
+    enabled: Boolean(reportSubjectEngineerId),
+    queryFn: async (): Promise<string> => {
+      if (!reportSubjectEngineerId) return "";
+
+      const { data, error } = await (supabase as any)
+        .from("reporting_relationships")
+        .select("manager_id, profiles:manager_id(full_name)")
+        .eq("engineer_id", reportSubjectEngineerId)
+        .eq("relation_type", "direct_manager")
+        .in("status", ["active", "in_handover"])
+        .limit(1)
+        .maybeSingle();
+
+      if (error) return "";
+      const managerId = typeof data?.manager_id === "string" ? data.manager_id.trim() : "";
+      if (!managerId) return "";
+      const managerProfile = Array.isArray(data?.profiles) ? data.profiles[0] : data?.profiles;
+      const managerName = managerProfile?.full_name?.trim();
+      if (typeof managerName === "string" && managerName.length > 0) return managerName;
+      return "";
+    },
+  });
+  const finalizeAssessmentMutation = useFinalizeAssessment(assessmentWorkspaceUserId);
+  const deleteAssessmentMutation = useDeleteAssessment(assessmentWorkspaceUserId);
+  const updateTopicsMutation = useUpdateOneOnOneTopics(assessmentWorkspaceUserId);
   const queryClient = useQueryClient();
   const { data: knowledgeRows = [] } = useQuery({
     queryKey: ["knowledge_items", userId],
@@ -517,7 +682,7 @@ function EvitraceApp({
   const [sampleAssessments, setSampleAssessments] = useState<Assessment[]>(() =>
     initialAssessments.slice(0, 3),
   );
-  const { wizardDraft, setWizardDraft } = useHomeAssessmentDraft(userId);
+  const { wizardDraft, setWizardDraft } = useHomeAssessmentDraft(assessmentWorkspaceUserId);
 
   const historyAssessments = useMemo(() => {
     const merged = new Map<string, Assessment>();
@@ -571,6 +736,7 @@ function EvitraceApp({
   const [isPinnedQuickAddOpen, setIsPinnedQuickAddOpen] = useState(false);
   const pinnedQuickAddPopoverRef = useRef<HTMLDivElement | null>(null);
   const pinnedQuickAddTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [focusedKnowledgeId, setFocusedKnowledgeId] = useState<string | null>(null);
 
   useHomeCaptureOnLoad({ openCaptureOnLoad, setShowCapture });
 
@@ -622,11 +788,11 @@ function EvitraceApp({
       deriveHomeWorkspaceScope({
         activeView,
         selectedEngineerId,
-        managedEngineersCount: managedEngineers.length,
+        managedEngineersCount: managedEngineersInScope.length,
         tab,
         userId,
       }),
-    [activeView, managedEngineers.length, selectedEngineerId, tab, userId],
+    [activeView, managedEngineersInScope.length, selectedEngineerId, tab, userId],
   );
   const contextEvidence = pickWorkspaceData({
     isManagerWorkspace,
@@ -668,21 +834,29 @@ function EvitraceApp({
       getSelectedEngineerRole({
         selectedEngineerId,
         isManagerWorkspace,
-        managedEngineers,
+        managedEngineers: managedEngineersInScope,
       }),
-    [isManagerWorkspace, managedEngineers, selectedEngineerId],
+    [isManagerWorkspace, managedEngineersInScope, selectedEngineerId],
   );
   const showTeamTransitionCard = useMemo(
     () =>
       shouldShowTeamTransitionCard({
         selectedEngineerId,
         isManagerWorkspace,
-        managedEngineers,
+        managedEngineers: managedEngineersInScope,
       }),
-    [isManagerWorkspace, managedEngineers, selectedEngineerId],
+    [isManagerWorkspace, managedEngineersInScope, selectedEngineerId],
   );
-  const fallbackEngineerName = user?.fullName?.trim() || user?.email || "Engineer";
-
+  const selectedManagedEngineer = useMemo(
+    () => managedEngineersInScope.find((engineer) => engineer.id === selectedEngineerId) ?? null,
+    [managedEngineersInScope, selectedEngineerId],
+  );
+  const reportSubjectEngineerName = useMemo(() => {
+    if (managerWorkspaceEnabled && selectedManagedEngineer?.fullName?.trim()) {
+      return selectedManagedEngineer.fullName.trim();
+    }
+    return user?.fullName?.trim() || user?.email || "Engineer";
+  }, [managerWorkspaceEnabled, selectedManagedEngineer?.fullName, user?.email, user?.fullName]);
   const notifyManagerAssessmentReady = useCallback(
     async (engineerId: string, engineerName: string) => {
       const { data: relationships, error: relationshipError } = await (supabase as any)
@@ -739,8 +913,10 @@ function EvitraceApp({
   const {
     pinnedObjectiveIdToPinId,
     pinnedEvidenceIdToPinId,
+    pinnedKnowledgeIdToPinId,
     pinnedObjectiveIds,
     pinnedEvidenceIds,
+    pinnedKnowledgeIds,
   } = useMemo(() => buildPinnedResourceLookups(pinnedResources), [pinnedResources]);
 
   function flash(msg: string) {
@@ -753,6 +929,7 @@ function EvitraceApp({
     handlePinGenericResource,
     handleToggleObjectivePin,
     handleToggleEvidencePin,
+    handleToggleKnowledgePin,
   } = useHomePinnedResourcesActions({
     activeWorkspaceId,
     notificationTargetUserId,
@@ -768,6 +945,7 @@ function EvitraceApp({
     setIsPinnedQuickAddOpen,
     pinnedObjectiveIdToPinId,
     pinnedEvidenceIdToPinId,
+    pinnedKnowledgeIdToPinId,
     onFlash: flash,
   });
   const { approveInbox, dismissInbox } = useHomeInboxActions({
@@ -784,10 +962,79 @@ function EvitraceApp({
     void loadPinnedResources();
   }, [loadPinnedResources]);
 
-  const showUnlinkedManagerFallback = hasManagerOnboardingContext && managedEngineers.length === 0;
+  const handlePinnedResourceSelect = useCallback(
+    (pin: PinnedResourceRow) => {
+      const knowledgeId = parsePinnedKnowledgeId(pin.url);
+      if (knowledgeId) {
+        setFocusedKnowledgeId(null);
+        window.requestAnimationFrame(() => {
+          setFocusedKnowledgeId(knowledgeId);
+        });
+        if (tab !== "knowledge") {
+          void navigate({ to: getTabPath("knowledge") });
+        }
+        return;
+      }
+
+      if (pin.resource_type === "evidence" && pin.evidence_id) {
+        const evidenceTarget = [...contextEvidence, ...contextArchivedEvidence].find(
+          (item) => item.id === pin.evidence_id,
+        );
+        if (evidenceTarget) {
+          setOpenEvidence(evidenceTarget);
+          if (tab !== "evidence") void navigate({ to: getTabPath("evidence") });
+          return;
+        }
+      }
+
+      if (pin.resource_type === "objective" && pin.objective_id) {
+        const objectiveTarget = [...contextObjectives, ...contextArchivedObjectives].find(
+          (item) => item.id === pin.objective_id,
+        );
+        if (objectiveTarget) {
+          setOpenObjective(objectiveTarget);
+          if (tab !== "objectives") void navigate({ to: getTabPath("objectives") });
+          return;
+        }
+      }
+
+      if (isHttpUrl(pin.url)) {
+        window.open(pin.url, "_blank", "noopener,noreferrer");
+        return;
+      }
+
+      if (pin.resource_type === "evidence") {
+        void navigate({ to: getTabPath("evidence") });
+        return;
+      }
+
+      if (pin.resource_type === "objective") {
+        void navigate({ to: getTabPath("objectives") });
+        return;
+      }
+
+      void navigate({ to: getTabPath("knowledge") });
+    },
+    [
+      contextArchivedEvidence,
+      contextArchivedObjectives,
+      contextEvidence,
+      contextObjectives,
+      navigate,
+      tab,
+    ],
+  );
+
+  const showUnlinkedManagerFallback =
+    managerWorkspaceEnabled && !isLoadingManagedEngineers && managedEngineersInScope.length === 0;
   const showWorkspaceConnectionFallback =
     showUnlinkedManagerFallback ||
-    (isManagerDirectoryView && !isManagerTeamOverviewLoading && managerTeamOverview.length === 0);
+    (isManagerDirectoryView &&
+      !isManagerTeamOverviewLoading &&
+      !isManagerTeamOverviewError &&
+      managerTeamOverview.length === 0);
+  const showManagerProfileSubNavigation =
+    managerWorkspaceEnabled && activeView === "profile" && Boolean(selectedEngineerId);
 
   async function handleSignOutForWorkspaceReset() {
     await signout();
@@ -804,7 +1051,7 @@ function EvitraceApp({
     });
   const { requestAssessmentDelete, executeAssessmentDelete, clearAssessmentWizardDraft } =
     useHomeAssessmentActions({
-      userId,
+      userId: assessmentWorkspaceUserId,
       sampleAssessments,
       setSampleAssessments,
       review,
@@ -821,6 +1068,14 @@ function EvitraceApp({
     });
   }
 
+  if (workspaceContextLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="h-5 w-36 rounded-md bg-slate-200 animate-pulse" />
+      </div>
+    );
+  }
+
   return (
     <div
       className="min-h-screen"
@@ -833,6 +1088,20 @@ function EvitraceApp({
         onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
         mobileOpen={mobileSidebarOpen}
         onCloseMobile={() => setMobileSidebarOpen(false)}
+        managedEngineers={managedEngineersInScope}
+        selectedEngineerId={selectedEngineerId}
+        managerDirectoryActive={managerWorkspaceEnabled && !selectedEngineerId}
+        onOpenTeamOverview={() => {
+          setWorkspaceSelectedEngineerId(null);
+          setRelationshipSelectedEngineerId(null);
+          setActiveView("directory");
+          void navigate({ to: getTabPath("dashboard") });
+        }}
+        onSelectEngineer={(engineerId) => {
+          setWorkspaceSelectedEngineerId(engineerId);
+          setRelationshipSelectedEngineerId(engineerId);
+          setActiveView("profile");
+        }}
       />
 
       <div
@@ -841,21 +1110,20 @@ function EvitraceApp({
         <TopHeader
           title={HOME_PAGE_TITLES[tab]}
           onCapture={() => {
-            if (isManagerWorkspace) {
-              void navigate({ to: getTabPath("report") });
-              flash("Open Reviews & Reports to give manager feedback and approvals.");
+            if (managerWorkspaceEnabled) {
+              setShowCapture(true);
               return;
             }
             setShowCapture(true);
           }}
-          captureLabel={isManagerWorkspace ? "Give Feedback" : "Capture Evidence"}
+          captureLabel={managerWorkspaceEnabled ? "Log Knowledge" : "Capture Evidence"}
           onMenuClick={() => setMobileSidebarOpen(true)}
           globalSearchQuery={globalSearchQuery}
           onGlobalSearchQueryChange={setGlobalSearchQuery}
           globalSearchResults={globalSearchResults}
           onGlobalSearchSelect={handleGlobalSearchSelect}
         />
-        {managedEngineers.length > 0 && (
+        {managerWorkspaceEnabled && managedEngineersInScope.length > 0 && (
           <div className="bg-slate-50 border-b border-slate-200">
             <div className="max-w-7xl mx-auto w-full px-4 py-3 sm:px-6 lg:px-8 flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -864,18 +1132,19 @@ function EvitraceApp({
                 </span>
                 <span
                   className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                    isManagerWorkspace
+                    managerWorkspaceEnabled
                       ? "bg-indigo-100 text-indigo-700"
                       : "bg-slate-200 text-slate-700"
                   }`}
                 >
-                  {isManagerWorkspace ? "Manager Mode" : "Engineer Mode"}
+                  {managerWorkspaceEnabled ? "Manager Workspace" : "Engineer Workspace"}
                 </span>
                 {activeView === "profile" && (
                   <button
                     type="button"
                     onClick={() => {
-                      setSelectedEngineerId(null);
+                      setWorkspaceSelectedEngineerId(null);
+                      setRelationshipSelectedEngineerId(null);
                       setActiveView("directory");
                     }}
                     className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100"
@@ -885,148 +1154,148 @@ function EvitraceApp({
                   </button>
                 )}
               </div>
-              <select
-                value={selectedEngineerId ?? ""}
-                onChange={(event) => {
-                  const nextEngineerId = event.target.value || null;
-                  setSelectedEngineerId(nextEngineerId);
-                  setActiveView(nextEngineerId ? "profile" : "directory");
-                }}
-                className="h-9 px-3 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
-              >
-                <option value="">Team Overview</option>
-                {managedEngineers.map((engineer) => (
-                  <option key={engineer.id} value={engineer.id}>
-                    {`Team: ${engineer.fullName} (${engineer.email})${
-                      engineer.status === "in_handover" ? " [Incoming Transfer]" : ""
-                    }`}
-                  </option>
-                ))}
-              </select>
+              <div className="text-xs font-medium text-slate-600">
+                {selectedEngineerId
+                  ? `Reviewing ${managedEngineersInScope.find((engineer) => engineer.id === selectedEngineerId)?.fullName ?? "selected engineer"}`
+                  : `${managedEngineersInScope.length} engineers in your team scope`}
+              </div>
             </div>
           </div>
         )}
 
         <main className="flex-1 print-main">
           <div className="max-w-7xl mx-auto w-full px-4 py-4 sm:px-6 lg:px-8 md:py-6">
-            {!showWorkspaceConnectionFallback && tab === "dashboard" && !isManagerDirectoryView && (
-              <div className="max-w-7xl mx-auto w-full mb-6">
-                <div className="h-12 px-4 bg-slate-50/80 backdrop-blur-sm border border-slate-200/60 rounded-xl flex items-center justify-between gap-4 shadow-sm">
-                  <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 select-none">
-                    <Pin size={12} className="rotate-45 text-slate-400" />
-                    Pinned
-                  </div>
-                  {visiblePinnedResources.length === 0 ? (
-                    <span className="flex-1 text-xs italic text-slate-400 font-medium">
-                      No resources pinned to this workspace yet.
-                    </span>
-                  ) : (
-                    <div className="flex-1 min-w-0 overflow-hidden">
-                      <div className="flex items-center gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap pr-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                        {visiblePinnedResources.map((pin) => (
-                          <div
-                            key={pin.id}
-                            className="shrink-0 inline-flex items-center gap-1.5 h-7 pl-2.5 pr-1.5 bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-100 rounded-md text-xs font-medium text-slate-700 shadow-sm transition-all duration-150 ease-in-out"
-                          >
-                            {pin.resource_type === "evidence" ? (
-                              <FileText size={13} className="text-blue-500" />
-                            ) : pin.resource_type === "objective" ? (
-                              <Target size={13} className="text-emerald-500" />
-                            ) : (
-                              <LinkIcon size={13} className="text-slate-400" />
-                            )}
-                            {pin.url ? (
-                              <a
-                                href={pin.url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="max-w-[160px] truncate hover:underline text-slate-800"
-                                title={pin.title}
-                              >
-                                {pin.title}
-                              </a>
-                            ) : (
+            {mode === "manager" && (
+              <div className="mb-4 rounded-lg border border-slate-200 bg-white px-3 py-2">
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  {selectedEngineerId
+                    ? `Lead Operations > Direct Reports > ${selectedManagedEngineer?.fullName ?? "Selected Engineer"} > Active Inspection Controls`
+                    : "Lead Operations > Active Squadron Dashboard"}
+                </p>
+              </div>
+            )}
+            {!showWorkspaceConnectionFallback &&
+              !isManagerScopedToEngineer &&
+              tab === "dashboard" &&
+              !isManagerDirectoryView &&
+              !(mode === "manager" && !selectedEngineerId) && (
+                <div className="max-w-7xl mx-auto w-full mb-6">
+                  <div className="h-12 px-4 bg-slate-50/80 backdrop-blur-sm border border-slate-200/60 rounded-xl flex items-center justify-between gap-4 shadow-sm">
+                    <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 select-none">
+                      <Pin size={12} className="rotate-45 text-slate-400" />
+                      Pinned
+                    </div>
+                    {visiblePinnedResources.length === 0 ? (
+                      <span className="flex-1 text-xs italic text-slate-400 font-medium">
+                        No resources pinned to this workspace yet.
+                      </span>
+                    ) : (
+                      <div className="flex-1 min-w-0 overflow-hidden">
+                        <div className="flex items-center gap-2 overflow-x-auto overflow-y-hidden whitespace-nowrap pr-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                          {visiblePinnedResources.map((pin) => (
+                            <div
+                              key={pin.id}
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => handlePinnedResourceSelect(pin)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  handlePinnedResourceSelect(pin);
+                                }
+                              }}
+                              className="shrink-0 inline-flex items-center gap-1.5 h-7 pl-2.5 pr-1.5 bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-100 rounded-md text-xs font-medium text-slate-700 shadow-sm transition-all duration-150 ease-in-out"
+                            >
+                              {pin.resource_type === "evidence" ? (
+                                <FileText size={13} className="text-blue-500" />
+                              ) : pin.resource_type === "objective" ? (
+                                <Target size={13} className="text-emerald-500" />
+                              ) : (
+                                <LinkIcon size={13} className="text-slate-400" />
+                              )}
                               <span
                                 className="max-w-[160px] truncate text-slate-800"
                                 title={pin.title}
                               >
                                 {pin.title}
                               </span>
-                            )}
-                            {!pin.isSample && (
-                              <button
-                                type="button"
-                                onClick={() => handleUnpin(pin.id)}
-                                className="p-0.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                              >
-                                <X size={12} />
-                              </button>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  <div className="relative shrink-0">
-                    <button
-                      ref={pinnedQuickAddTriggerRef}
-                      type="button"
-                      onClick={() => setIsPinnedQuickAddOpen((prev) => !prev)}
-                      className="h-7 w-7 rounded-md border border-dashed border-slate-300 hover:border-slate-400 bg-white hover:bg-slate-50 text-slate-500 flex items-center justify-center transition-colors shrink-0 cursor-pointer"
-                      aria-label="Add workspace pin"
-                    >
-                      <Plus size={14} />
-                    </button>
-                    {isPinnedQuickAddOpen && (
-                      <div
-                        ref={pinnedQuickAddPopoverRef}
-                        className="absolute right-0 top-9 w-64 bg-white border border-slate-200 rounded-xl p-3 shadow-xl z-50 space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-150"
-                      >
-                        <input
-                          value={newPinnedTitle}
-                          onChange={(event) => setNewPinnedTitle(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key !== "Enter") return;
-                            event.preventDefault();
-                            void handlePinGenericResource();
-                          }}
-                          placeholder="Label"
-                          className="w-full h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-md text-xs text-slate-800 placeholder-slate-400 outline-none focus:border-indigo-500 focus:bg-white transition-all"
-                        />
-                        <input
-                          value={newPinnedUrl}
-                          onChange={(event) => setNewPinnedUrl(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key !== "Enter") return;
-                            event.preventDefault();
-                            void handlePinGenericResource();
-                          }}
-                          placeholder="URL"
-                          className="w-full h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-md text-xs text-slate-800 placeholder-slate-400 outline-none focus:border-indigo-500 focus:bg-white transition-all"
-                        />
-                        <div className="flex justify-end gap-1.5 pt-1">
-                          <button
-                            type="button"
-                            onClick={() => setIsPinnedQuickAddOpen(false)}
-                            className="h-7 px-2.5 rounded-md text-xs font-medium text-slate-500 hover:bg-slate-100"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handlePinGenericResource()}
-                            disabled={isSubmittingPinnedResource}
-                            className="h-7 px-3 bg-slate-900 hover:bg-slate-800 text-white rounded-md text-xs font-medium disabled:opacity-60 disabled:cursor-not-allowed"
-                          >
-                            {isSubmittingPinnedResource ? "Anchoring..." : "Anchor to Workspace"}
-                          </button>
+                              {!pin.isSample && (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void handleUnpin(pin.id);
+                                  }}
+                                  className="p-0.5 rounded-md text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                                >
+                                  <X size={12} />
+                                </button>
+                              )}
+                            </div>
+                          ))}
                         </div>
                       </div>
                     )}
+                    <div className="relative shrink-0">
+                      <button
+                        ref={pinnedQuickAddTriggerRef}
+                        type="button"
+                        onClick={() => setIsPinnedQuickAddOpen((prev) => !prev)}
+                        className="h-7 w-7 rounded-md border border-dashed border-slate-300 hover:border-slate-400 bg-white hover:bg-slate-50 text-slate-500 flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+                        aria-label="Add workspace pin"
+                      >
+                        <Plus size={14} />
+                      </button>
+                      {isPinnedQuickAddOpen && (
+                        <div
+                          ref={pinnedQuickAddPopoverRef}
+                          className="absolute right-0 top-9 w-64 bg-white border border-slate-200 rounded-xl p-3 shadow-xl z-50 space-y-2.5 animate-in fade-in slide-in-from-top-1 duration-150"
+                        >
+                          <input
+                            value={newPinnedTitle}
+                            onChange={(event) => setNewPinnedTitle(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key !== "Enter") return;
+                              event.preventDefault();
+                              void handlePinGenericResource();
+                            }}
+                            placeholder="Label"
+                            className="w-full h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-md text-xs text-slate-800 placeholder-slate-400 outline-none focus:border-indigo-500 focus:bg-white transition-all"
+                          />
+                          <input
+                            value={newPinnedUrl}
+                            onChange={(event) => setNewPinnedUrl(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key !== "Enter") return;
+                              event.preventDefault();
+                              void handlePinGenericResource();
+                            }}
+                            placeholder="URL"
+                            className="w-full h-8 px-2.5 bg-slate-50 border border-slate-200 rounded-md text-xs text-slate-800 placeholder-slate-400 outline-none focus:border-indigo-500 focus:bg-white transition-all"
+                          />
+                          <div className="flex justify-end gap-1.5 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => setIsPinnedQuickAddOpen(false)}
+                              className="h-7 px-2.5 rounded-md text-xs font-medium text-slate-500 hover:bg-slate-100"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handlePinGenericResource()}
+                              disabled={isSubmittingPinnedResource}
+                              className="h-7 px-3 bg-slate-900 hover:bg-slate-800 text-white rounded-md text-xs font-medium disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                              {isSubmittingPinnedResource ? "Anchoring..." : "Anchor to Workspace"}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
             {!showWorkspaceConnectionFallback && showTeamTransitionCard && selectedEngineerId && (
               <div className="bg-amber-50/50 border border-amber-100 rounded-xl p-5 mb-6 space-y-4">
                 <div>
@@ -1083,7 +1352,8 @@ function EvitraceApp({
                           toast.success("Transfer signed off and dossier shared.");
                           setHandoverNotes("");
                           setManagerRelationshipsRefreshNonce((prev) => prev + 1);
-                          setSelectedEngineerId(null);
+                          setWorkspaceSelectedEngineerId(null);
+                          setRelationshipSelectedEngineerId(null);
                           setActiveView("directory");
                         })
                         .catch((error) => {
@@ -1122,278 +1392,295 @@ function EvitraceApp({
                   Sign Out / Switch Accounts
                 </button>
               </div>
-            ) : isManagerDirectoryView ? (
-              <div className="max-w-7xl mx-auto w-full mt-6 bg-white border border-slate-200/80 rounded-xl overflow-hidden shadow-sm">
-                <table className="w-full border-collapse">
-                  <thead>
-                    <tr>
-                      {[
-                        "Engineer",
-                        "Activity Status",
-                        "Objective Progress",
-                        "Pending Items",
-                        "Actions",
-                      ].map((header) => (
-                        <th
-                          key={header}
-                          className="text-left text-[11px] font-bold uppercase tracking-wider text-slate-400 bg-slate-50 h-10 px-4"
-                        >
-                          {header}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {isManagerTeamOverviewLoading ? (
-                      <tr>
-                        <td colSpan={5} className="px-4 py-8 text-sm text-slate-500">
-                          Loading team overview...
-                        </td>
-                      </tr>
-                    ) : (
-                      managerTeamOverview.map((engineer) => {
-                        const total = Math.max(engineer.totalObjectivesCount, 0);
-                        const completed = Math.max(engineer.completedObjectivesCount, 0);
-                        const ratio =
-                          total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
-
-                        return (
-                          <tr
-                            key={engineer.engineerId}
-                            className="border-t border-slate-100 hover:bg-slate-50/80"
-                          >
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-3">
-                                {engineer.avatarUrl ? (
-                                  <img
-                                    src={engineer.avatarUrl}
-                                    alt={engineer.fullName}
-                                    className="w-9 h-9 rounded-full object-cover border border-slate-200"
-                                  />
-                                ) : (
-                                  <div className="w-9 h-9 rounded-full bg-slate-200 text-slate-700 text-xs font-semibold flex items-center justify-center">
-                                    {getWorkspaceMemberInitials(engineer.fullName)}
-                                  </div>
-                                )}
-                                <div className="min-w-0">
-                                  <div className="text-sm font-semibold text-slate-800 truncate">
-                                    {engineer.fullName}
-                                  </div>
-                                  <div className="text-xs text-slate-400 truncate">
-                                    {engineer.currentTitle ?? "No title set"}
-                                  </div>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 text-xs text-slate-600">
-                              {formatWorkspaceActivityStatus(engineer.lastActivityAt)}
-                            </td>
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-2">
-                                <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                  <div
-                                    className="bg-emerald-500 h-full"
-                                    style={{ width: `${ratio}%` }}
-                                  />
-                                </div>
-                                <span className="text-xs font-medium text-slate-500">
-                                  {completed}/{total}
-                                </span>
-                                <span className="text-[11px] font-semibold text-slate-400">
-                                  PRI {engineer.promotionReadinessIndex}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="px-4 py-3">
-                              {engineer.pendingReviewsCount > 0 ? (
-                                <span className="bg-amber-50 text-amber-700 font-bold text-xs px-2 py-0.5 rounded-full">
-                                  {engineer.pendingReviewsCount} pending
-                                </span>
-                              ) : (
-                                <span className="text-xs text-slate-400">✓ Clear</span>
-                              )}
-                            </td>
-                            <td className="px-4 py-3">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedEngineerId(engineer.engineerId);
-                                  setActiveView("profile");
-                                }}
-                                className="text-xs font-semibold text-indigo-600 hover:text-indigo-700 hover:underline cursor-pointer"
-                              >
-                                Review Workspace →
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
+            ) : mode === "manager" && !selectedEngineerId ? (
+              <ManagerDashboardView
+                linkedEngineers={managedEngineersInScope}
+                teamOverview={managerTeamOverview}
+                isLoading={isManagerTeamOverviewLoading}
+                isError={isManagerTeamOverviewError}
+                onInspectEngineer={(engineerId) => {
+                  setWorkspaceSelectedEngineerId(engineerId);
+                  setRelationshipSelectedEngineerId(engineerId);
+                  setActiveView("profile");
+                }}
+              />
             ) : (
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={tab}
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -4 }}
-                  transition={{ duration: 0.18 }}
-                >
-                  {tab === "dashboard" && (
-                    <DashboardView
-                      workspaceUserId={selectedEngineerId ?? userId}
-                      inbox={contextInbox}
-                      showSampleData={sampleContent.dashboard}
-                      dismissedSampleInboxIds={dismissedSampleInboxIds}
-                      onOpenInbox={isManagerWorkspace ? () => {} : setOpenInbox}
-                      onOpenObjective={setOpenObjective}
-                      onOpenEvidence={setOpenEvidence}
-                    />
-                  )}
-                  {tab === "radar" && (
-                    <RadarView
-                      data={radarData}
-                      assessments={contextAssessments}
-                      evidence={contextEvidence}
-                      objectives={contextObjectives}
-                      wizardDraft={wizardDraft}
-                      selectedEngineerId={selectedEngineerId}
-                      onCreateObjective={() => setShowCreateObjective(true)}
-                      onStartReview={() => setShowWizard(true)}
-                      onResumeDraft={() => setShowWizard(true)}
-                      onDiscardDraft={() => setShowDiscardDraftConfirm(true)}
-                      onOpenHistory={() => setShowHistory(true)}
-                    />
-                  )}
-                  {tab === "evidence" && (
-                    <EvidenceView
-                      rows={[...contextEvidence, ...contextArchivedEvidence]}
-                      readOnly={isManagerWorkspace}
-                      onOpenRow={isManagerWorkspace ? () => {} : setOpenEvidence}
-                      pinnedEvidenceIds={pinnedEvidenceIds}
-                      onTogglePin={(item) => {
-                        void handleToggleEvidencePin(item);
-                      }}
-                      onArchive={(id) => {
-                        archiveEvidenceMutation.mutate(id, {
-                          onSuccess: () => flash("Evidence archived"),
-                        });
-                      }}
-                      onPermanentDelete={(id) => {
-                        deleteEvidenceMutation.mutate(id, {
-                          onSuccess: () => flash("Evidence permanently deleted"),
-                        });
-                      }}
-                      onRestore={(id) => {
-                        restoreEvidenceMutation.mutate(id, {
-                          onSuccess: () => flash("Evidence restored to log"),
-                        });
-                      }}
-                    />
-                  )}
-                  {tab === "objectives" && (
-                    <ObjectivesView
-                      items={[...contextObjectives, ...contextArchivedObjectives]}
-                      readOnly={isManagerWorkspace}
-                      onOpen={isManagerWorkspace ? () => {} : setOpenObjective}
-                      onCreate={() => {
-                        if (isManagerWorkspace) {
-                          flash("Managers review and approve objectives from the manager panel.");
-                          return;
-                        }
-                        setShowCreateObjective(true);
-                      }}
-                      pinnedObjectiveIds={pinnedObjectiveIds}
-                      onTogglePin={(objective) => {
-                        void handleToggleObjectivePin(objective);
-                      }}
-                      formatObjectiveCode={formatObjectiveCode}
-                      formatDisplayDate={formatDisplayDate}
-                      onRestore={(o) => {
-                        restoreObjectiveMutation.mutate(o.id, {
-                          onSuccess: () => flash("Objective restored to Kanban board"),
-                        });
-                      }}
-                      onDelete={(o) => {
-                        deleteObjectiveMutation.mutate(o, {
-                          onSuccess: () => flash("Objective permanently deleted"),
-                        });
-                      }}
-                      onMove={(id, status) => {
-                        if (isManagerWorkspace) return;
-                        const target = [...contextObjectives, ...contextArchivedObjectives].find(
-                          (o) => o.id === id,
-                        );
-                        if (!target || target.status === status || target.status === "Completed")
-                          return;
-                        moveObjectiveMutation.mutate(
-                          { id, status, objective: target },
-                          {
-                            onSuccess: () => {
-                              if (status === "Completed")
-                                flash("Objective completed and added to evidence");
-                              else if (target.status === "Completed" && status === "In Progress")
-                                flash("Objective reverted and removed from evidence log");
-                              else flash(`Moved to ${status}`);
-                            },
-                          },
-                        );
-                      }}
-                    />
-                  )}
-                  {tab === "knowledge" && (
-                    <KnowledgeHubView
-                      items={knowledgeItems}
-                      onEdit={setEditingKnowledge}
-                      onDelete={(item) => setPendingKnowledgeDelete(item)}
-                    />
-                  )}
-                  {tab === "report" && (
-                    <ReportView
-                      evidence={contextEvidence}
-                      objectives={contextObjectives}
-                      radarData={radarData}
-                      onFlash={flash}
-                      review={review}
-                      assessments={contextAssessments}
-                      historyAssessments={contextHistoryAssessments}
-                      selectedEngineerId={selectedEngineerId}
-                      onOpenAssessment={(a) => setReview(assessmentToSession(a))}
-                      onSaveTopics={(assessmentId, topics) => {
-                        updateTopicsMutation.mutate(
-                          { assessmentId, topics },
-                          { onSuccess: () => flash("1-on-1 topics saved") },
-                        );
-                      }}
-                      onDeleteHistoryAssessment={(assessmentId) => {
-                        requestAssessmentDelete(assessmentId);
-                      }}
-                      onClearReview={() => setReview(null)}
-                      onStartReview={() => setShowWizard(true)}
-                      onOpenHistory={() => setShowHistory(true)}
-                    />
-                  )}
-                  {tab === "feedback" && <FeedbackView />}
-                  {tab === "settings" && (
-                    <SettingsView
-                      sampleContent={sampleContent}
-                      onSampleContentChange={setSampleContent}
-                      section={settingsSection}
-                      onSectionChange={handleSettingsSectionChange}
-                    />
-                  )}
-                  {selectedEngineerId &&
-                    selectedEngineerRole &&
-                    (tab === "dashboard" || tab === "radar" || tab === "report") && (
-                      <ManagerActionsPanel
-                        engineerId={selectedEngineerId}
-                        currentUserRole={selectedEngineerRole}
-                      />
-                    )}
-                </motion.div>
-              </AnimatePresence>
+              <>
+                {showManagerProfileSubNavigation && (
+                  <div className="mb-4 space-y-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                    <div className="rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-indigo-600">
+                        Reviewing Engineer
+                      </p>
+                      <p className="text-sm font-semibold text-indigo-900">
+                        {selectedManagedEngineer?.fullName ?? "Selected engineer"}
+                      </p>
+                      <p className="text-xs text-indigo-700">
+                        {selectedManagedEngineer?.status === "in_handover"
+                          ? "Transitioning handover"
+                          : "Active reporting line"}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {[
+                        { id: "tracking_workspace" as const, label: "Tracking Workspace" },
+                        { id: "compilation_dossier" as const, label: "Compilation Dossier" },
+                        { id: "one_on_one_sync" as const, label: "1-on-1 Sync Agenda" },
+                      ].map((subTab) => (
+                        <button
+                          key={subTab.id}
+                          type="button"
+                          onClick={() => setManagerProfileSubTab(subTab.id)}
+                          className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                            managerProfileSubTab === subTab.id
+                              ? "border-indigo-300 bg-indigo-100 text-indigo-800"
+                              : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
+                          }`}
+                        >
+                          {subTab.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {showManagerProfileSubNavigation &&
+                managerProfileSubTab === "compilation_dossier" &&
+                selectedEngineerId ? (
+                  <BusinessCaseTab engineerId={selectedEngineerId} />
+                ) : showManagerProfileSubNavigation &&
+                  managerProfileSubTab === "one_on_one_sync" &&
+                  selectedEngineerId ? (
+                  <OneOnOneWorkspace engineerId={selectedEngineerId} />
+                ) : (
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={tab}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      transition={{ duration: 0.18 }}
+                    >
+                      {!isManagerScopedToEngineer && tab === "dashboard" && (
+                        <DashboardView
+                          workspaceUserId={selectedEngineerId ?? userId}
+                          inbox={contextInbox}
+                          showSampleData={sampleContent.dashboard}
+                          dismissedSampleInboxIds={dismissedSampleInboxIds}
+                          onOpenInbox={isManagerWorkspace ? () => {} : setOpenInbox}
+                          onOpenObjective={setOpenObjective}
+                          onOpenEvidence={setOpenEvidence}
+                        />
+                      )}
+                      {tab === "radar" && (
+                        <RadarView
+                          data={radarData}
+                          assessments={contextAssessments}
+                          evidence={contextEvidence}
+                          objectives={contextObjectives}
+                          wizardDraft={wizardDraft}
+                          selectedEngineerId={selectedEngineerId}
+                          onCreateObjective={() => setShowCreateObjective(true)}
+                          onStartReview={() => setShowWizard(true)}
+                          onResumeDraft={() => setShowWizard(true)}
+                          onDiscardDraft={() => setShowDiscardDraftConfirm(true)}
+                          onOpenHistory={() => setShowHistory(true)}
+                        />
+                      )}
+                      {tab === "evidence" && (
+                        <EvidenceView
+                          rows={
+                            isManagerWorkspace
+                              ? contextEvidence
+                              : [...contextEvidence, ...contextArchivedEvidence]
+                          }
+                          readOnly={!isManagerWorkspace ? false : true}
+                          managerReviewEnabled={isManagerWorkspace}
+                          onOpenRow={setOpenEvidence}
+                          pinnedEvidenceIds={pinnedEvidenceIds}
+                          onTogglePin={(item) => {
+                            void handleToggleEvidencePin(item);
+                          }}
+                          onArchive={(id) => {
+                            if (isManagerWorkspace) {
+                              flash(
+                                "Managers can review evidence but cannot archive engineer logs.",
+                              );
+                              return;
+                            }
+                            archiveEvidenceMutation.mutate(id, {
+                              onSuccess: () => flash("Evidence archived"),
+                            });
+                          }}
+                          onPermanentDelete={(id) => {
+                            if (isManagerWorkspace) {
+                              flash(
+                                "Managers can review evidence but cannot permanently delete engineer logs.",
+                              );
+                              return;
+                            }
+                            const pinnedId = pinnedEvidenceIdToPinId.get(id);
+                            deleteEvidenceMutation.mutate(id, {
+                              onSuccess: () => {
+                                if (pinnedId) void handleUnpin(pinnedId);
+                                flash("Evidence permanently deleted");
+                              },
+                            });
+                          }}
+                          onRestore={(id) => {
+                            if (isManagerWorkspace) {
+                              flash(
+                                "Managers can review evidence but cannot restore archived engineer logs.",
+                              );
+                              return;
+                            }
+                            restoreEvidenceMutation.mutate(id, {
+                              onSuccess: () => flash("Evidence restored to log"),
+                            });
+                          }}
+                        />
+                      )}
+                      {tab === "objectives" && (
+                        <ObjectivesView
+                          items={
+                            isManagerWorkspace
+                              ? contextObjectives
+                              : [...contextObjectives, ...contextArchivedObjectives]
+                          }
+                          readOnly={isManagerWorkspace}
+                          onOpen={setOpenObjective}
+                          onCreate={() => {
+                            if (isManagerWorkspace) {
+                              flash(
+                                "Managers review and approve objectives from the manager panel.",
+                              );
+                              return;
+                            }
+                            setShowCreateObjective(true);
+                          }}
+                          pinnedObjectiveIds={pinnedObjectiveIds}
+                          onTogglePin={(objective) => {
+                            void handleToggleObjectivePin(objective);
+                          }}
+                          formatObjectiveCode={formatObjectiveCode}
+                          formatDisplayDate={formatDisplayDate}
+                          onRestore={(o) => {
+                            if (isManagerWorkspace) {
+                              flash("Managers can only approve objectives into In Progress.");
+                              return;
+                            }
+                            restoreObjectiveMutation.mutate(o.id, {
+                              onSuccess: () => flash("Objective restored to Kanban board"),
+                            });
+                          }}
+                          onDelete={(o) => {
+                            if (isManagerWorkspace) {
+                              flash("Managers can only approve objectives into In Progress.");
+                              return;
+                            }
+                            const pinnedId = pinnedObjectiveIdToPinId.get(o.id);
+                            deleteObjectiveMutation.mutate(o, {
+                              onSuccess: () => {
+                                if (pinnedId) void handleUnpin(pinnedId);
+                                flash("Objective permanently deleted");
+                              },
+                            });
+                          }}
+                          onMove={(id, status) => {
+                            const target = [
+                              ...contextObjectives,
+                              ...contextArchivedObjectives,
+                            ].find((o) => o.id === id);
+                            if (
+                              !target ||
+                              target.status === status ||
+                              target.status === "Completed"
+                            )
+                              return;
+                            if (
+                              isManagerWorkspace &&
+                              !(target.status === "Pending Approval" && status === "In Progress")
+                            ) {
+                              return;
+                            }
+                            const activeMoveMutation = isManagerWorkspace
+                              ? moveSelectedEngineerObjectiveMutation
+                              : moveObjectiveMutation;
+                            activeMoveMutation.mutate(
+                              { id, status, objective: target },
+                              {
+                                onSuccess: () => {
+                                  if (status === "Completed")
+                                    flash("Objective completed and added to evidence");
+                                  else if (
+                                    target.status === "Completed" &&
+                                    status === "In Progress"
+                                  )
+                                    flash("Objective reverted and removed from evidence log");
+                                  else flash(`Moved to ${status}`);
+                                },
+                              },
+                            );
+                          }}
+                        />
+                      )}
+                      {!isManagerScopedToEngineer && tab === "knowledge" && (
+                        <KnowledgeHubView
+                          items={knowledgeItems}
+                          pinnedKnowledgeIds={pinnedKnowledgeIds}
+                          focusedItemId={focusedKnowledgeId}
+                          onTogglePin={(item) => {
+                            void handleToggleKnowledgePin(item);
+                          }}
+                          onEdit={setEditingKnowledge}
+                          onDelete={(item) => setPendingKnowledgeDelete(item)}
+                        />
+                      )}
+                      {tab === "report" && (
+                        <ReportView
+                          evidence={contextEvidence}
+                          objectives={contextObjectives}
+                          radarData={radarData}
+                          onFlash={flash}
+                          review={review}
+                          assessments={contextAssessments}
+                          historyAssessments={contextHistoryAssessments}
+                          selectedEngineerId={selectedEngineerId}
+                          onOpenAssessment={(a) => setReview(assessmentToSession(a))}
+                          onSaveTopics={(assessmentId, topics) => {
+                            updateTopicsMutation.mutate(
+                              { assessmentId, topics },
+                              { onSuccess: () => flash("1-on-1 topics saved") },
+                            );
+                          }}
+                          onDeleteHistoryAssessment={(assessmentId) => {
+                            requestAssessmentDelete(assessmentId);
+                          }}
+                          onClearReview={() => setReview(null)}
+                          onStartReview={() => setShowWizard(true)}
+                          onOpenHistory={() => setShowHistory(true)}
+                        />
+                      )}
+                      {!isManagerScopedToEngineer && tab === "feedback" && <FeedbackView />}
+                      {!isManagerScopedToEngineer && tab === "settings" && (
+                        <SettingsView
+                          sampleContent={sampleContent}
+                          onSampleContentChange={setSampleContent}
+                          section={settingsSection}
+                          onSectionChange={handleSettingsSectionChange}
+                        />
+                      )}
+                      {selectedEngineerId &&
+                        selectedEngineerRole &&
+                        (tab === "dashboard" || tab === "radar" || tab === "report") && (
+                          <ManagerActionsPanel
+                            engineerId={selectedEngineerId}
+                            currentUserRole={selectedEngineerRole}
+                          />
+                        )}
+                    </motion.div>
+                  </AnimatePresence>
+                )}
+              </>
             )}
           </div>
         </main>
@@ -1404,6 +1691,7 @@ function EvitraceApp({
         {showCapture && (
           <CaptureModal
             onClose={() => setShowCapture(false)}
+            managerMode={managerWorkspaceEnabled}
             competencyDescriptions={COMPETENCY_DESC}
             onSaveEvidence={({ title, description, sourceLink, category, subcategory }) => {
               insertEvidenceMutation.mutate(
@@ -1494,8 +1782,10 @@ function EvitraceApp({
             onConfirm={() => {
               const target = pendingKnowledgeDelete;
               if (!target) return;
+              const pinnedId = pinnedKnowledgeIdToPinId.get(target.id);
               deleteKnowledgeMutation.mutate(target.id, {
                 onSuccess: () => {
+                  if (pinnedId) void handleUnpin(pinnedId);
                   if (editingKnowledge?.id === target.id) setEditingKnowledge(null);
                   setPendingKnowledgeDelete(null);
                   flash("Knowledge log deleted");
@@ -1541,7 +1831,10 @@ function EvitraceApp({
               void handleToggleObjectivePin(objective);
             }}
             onSave={(o) => {
-              saveObjectiveMutation.mutate(o, {
+              const activeSaveMutation = isManagerWorkspace
+                ? saveSelectedEngineerObjectiveMutation
+                : saveObjectiveMutation;
+              activeSaveMutation.mutate(o, {
                 onSuccess: () => {
                   setOpenObjective(o);
                   flash("Objective updated");
@@ -1549,8 +1842,17 @@ function EvitraceApp({
               });
             }}
             onChangeStatus={(o, next) => {
+              if (
+                isManagerWorkspace &&
+                !(o.status === "Pending Approval" && next === "In Progress")
+              ) {
+                return;
+              }
               const updated = { ...o, status: next as Objective["status"] };
-              moveObjectiveMutation.mutate(
+              const activeMoveMutation = isManagerWorkspace
+                ? moveSelectedEngineerObjectiveMutation
+                : moveObjectiveMutation;
+              activeMoveMutation.mutate(
                 { id: o.id, status: next, objective: o },
                 {
                   onSuccess: () => {
@@ -1565,6 +1867,10 @@ function EvitraceApp({
               );
             }}
             onArchive={(o) => {
+              if (isManagerWorkspace) {
+                flash("Managers can only approve objectives into In Progress.");
+                return;
+              }
               archiveObjectiveById(o.id);
               setOpenObjective(null);
             }}
@@ -1578,12 +1884,16 @@ function EvitraceApp({
           <EvidenceSlideover
             item={openEvidence}
             frameworkMatrix={activeFrameworkMatrix}
+            managerReviewOnly={isManagerWorkspace}
             onClose={() => setOpenEvidence(null)}
             onPin={(item) => {
               void handleToggleEvidencePin(item);
             }}
             onSave={(updated) => {
-              saveEvidenceMutation.mutate(updated, {
+              const activeSaveMutation = isManagerWorkspace
+                ? saveSelectedEngineerEvidenceMutation
+                : saveEvidenceMutation;
+              activeSaveMutation.mutate(updated, {
                 onSuccess: () => {
                   setOpenEvidence(updated);
                   flash("Evidence updated");
@@ -1591,6 +1901,10 @@ function EvitraceApp({
               });
             }}
             onArchive={(id) => {
+              if (isManagerWorkspace) {
+                flash("Managers can review evidence but cannot archive engineer logs.");
+                return;
+              }
               archiveEvidenceMutation.mutate(id, {
                 onSuccess: () => {
                   setOpenEvidence(null);
@@ -1625,32 +1939,34 @@ function EvitraceApp({
       <AnimatePresence>
         {showWizard && (
           <ReviewWizard
-            evidence={visibleEvidence}
+            evidence={contextEvidence}
             onOpenEvidence={setOpenEvidence}
             onClose={() => setShowWizard(false)}
-            latestAssessment={assessments[0]}
+            latestAssessment={contextAssessments[0]}
             initialDraft={wizardDraft}
-            engineerName={fallbackEngineerName}
-            managerName={user?.manager?.trim() || "Manager"}
+            engineerName={reportSubjectEngineerName}
+            managerName={assessmentManagerName}
             onSaveDraft={(draft) => {
               setWizardDraft(draft);
               flash("Assessment draft saved");
             }}
             onFinalize={(session: ReviewSession) => {
-              const finalizedByUserId = authUserId ?? userId;
-              if (!finalizedByUserId) {
+              const assessmentOwnerUserId = assessmentWorkspaceUserId;
+              if (!assessmentOwnerUserId) {
                 toast.error("Unable to finalize assessment: no authenticated user session found.");
                 return;
               }
               const newAssessment = sessionToAssessment(session);
               finalizeAssessmentMutation.mutate(
-                { assessment: newAssessment, userId: finalizedByUserId },
+                { assessment: newAssessment, userId: assessmentOwnerUserId },
                 {
                   onSuccess: () => {
-                    void notifyManagerAssessmentReady(
-                      finalizedByUserId,
-                      newAssessment.engineerName?.trim() || fallbackEngineerName,
-                    );
+                    if (!isManagerWorkspace) {
+                      void notifyManagerAssessmentReady(
+                        assessmentOwnerUserId,
+                        newAssessment.engineerName?.trim() || reportSubjectEngineerName,
+                      );
+                    }
                     setReview(session);
                     clearAssessmentWizardDraft();
                     setShowWizard(false);
@@ -1668,7 +1984,7 @@ function EvitraceApp({
       <AnimatePresence>
         {showHistory && (
           <AssessmentHistoryModal
-            assessments={historyAssessments}
+            assessments={contextHistoryAssessments}
             currentId={review?.id ?? null}
             onDelete={(assessmentId) => {
               requestAssessmentDelete(assessmentId);

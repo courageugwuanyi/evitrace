@@ -65,10 +65,7 @@ function requestLabel(member: TeamMember | null): string {
 }
 
 function initialsFor(name: string): string {
-  const parts = name
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean);
+  const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "TM";
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return `${parts[0][0] ?? ""}${parts[1][0] ?? ""}`.toUpperCase();
@@ -226,14 +223,18 @@ export function FeedbackView() {
   const shuffledStop = useMemo(
     () =>
       shuffleStrings(
-        dossierRows.map((row) => row.stop_feedback?.trim() ?? "").filter((value) => value.length > 0),
+        dossierRows
+          .map((row) => row.stop_feedback?.trim() ?? "")
+          .filter((value) => value.length > 0),
       ),
     [dossierRows],
   );
   const shuffledStart = useMemo(
     () =>
       shuffleStrings(
-        dossierRows.map((row) => row.start_feedback?.trim() ?? "").filter((value) => value.length > 0),
+        dossierRows
+          .map((row) => row.start_feedback?.trim() ?? "")
+          .filter((value) => value.length > 0),
       ),
     [dossierRows],
   );
@@ -499,26 +500,25 @@ export function FeedbackView() {
                 Loading feedback pool...
               </div>
             ) : !thresholdMet ? (
-              <div className="bg-slate-50 border border-dashed border-slate-200 rounded-xl p-8 text-center max-w-md mx-auto mt-8">
-                <h4 className="text-base font-semibold text-slate-900">
-                  Your feedback summary is not ready yet
-                </h4>
-                <p className="mt-2 text-sm font-medium text-slate-700">
-                  Reviews submitted: {submittedCount} of 3
-                </p>
-                <p className="mt-2 text-sm font-medium text-slate-700">
-                  Reviewers nominated: {uniqueRequestedReviewerCount} of 3
-                </p>
-                <p className="mt-2 text-sm text-slate-600">
-                  To protect anonymity, feedback stays hidden until at least 3 different teammates
-                  submit reviews. Once that happens, your summary appears automatically.
-                </p>
-                {!hasMinimumAnonymousPool ? (
-                  <p className="mt-2 text-sm text-slate-600">
-                    Next step: request feedback from more cross-functional teammates (for example
-                    PM, UX, PMM, or QA). Two-person loops cannot safely provide anonymous results.
+              <div className="bg-white border border-slate-200 rounded-xl p-6 text-center max-w-md mx-auto my-8 space-y-4 font-sans">
+                <div className="h-9 w-9 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-center mx-auto">
+                  <span className="text-amber-600 font-bold text-xs">🔒</span>
+                </div>
+
+                <div className="space-y-1">
+                  <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                    Calibration Threshold Active
+                  </h3>
+                  <p className="text-[11px] font-mono text-slate-500 font-bold">
+                    Evaluation Status: {submittedCount} of 3 reviews completed
                   </p>
-                ) : null}
+                </div>
+
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  To safeguard anonymity and ensure balanced cross-functional perspectives,
+                  performance feedback text blocks remain protected until at least three distinct
+                  teammates submit their reviews.
+                </p>
               </div>
             ) : (
               <div className="space-y-3">

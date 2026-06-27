@@ -49,6 +49,7 @@ type EvidenceItem = EvidenceRecord;
 export function EvidenceSlideover({
   item,
   frameworkMatrix,
+  managerReviewOnly = false,
   onClose,
   onPin,
   onSave,
@@ -56,6 +57,7 @@ export function EvidenceSlideover({
 }: {
   item: EvidenceItem;
   frameworkMatrix: unknown;
+  managerReviewOnly?: boolean;
   onClose: () => void;
   onPin: (item: EvidenceItem) => void;
   onSave: (updated: EvidenceItem) => void;
@@ -200,7 +202,7 @@ export function EvidenceSlideover({
                     const firstSub = categoryMap[nextCat]?.items[0] ?? "";
                     update("competency", firstSub);
                   }}
-                  disabled={objectiveLinked}
+                  disabled={objectiveLinked || managerReviewOnly}
                 />
               </div>
               <div>
@@ -223,7 +225,9 @@ export function EvidenceSlideover({
                       : "Pick a category first"
                   }
                   onChange={(val) => update("competency", val)}
-                  disabled={objectiveLinked || !categories.includes(draft.category)}
+                  disabled={
+                    objectiveLinked || managerReviewOnly || !categories.includes(draft.category)
+                  }
                 />
               </div>
             </div>
@@ -241,7 +245,7 @@ export function EvidenceSlideover({
               onChange={(e) => update("description", e.target.value)}
               className="w-full min-h-[160px] resize-y rounded border p-3 text-sm leading-relaxed outline-none transition-all focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
               style={{ borderColor: C.border, color: C.slate, overflowWrap: "anywhere" }}
-              readOnly={objectiveLinked}
+              readOnly={objectiveLinked || managerReviewOnly}
             />
           </section>
 
@@ -263,7 +267,11 @@ export function EvidenceSlideover({
                 {objectiveLinked ? (
                   <Input value={draft.source} readOnly />
                 ) : (
-                  <Select value={draft.source} onChange={(e) => update("source", e.target.value)}>
+                  <Select
+                    value={draft.source}
+                    onChange={(e) => update("source", e.target.value)}
+                    disabled={managerReviewOnly}
+                  >
                     {[
                       "Bitbucket",
                       "GitHub",
@@ -296,7 +304,7 @@ export function EvidenceSlideover({
                     onChange={(e) => update("link", e.target.value)}
                     placeholder="example.com/path or full URL"
                     icon={<LinkIcon size={14} />}
-                    readOnly={objectiveLinked}
+                    readOnly={objectiveLinked || managerReviewOnly}
                   />
                   {draft.link && (
                     <GhostBtn

@@ -4,10 +4,32 @@ import { AuthProvider, useAuth } from "@/lib/auth";
 import type { AuthUser } from "@/lib/api/mappers";
 import { supabase } from "@/lib/supabase";
 import { FrameworkProvider } from "@/context/FrameworkContext";
-import { C, BrandMark, Card, Input, PrimaryBtn, Field, Select } from "@/features/home/shared/ui-kit";
-import { LEVEL_OPTIONS, PENDING_INVITE_CODE_KEY } from "@/features/home/shared/constants";
+import {
+  C,
+  BrandMark,
+  Card,
+  Input,
+  PrimaryBtn,
+  Field,
+  Select,
+} from "@/features/home/shared/ui-kit";
+import {
+  LEVEL_OPTIONS,
+  PENDING_INVITE_CODE_KEY,
+  PENDING_WORKSPACE_INVITE_HASH_KEY,
+} from "@/features/home/shared/constants";
+
+function hasPendingWorkspaceInviteHash(): boolean {
+  if (typeof window === "undefined") return false;
+  const value = window.localStorage.getItem(PENDING_WORKSPACE_INVITE_HASH_KEY);
+  return Boolean(value && value.trim().length > 0);
+}
 
 function redirectAfterAuthSuccess() {
+  if (hasPendingWorkspaceInviteHash()) {
+    window.location.href = "/";
+    return;
+  }
   const pendingInvite = sessionStorage.getItem(PENDING_INVITE_CODE_KEY);
   if (pendingInvite) {
     sessionStorage.removeItem(PENDING_INVITE_CODE_KEY);
@@ -143,7 +165,7 @@ function SigninForm({ onSwitch, notice }: { onSwitch: () => void; notice?: strin
 function SignupForm({ onSwitch }: { onSwitch: (notice?: string) => void }) {
   const { signup } = useAuth();
   const isManagerOnboarding =
-    typeof window !== "undefined" && Boolean(sessionStorage.getItem(PENDING_INVITE_CODE_KEY));
+    hasPendingWorkspaceInviteHash() || Boolean(sessionStorage.getItem(PENDING_INVITE_CODE_KEY));
   const [f, setF] = useState<AuthUser & { password: string }>({
     fullName: "",
     email: "",
@@ -316,7 +338,10 @@ function SignupForm({ onSwitch }: { onSwitch: (notice?: string) => void }) {
                 required
                 hint="Your current role/title in your organization (e.g. Senior Engineer, L3)."
               >
-                <Select value={f.currentLevel} onChange={(e) => upd("currentLevel", e.target.value)}>
+                <Select
+                  value={f.currentLevel}
+                  onChange={(e) => upd("currentLevel", e.target.value)}
+                >
                   <option value="">Select your current level</option>
                   {LEVEL_OPTIONS.map((level) => (
                     <option key={level} value={level}>
@@ -366,7 +391,9 @@ function SignupForm({ onSwitch }: { onSwitch: (notice?: string) => void }) {
 }
 
 function AuthScreens() {
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [mode, setMode] = useState<"signin" | "signup">(() =>
+    hasPendingWorkspaceInviteHash() ? "signup" : "signin",
+  );
   const [signinNotice, setSigninNotice] = useState<string | null>(null);
   return (
     <div
@@ -411,6 +438,7 @@ function AppGate({ EvitraceApp }: { EvitraceApp: React.ComponentType }) {
 
   useEffect(() => {
     if (!user) return;
+    if (hasPendingWorkspaceInviteHash()) return;
     const pendingInvite = sessionStorage.getItem(PENDING_INVITE_CODE_KEY);
     if (!pendingInvite) return;
     sessionStorage.removeItem(PENDING_INVITE_CODE_KEY);

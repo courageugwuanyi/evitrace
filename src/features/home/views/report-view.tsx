@@ -96,6 +96,7 @@ export function ReportView({
   const justification = useMemo(() => buildReportJustification(review), [review]);
   const highlightedEvidence = useMemo(() => buildHighlightedEvidence(review, evidence), [review, evidence]);
   const overallReadiness = useMemo(() => computeOverallReadiness(review), [review]);
+  const reportManagerName = review?.manager?.trim() ?? "";
 
   const categoriesForSummary = frameworkCategoryNames.length
     ? frameworkCategoryNames
@@ -263,9 +264,11 @@ export function ReportView({
               Engineer: <span style={{ color: C.navy, fontWeight: 600 }}>{review.engineer}</span>
               {"  |  "}Role: L3 Engineer{"  |  "}Target: L4 Senior Engineer
             </div>
-            <div>
-              Manager: <span style={{ color: C.navy, fontWeight: 600 }}>{review.manager}</span>
-            </div>
+            {reportManagerName ? (
+              <div>
+                Manager: <span style={{ color: C.navy, fontWeight: 600 }}>{reportManagerName}</span>
+              </div>
+            ) : null}
             <div className="flex items-center gap-1.5">
               <Calendar size={14} style={{ color: C.subtle }} />
               Period: {review.period} · Finalized {review.date}

@@ -14,6 +14,7 @@ export type ManagedEngineer = {
 export function useManagerRelationships(userId: string) {
   const [managedEngineers, setManagedEngineers] = useState<ManagedEngineer[]>([]);
   const [selectedEngineerId, setSelectedEngineerId] = useState<string | null>(null);
+  const [isLoadingManagedEngineers, setIsLoadingManagedEngineers] = useState(true);
   const [activeView, setActiveView] = useState<"directory" | "profile">("directory");
   const [managerRelationshipsRefreshNonce, setManagerRelationshipsRefreshNonce] = useState(0);
   const [handoverNotes, setHandoverNotes] = useState("");
@@ -29,10 +30,13 @@ export function useManagerRelationships(userId: string) {
     let active = true;
 
     async function loadManagedEngineers() {
+      if (active) setIsLoadingManagedEngineers(true);
+
       if (!userId) {
         if (!active) return;
         setManagedEngineers([]);
         setSelectedEngineerId(null);
+        setIsLoadingManagedEngineers(false);
         return;
       }
 
@@ -46,6 +50,7 @@ export function useManagerRelationships(userId: string) {
         if (active) {
           setManagedEngineers([]);
           setSelectedEngineerId(null);
+          setIsLoadingManagedEngineers(false);
         }
         return;
       }
@@ -90,6 +95,7 @@ export function useManagerRelationships(userId: string) {
         if (!active) return;
         setManagedEngineers([]);
         setSelectedEngineerId(null);
+        setIsLoadingManagedEngineers(false);
         return;
       }
 
@@ -98,32 +104,39 @@ export function useManagerRelationships(userId: string) {
         .select("id, full_name, email")
         .in("id", engineerIds);
 
-      if (profilesError) {
-        if (active) {
-          setManagedEngineers([]);
-          setSelectedEngineerId(null);
-        }
-        return;
-      }
-
-      const nextManaged = ((profiles ?? []) as Array<{
+      const profileRows = ((profiles ?? []) as Array<{
         id: string;
         full_name: string | null;
         email: string | null;
-      }>)
-        .map((profile) => ({
-          id: profile.id,
-          fullName: profile.full_name?.trim() || "Unknown Engineer",
-          email: profile.email?.trim() || "No email",
-          status: statusByEngineer[profile.id] ?? "active",
-          currentUserRole: rolesByEngineer[profile.id]?.hasDirectManager
-            ? rolesByEngineer[profile.id]?.hasSkipLevel
-              ? "both"
-              : "manager"
-            : "skip_level",
-          isOutgoingDirectManagerInHandover: Boolean(outgoingDirectHandoverByEngineer[profile.id]),
-        }))
+      }>).reduce<Record<string, { full_name: string | null; email: string | null }>>((acc, row) => {
+        acc[row.id] = { full_name: row.full_name, email: row.email };
+        return acc;
+      }, {});
+
+      const nextManaged = engineerIds
+        .map((engineerId) => {
+          const profile = profileRows[engineerId];
+          return {
+            id: engineerId,
+            // If profile fetch fails due RLS, keep engineer linkage visible with safe placeholders.
+            fullName: profile?.full_name?.trim() || "Connected Engineer",
+            email: profile?.email?.trim() || "Profile visibility pending",
+            status: statusByEngineer[engineerId] ?? "active",
+            currentUserRole: rolesByEngineer[engineerId]?.hasDirectManager
+              ? rolesByEngineer[engineerId]?.hasSkipLevel
+                ? "both"
+                : "manager"
+              : "skip_level",
+            isOutgoingDirectManagerInHandover: Boolean(outgoingDirectHandoverByEngineer[engineerId]),
+          } satisfies ManagedEngineer;
+        })
         .sort((a, b) => a.fullName.localeCompare(b.fullName));
+
+      if (profilesError) {
+        console.warn("[workspace] unable to load managed engineer profiles; using fallback identity rows", {
+          message: profilesError.message,
+        });
+      }
 
       if (!active) return;
       setManagedEngineers(nextManaged);
@@ -133,6 +146,7 @@ export function useManagerRelationships(userId: string) {
         }
         return null;
       });
+      setIsLoadingManagedEngineers(false);
     }
 
     void loadManagedEngineers();
@@ -159,6 +173,7 @@ export function useManagerRelationships(userId: string) {
     managedEngineers,
     selectedEngineerId,
     setSelectedEngineerId,
+    isLoadingManagedEngineers,
     activeView,
     setActiveView,
     managerRelationshipsRefreshNonce,

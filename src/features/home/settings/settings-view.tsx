@@ -43,6 +43,7 @@ import {
   SAMPLE_MATRIX_TEMPLATE,
 } from "@/features/home/assessment/competency-matrix";
 import { parseFrameworkCategoryMap, resolveFrameworkCategoryEntries } from "@/features/home/shared/framework-taxonomy";
+import { useWorkspace } from "@/features/home/context/WorkspaceContext";
 
 export function SettingsView({
   sampleContent,
@@ -56,6 +57,7 @@ export function SettingsView({
   onSectionChange: (next: SettingsSection) => void;
 }) {
   const { user, updateUser } = useAuth();
+  const { mode } = useWorkspace();
   const navigate = useNavigate();
   const [draft, setDraft] = useState(EMPTY_PROFILE_TEAM_DRAFT);
   const [confirmingSave, setConfirmingSave] = useState(false);
@@ -64,11 +66,22 @@ export function SettingsView({
   const [isSavingAll, setIsSavingAll] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const isProfileOrTeamSection = section === "profile" || section === "team";
+  const isManagerMode = mode === "manager";
+  const visibleSettingsSections = useMemo(
+    () => (isManagerMode ? SETTINGS_SECTION_ITEMS.filter((item) => item.id === "profile") : SETTINGS_SECTION_ITEMS),
+    [isManagerMode],
+  );
 
   useEffect(() => {
     if (!user) return;
     setDraft(profileTeamDraftFromUser(user));
   }, [user]);
+
+  useEffect(() => {
+    if (!isManagerMode || section === "profile") return;
+    onSectionChange("profile");
+    void navigate({ to: getSettingsSectionPath("profile") });
+  }, [isManagerMode, navigate, onSectionChange, section]);
 
   const hasProfileTeamChanges = useMemo(() => hasProfileTeamDraftChanges(draft, user), [draft, user]);
 
@@ -134,7 +147,7 @@ export function SettingsView({
     <div className="grid grid-cols-4 gap-6">
       <Card className="col-span-1 p-2 h-fit">
         <nav className="space-y-0.5">
-          {SETTINGS_SECTION_ITEMS.map((it) => {
+          {visibleSettingsSections.map((it) => {
             const Icon = it.icon;
             const active = section === it.id;
             return (
@@ -163,70 +176,84 @@ export function SettingsView({
       </Card>
 
       <div className="col-span-3 space-y-6">
-        {(section === "profile" || section === "team") && (
+        {isManagerMode ? (
+          <ManagerIdentityCard
+            fullName={user?.fullName ?? null}
+            email={user?.email ?? null}
+            currentLevel={user?.currentLevel ?? null}
+          />
+        ) : (
           <>
-            <ProfileSettings draft={draft} onChange={updateDraft} />
-            <TeamSettings />
+            {(section === "profile" || section === "team") && (
+              <>
+                <ProfileSettings draft={draft} onChange={updateDraft} />
+                <TeamSettings />
+              </>
+            )}
+            {section === "notifications" && <NotificationsSettings />}
+            {section === "extension" && <ExtensionSettings />}
+            {section === "framework" && <FrameworkSettings />}
+            {section === "dashboard" && (
+              <DashboardSamplesSettings
+                sampleContent={sampleContent}
+                onSampleContentChange={onSampleContentChange}
+              />
+            )}
           </>
         )}
-        {section === "notifications" && <NotificationsSettings />}
-        {section === "extension" && <ExtensionSettings />}
-        {section === "framework" && <FrameworkSettings />}
-        {section === "dashboard" && (
-          <DashboardSamplesSettings
-            sampleContent={sampleContent}
-            onSampleContentChange={onSampleContentChange}
-          />
-        )}
-        <div className="border-t pt-4" style={{ borderColor: C.border }}>
-          <div className="flex justify-end">
-            <PrimaryBtn
-              onClick={() => {
-                if (!isProfileOrTeamSection) {
-                  toast.success("Settings saved");
-                  return;
-                }
-                setConfirmingSave(true);
-              }}
-            >
-              <Save size={14} />
-              Save All Settings
-            </PrimaryBtn>
-          </div>
-        </div>
-        <div className="border-t pt-6 mt-8" style={{ borderColor: C.border }}>
-          <div
-            className="rounded-md border px-4 py-4"
-            style={{ borderColor: C.border, background: C.card }}
-          >
-            <div className="flex items-start gap-3">
-              <div className="mt-0.5">
-                <AlertTriangle size={16} style={{ color: C.subtle }} />
-              </div>
-              <div className="flex-1">
-                <div className="text-xs font-bold uppercase tracking-wider" style={{ color: C.subtle }}>
-                  Danger Zone
-                </div>
-                <p className="mt-1 text-sm leading-relaxed" style={{ color: C.slate }}>
-                  Permanently delete your account and all related workspace data. This action cannot
-                  be undone.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmModal(true)}
-                  className="mt-3 h-9 px-3 rounded border text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-                  style={{ borderColor: "#FF5630", color: "#AE2A19", background: "#FFFAF8" }}
-                  disabled={isDeletingAccount}
+        {!isManagerMode && (
+          <>
+            <div className="border-t pt-4" style={{ borderColor: C.border }}>
+              <div className="flex justify-end">
+                <PrimaryBtn
+                  onClick={() => {
+                    if (!isProfileOrTeamSection) {
+                      toast.success("Settings saved");
+                      return;
+                    }
+                    setConfirmingSave(true);
+                  }}
                 >
-                  {isDeletingAccount ? "Deleting account..." : "Delete account"}
-                </button>
+                  <Save size={14} />
+                  Save All Settings
+                </PrimaryBtn>
               </div>
             </div>
-          </div>
-        </div>
+            <div className="border-t pt-6 mt-8" style={{ borderColor: C.border }}>
+              <div
+                className="rounded-md border px-4 py-4"
+                style={{ borderColor: C.border, background: C.card }}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5">
+                    <AlertTriangle size={16} style={{ color: C.subtle }} />
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-xs font-bold uppercase tracking-wider" style={{ color: C.subtle }}>
+                      Danger Zone
+                    </div>
+                    <p className="mt-1 text-sm leading-relaxed" style={{ color: C.slate }}>
+                      Permanently delete your account and all related workspace data. This action cannot
+                      be undone.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmModal(true)}
+                      className="mt-3 h-9 px-3 rounded border text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                      style={{ borderColor: "#FF5630", color: "#AE2A19", background: "#FFFAF8" }}
+                      disabled={isDeletingAccount}
+                    >
+                      {isDeletingAccount ? "Deleting account..." : "Delete account"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
       <AnimatePresence>
-        {confirmingSave && isProfileOrTeamSection && (
+        {confirmingSave && isProfileOrTeamSection && !isManagerMode && (
           <Backdrop onClose={() => setConfirmingSave(false)}>
             <motion.div
               initial={{ opacity: 0, scale: 0.97, y: 8 }}
@@ -295,7 +322,7 @@ export function SettingsView({
         )}
       </AnimatePresence>
       <AnimatePresence>
-        {showConfirmModal && (
+        {showConfirmModal && !isManagerMode && (
           <Backdrop onClose={() => setShowConfirmModal(false)}>
             <motion.div
               initial={{ opacity: 0, scale: 0.97, y: 8 }}
@@ -346,6 +373,51 @@ export function SettingsView({
           </Backdrop>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function ManagerIdentityCard({
+  fullName,
+  email,
+  currentLevel,
+}: {
+  fullName: string | null;
+  email: string | null;
+  currentLevel: string | null;
+}) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+      <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50">
+        <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+          Manager Profile Identity
+        </h3>
+      </div>
+      <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-6">
+        <IdentityField label="Full Name" value={fullName ?? "Not Provided"} />
+        <IdentityField label="Corporate Email" value={email ?? "Not Provided"} />
+        <IdentityField label="Current Corporate Title" value={currentLevel ?? "Manager Profile Context"} />
+      </div>
+      <div className="px-5 py-3 bg-slate-50/30 border-t border-slate-100 flex items-center gap-2">
+        <span className="text-[10px] bg-slate-100 border border-slate-200 text-slate-500 rounded px-1.5 py-0.5 font-mono">
+          INFO
+        </span>
+        <p className="text-[11px] italic text-slate-400 leading-normal">
+          Manager profile details are synced from your active account context. Toggle to Developer
+          Space to manage personal notification and extension preferences.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function IdentityField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="space-y-1">
+      <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">{label}</span>
+      <span className="text-xs font-semibold text-slate-800 block truncate" title={value}>
+        {value}
+      </span>
     </div>
   );
 }
