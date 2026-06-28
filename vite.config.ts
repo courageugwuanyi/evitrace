@@ -15,10 +15,16 @@ export default defineConfig({
   // Force-enable Nitro deploy plugin outside Lovable sandbox context.
   nitro: {
     externals: {
-      inline: ["tslib", "@supabase/functions-js", "@supabase/supabase-js"],
+      inline: ["@supabase/functions-js", "@supabase/supabase-js"],
     },
   },
   vite: {
+    // Route tslib to its native ESM build to avoid CJS interop wrappers in SSR output.
+    resolve: {
+      alias: {
+        tslib: "tslib/tslib.es6.js",
+      },
+    },
     build: {
       chunkSizeWarningLimit: 1200,
     },
