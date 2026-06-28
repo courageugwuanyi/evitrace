@@ -11,7 +11,6 @@ export default defineConfig({
       preset: "vercel",
       externals: {
         inline: [
-          "tslib",
           "@supabase/supabase-js",
           "@supabase/auth-js",
           "@supabase/functions-js",
@@ -29,7 +28,6 @@ export default defineConfig({
   },
   ssr: {
     noExternal: [
-      "tslib",
       "@supabase/supabase-js",
       "@supabase/auth-js",
       "@supabase/functions-js",
