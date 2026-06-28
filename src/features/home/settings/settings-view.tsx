@@ -43,6 +43,7 @@ import {
   SAMPLE_MATRIX_TEMPLATE,
 } from "@/features/home/assessment/competency-matrix";
 import { parseFrameworkCategoryMap, resolveFrameworkCategoryEntries } from "@/features/home/shared/framework-taxonomy";
+import { useWorkspace } from "@/features/home/context/WorkspaceContext";
 
 export function SettingsView({
   sampleContent,
@@ -56,6 +57,7 @@ export function SettingsView({
   onSectionChange: (next: SettingsSection) => void;
 }) {
   const { user, updateUser } = useAuth();
+  const { mode } = useWorkspace();
   const navigate = useNavigate();
   const [draft, setDraft] = useState(EMPTY_PROFILE_TEAM_DRAFT);
   const [confirmingSave, setConfirmingSave] = useState(false);
@@ -64,11 +66,22 @@ export function SettingsView({
   const [isSavingAll, setIsSavingAll] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const isProfileOrTeamSection = section === "profile" || section === "team";
+  const isManagerMode = mode === "manager";
+  const visibleSettingsSections = useMemo(
+    () => (isManagerMode ? SETTINGS_SECTION_ITEMS.filter((item) => item.id === "profile") : SETTINGS_SECTION_ITEMS),
+    [isManagerMode],
+  );
 
   useEffect(() => {
     if (!user) return;
     setDraft(profileTeamDraftFromUser(user));
   }, [user]);
+
+  useEffect(() => {
+    if (!isManagerMode || section === "profile") return;
+    onSectionChange("profile");
+    void navigate({ to: getSettingsSectionPath("profile") });
+  }, [isManagerMode, navigate, onSectionChange, section]);
 
   const hasProfileTeamChanges = useMemo(() => hasProfileTeamDraftChanges(draft, user), [draft, user]);
 
@@ -134,7 +147,7 @@ export function SettingsView({
     <div className="grid grid-cols-4 gap-6">
       <Card className="col-span-1 p-2 h-fit">
         <nav className="space-y-0.5">
-          {SETTINGS_SECTION_ITEMS.map((it) => {
+          {visibleSettingsSections.map((it) => {
             const Icon = it.icon;
             const active = section === it.id;
             return (
@@ -163,66 +176,84 @@ export function SettingsView({
       </Card>
 
       <div className="col-span-3 space-y-6">
-        {section === "profile" && <ProfileSettings draft={draft} onChange={updateDraft} />}
-        {section === "team" && <TeamSettings draft={draft} onChange={updateDraft} />}
-        {section === "notifications" && <NotificationsSettings />}
-        {section === "extension" && <ExtensionSettings />}
-        {section === "framework" && <FrameworkSettings />}
-        {section === "dashboard" && (
-          <DashboardSamplesSettings
-            sampleContent={sampleContent}
-            onSampleContentChange={onSampleContentChange}
+        {isManagerMode ? (
+          <ManagerIdentityCard
+            fullName={user?.fullName ?? null}
+            email={user?.email ?? null}
+            currentLevel={user?.currentLevel ?? null}
           />
+        ) : (
+          <>
+            {(section === "profile" || section === "team") && (
+              <>
+                <ProfileSettings draft={draft} onChange={updateDraft} />
+                <TeamSettings />
+              </>
+            )}
+            {section === "notifications" && <NotificationsSettings />}
+            {section === "extension" && <ExtensionSettings />}
+            {section === "framework" && <FrameworkSettings />}
+            {section === "dashboard" && (
+              <DashboardSamplesSettings
+                sampleContent={sampleContent}
+                onSampleContentChange={onSampleContentChange}
+              />
+            )}
+          </>
         )}
-        <div className="border-t pt-4" style={{ borderColor: C.border }}>
-          <div className="flex justify-end">
-            <PrimaryBtn
-              onClick={() => {
-                if (!isProfileOrTeamSection) {
-                  toast.success("Settings saved");
-                  return;
-                }
-                setConfirmingSave(true);
-              }}
-            >
-              <Save size={14} />
-              Save All Settings
-            </PrimaryBtn>
-          </div>
-        </div>
-        <div className="border-t pt-6 mt-8" style={{ borderColor: C.border }}>
-          <div
-            className="rounded-md border px-4 py-4"
-            style={{ borderColor: C.border, background: C.card }}
-          >
-            <div className="flex items-start gap-3">
-              <div className="mt-0.5">
-                <AlertTriangle size={16} style={{ color: C.subtle }} />
-              </div>
-              <div className="flex-1">
-                <div className="text-xs font-bold uppercase tracking-wider" style={{ color: C.subtle }}>
-                  Danger Zone
-                </div>
-                <p className="mt-1 text-sm leading-relaxed" style={{ color: C.slate }}>
-                  Permanently delete your account and all related workspace data. This action cannot
-                  be undone.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmModal(true)}
-                  className="mt-3 h-9 px-3 rounded border text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-                  style={{ borderColor: "#FF5630", color: "#AE2A19", background: "#FFFAF8" }}
-                  disabled={isDeletingAccount}
+        {!isManagerMode && (
+          <>
+            <div className="border-t pt-4" style={{ borderColor: C.border }}>
+              <div className="flex justify-end">
+                <PrimaryBtn
+                  onClick={() => {
+                    if (!isProfileOrTeamSection) {
+                      toast.success("Settings saved");
+                      return;
+                    }
+                    setConfirmingSave(true);
+                  }}
                 >
-                  {isDeletingAccount ? "Deleting account..." : "Delete account"}
-                </button>
+                  <Save size={14} />
+                  Save All Settings
+                </PrimaryBtn>
               </div>
             </div>
-          </div>
-        </div>
+            <div className="border-t pt-6 mt-8" style={{ borderColor: C.border }}>
+              <div
+                className="rounded-md border px-4 py-4"
+                style={{ borderColor: C.border, background: C.card }}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5">
+                    <AlertTriangle size={16} style={{ color: C.subtle }} />
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-xs font-bold uppercase tracking-wider" style={{ color: C.subtle }}>
+                      Danger Zone
+                    </div>
+                    <p className="mt-1 text-sm leading-relaxed" style={{ color: C.slate }}>
+                      Permanently delete your account and all related workspace data. This action cannot
+                      be undone.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmModal(true)}
+                      className="mt-3 h-9 px-3 rounded border text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                      style={{ borderColor: "#FF5630", color: "#AE2A19", background: "#FFFAF8" }}
+                      disabled={isDeletingAccount}
+                    >
+                      {isDeletingAccount ? "Deleting account..." : "Delete account"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
       <AnimatePresence>
-        {confirmingSave && isProfileOrTeamSection && (
+        {confirmingSave && isProfileOrTeamSection && !isManagerMode && (
           <Backdrop onClose={() => setConfirmingSave(false)}>
             <motion.div
               initial={{ opacity: 0, scale: 0.97, y: 8 }}
@@ -249,7 +280,7 @@ export function SettingsView({
                       Confirm your password
                     </div>
                     <div className="text-xs" style={{ color: C.subtle }}>
-                      Required to save profile and team settings.
+                      Required to save profile settings.
                     </div>
                   </div>
                 </div>
@@ -291,7 +322,7 @@ export function SettingsView({
         )}
       </AnimatePresence>
       <AnimatePresence>
-        {showConfirmModal && (
+        {showConfirmModal && !isManagerMode && (
           <Backdrop onClose={() => setShowConfirmModal(false)}>
             <motion.div
               initial={{ opacity: 0, scale: 0.97, y: 8 }}
@@ -346,6 +377,51 @@ export function SettingsView({
   );
 }
 
+function ManagerIdentityCard({
+  fullName,
+  email,
+  currentLevel,
+}: {
+  fullName: string | null;
+  email: string | null;
+  currentLevel: string | null;
+}) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+      <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50">
+        <h3 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+          Manager Profile Identity
+        </h3>
+      </div>
+      <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-6">
+        <IdentityField label="Full Name" value={fullName ?? "Not Provided"} />
+        <IdentityField label="Corporate Email" value={email ?? "Not Provided"} />
+        <IdentityField label="Current Corporate Title" value={currentLevel ?? "Manager Profile Context"} />
+      </div>
+      <div className="px-5 py-3 bg-slate-50/30 border-t border-slate-100 flex items-center gap-2">
+        <span className="text-[10px] bg-slate-100 border border-slate-200 text-slate-500 rounded px-1.5 py-0.5 font-mono">
+          INFO
+        </span>
+        <p className="text-[11px] italic text-slate-400 leading-normal">
+          Manager profile details are synced from your active account context. Toggle to Developer
+          Space to manage personal notification and extension preferences.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function IdentityField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="space-y-1">
+      <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">{label}</span>
+      <span className="text-xs font-semibold text-slate-800 block truncate" title={value}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
 function FrameworkSettings() {
   const { userId, user } = useAuth();
   const frameworkUserId = userId ?? "";
@@ -355,6 +431,7 @@ function FrameworkSettings() {
   const [parsing, setParsing] = useState(false);
   const [mismatch, setMismatch] = useState(false);
   const [selectedFrameworkId, setSelectedFrameworkId] = useState("");
+  const [selectedTrackId, setSelectedTrackId] = useState("");
   const [rawText, setRawText] = useState("");
 
   const { data: frameworkOptions = [], isLoading: loadingFrameworks } = useQuery({
@@ -454,8 +531,61 @@ function FrameworkSettings() {
     () => resolveFrameworkCategoryEntries(activeFramework?.matrix ?? null),
     [activeFramework],
   );
+  const frameworkTracks = useMemo(() => {
+    if (hasCategoryPreview) {
+      return activeCategoryEntries.map(([categoryName, details], index) => {
+        const expectations = [details.summary, ...details.items.map((item) => `• ${item}`)]
+          .filter((entry): entry is string => Boolean(entry && entry.trim().length > 0))
+          .join("\n");
+        return {
+          id: `${categoryName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${index}`,
+          label: categoryName,
+          levels: [
+            {
+              rank: 1,
+              title: "Core Expectations",
+              expectationsDescription: expectations || "No expectations defined yet.",
+            },
+          ],
+        };
+      });
+    }
+    if (!activeMatrix) return [];
+    const levelMeta = [
+      { key: "junior" as const, rank: 1, title: "Junior" },
+      { key: "mid" as const, rank: 2, title: "Mid" },
+      { key: "senior" as const, rank: 3, title: "Senior" },
+    ];
+    return MATRIX_PILLARS.map((pillar) => ({
+      id: pillar.key,
+      label: pillar.label,
+      levels: levelMeta.map((level) => {
+        const expectations = (activeMatrix[level.key][pillar.key] ?? [])
+          .map((item) => `• ${item}`)
+          .join("\n");
+        return {
+          rank: level.rank,
+          title: level.title,
+          expectationsDescription: expectations || "No expectations defined yet.",
+        };
+      }),
+    }));
+  }, [activeCategoryEntries, activeMatrix, hasCategoryPreview]);
+  const activeTrack = useMemo(
+    () => frameworkTracks.find((track) => track.id === selectedTrackId) ?? frameworkTracks[0] ?? null,
+    [frameworkTracks, selectedTrackId],
+  );
   const activeLevel = levelFromCurrentRole(user?.currentLevel);
-  const levelPreview = activeMatrix?.[activeLevel];
+
+  useEffect(() => {
+    if (frameworkTracks.length === 0) {
+      setSelectedTrackId("");
+      return;
+    }
+    if (!frameworkTracks.some((track) => track.id === selectedTrackId)) {
+      setSelectedTrackId(frameworkTracks[0].id);
+    }
+  }, [frameworkTracks, selectedTrackId]);
 
   function linkSelectedFramework(nextFrameworkId: string) {
     if (!frameworkUserId) {
@@ -544,118 +674,114 @@ function FrameworkSettings() {
         sub="Select defaults, preview pillar expectations, and import your own competency matrix."
       />
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-[2fr,1fr]">
-        <div>
-          <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: C.subtle }}>
+      <div className="mt-4 bg-slate-50 border border-slate-200/60 rounded-xl p-5 mb-6">
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-5 items-start">
+          <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="text-sm font-bold text-slate-800 leading-5 break-words">
+              {activeFramework ? getFrameworkDisplayName(activeFramework) : "No Active Framework"}
+            </div>
+            <span className="text-[10px] font-bold uppercase text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-none px-1.5 py-0.5">
+              Active
+            </span>
+          </div>
+          <p className="mt-2 text-xs text-slate-500 max-w-2xl leading-relaxed">
+            {activeFramework?.description?.trim() ||
+              `Aligned to your current role level: ${activeLevel}.`}
+          </p>
+        </div>
+        <div className="w-full rounded-lg border border-slate-200 bg-white p-3">
+          <div className="text-xs font-semibold mb-1.5" style={{ color: C.subtle }}>
             Framework Selector
           </div>
-          <div className="mt-1.5">
-            <Select
-              icon={<Layers size={14} />}
-              value={selectedFrameworkId}
-              disabled={loadingFrameworks || frameworkOptions.length === 0}
-              onChange={(e) => linkSelectedFramework(e.target.value)}
-            >
-              {frameworkOptions.length === 0 ? (
-                <option value="">No frameworks available</option>
-              ) : (
-                frameworkOptions.map((framework) => (
-                  <option key={framework.id} value={framework.id}>
-                    {getFrameworkDisplayName(framework)}
-                  </option>
-                ))
-              )}
-            </Select>
-          </div>
-          {activeFramework?.description && (
-            <p className="mt-2 text-xs leading-relaxed" style={{ color: C.slate }}>
-              {activeFramework.description}
-            </p>
-          )}
-        </div>
-
-        <div
-          className="rounded border px-3 py-3"
-          style={{ borderColor: C.border, background: "#FAFBFC" }}
-        >
-          <div className="text-xs uppercase tracking-wider" style={{ color: C.subtle }}>
-            Profile Seniority
-          </div>
-          <div className="mt-1 text-sm font-semibold" style={{ color: C.navy }}>
-            {user?.currentLevel || "Not set"}
-          </div>
-          <div className="mt-1 text-xs" style={{ color: C.slate }}>
-            {hasCategoryPreview ? (
-              <>Previewing the active company category guide and item definitions.</>
+          <Select
+            icon={<Layers size={14} />}
+            value={selectedFrameworkId}
+            disabled={loadingFrameworks || frameworkOptions.length === 0}
+            onChange={(e) => linkSelectedFramework(e.target.value)}
+          >
+            {frameworkOptions.length === 0 ? (
+              <option value="">No frameworks available</option>
             ) : (
-              <>
-                Previewing matrix for <span className="font-semibold">{activeLevel}</span> level expectations.
-              </>
+              frameworkOptions.map((framework) => (
+                <option
+                  key={framework.id}
+                  value={framework.id}
+                  title={getFrameworkDisplayName(framework)}
+                >
+                  {truncateFrameworkLabel(getFrameworkDisplayName(framework))}
+                </option>
+              ))
             )}
-          </div>
+          </Select>
+        </div>
         </div>
       </div>
 
-      <div className="mt-5">
-        <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: C.subtle }}>
-          Active Framework Preview
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-start">
+        <div className="space-y-2">
+          {frameworkTracks.length > 0 ? (
+            frameworkTracks.map((track) => {
+              const isActive = activeTrack?.id === track.id;
+              return (
+                <button
+                  key={track.id}
+                  type="button"
+                  onClick={() => setSelectedTrackId(track.id)}
+                  className={
+                    isActive
+                      ? "w-full text-left px-3 py-2 text-xs font-semibold rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100/70 transition-all cursor-pointer bg-indigo-50 text-indigo-700 border-l-2 border-indigo-600 font-bold hover:bg-indigo-50 hover:text-indigo-700 rounded-r-lg rounded-l-none"
+                      : "w-full text-left px-3 py-2 text-xs font-semibold rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100/70 transition-all cursor-pointer"
+                  }
+                >
+                  {track.label}
+                </button>
+              );
+            })
+          ) : (
+            <div className="text-xs text-slate-500">
+              Select a core competency track on the left to review scope and role growth criteria.
+            </div>
+          )}
         </div>
-        {hasCategoryPreview ? (
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
-            {activeCategoryEntries.map(([categoryName, details]) => (
-              <div
-                key={categoryName}
-                className="rounded border p-3"
-                style={{ borderColor: C.border, background: "#FFFFFF" }}
-              >
-                <div className="text-sm font-semibold" style={{ color: C.navy }}>
-                  {categoryName}
+
+        <div className="md:col-span-3">
+          {activeTrack && activeTrack.levels.length > 0 ? (
+            <div className="space-y-4 flex-1">
+              {activeTrack.levels.map((level) => (
+                <div
+                  key={`${activeTrack.id}-${level.rank}-${level.title}`}
+                  className="bg-white border border-slate-200/80 rounded-xl p-5 shadow-sm hover:border-slate-300 transition-all space-y-3"
+                >
+                  {level.title === "Core Expectations" ? (
+                    <h4 className="text-xs font-bold text-slate-800">{level.title}</h4>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider bg-slate-100 border border-slate-200/60 text-slate-600 px-1.5 py-0.5 rounded-md">
+                        Level {level.rank}
+                      </span>
+                      <h4 className="text-xs font-bold text-slate-800">{level.title}</h4>
+                    </div>
+                  )}
+                  <div className="max-w-2xl space-y-1.5">
+                    {level.expectationsDescription
+                      .split("\n")
+                      .filter((line) => line.trim().length > 0)
+                      .map((line, index) => (
+                        <p key={`${level.title}-${index}`} className="whitespace-pre-line text-xs leading-relaxed text-slate-600">
+                          {line}
+                        </p>
+                      ))}
+                  </div>
                 </div>
-                {details.summary && (
-                  <p className="mt-1.5 text-xs leading-relaxed" style={{ color: C.slate }}>
-                    {details.summary}
-                  </p>
-                )}
-                <ul className="mt-2 space-y-1.5">
-                  {details.items.map((item) => (
-                    <li
-                      key={`${categoryName}-${item}`}
-                      className="text-xs leading-relaxed"
-                      style={{ color: C.slate }}
-                    >
-                      • {item}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        ) : levelPreview ? (
-          <div className="mt-3 grid gap-3 md:grid-cols-3">
-            {MATRIX_PILLARS.map((pillar) => (
-              <div
-                key={pillar.key}
-                className="rounded border p-3"
-                style={{ borderColor: C.border, background: "#FFFFFF" }}
-              >
-                <div className="text-sm font-semibold" style={{ color: C.navy }}>
-                  {pillar.label}
-                </div>
-                <ul className="mt-2 space-y-1.5">
-                  {(levelPreview[pillar.key] ?? []).map((item) => (
-                    <li key={`${pillar.key}-${item}`} className="text-xs leading-relaxed" style={{ color: C.slate }}>
-                      • {item}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="mt-3 rounded border p-3 text-xs" style={{ borderColor: "#FFC400", background: "#FFFBE6", color: C.slate }}>
-            The selected framework is missing a valid matrix structure. Re-import using the sample template.
-          </div>
-        )}
+              ))}
+            </div>
+          ) : (
+            <div className="bg-white border border-slate-200/80 rounded-xl p-4 text-xs text-slate-500">
+              Select a core competency track on the left to review scope and role growth criteria.
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="mt-6 flex flex-wrap gap-2">
@@ -768,4 +894,10 @@ function SectionHeader({ title, sub }: { title: string; sub: string }) {
       </p>
     </div>
   );
+}
+
+function truncateFrameworkLabel(label: string, maxLength = 56): string {
+  const normalized = label.trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }

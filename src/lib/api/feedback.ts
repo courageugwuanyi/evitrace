@@ -1,92 +1,236 @@
 // src/lib/api/feedback.ts
-// TanStack Query hooks for feedback domain.
-// All hooks accept userId: string (from useAuth().user!.id).
+// 360 feedback service functions backed by Supabase.
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { toast } from 'sonner'
 import { supabase } from '../supabase'
-import { feedbackRowToItem, type FeedbackItem } from './mappers'
-import type { Database } from '../database.types'
+import type { ThreeSixtyFeedback } from '../database.types'
 
-type FeedbackInsert = Database['public']['Tables']['feedback']['Insert']
+type FeedbackRelation = ThreeSixtyFeedback['relationship_type']
+type ExecutionVector = NonNullable<ThreeSixtyFeedback['execution_vector']>
 
-// ── Query key helpers ──────────────────────────────────────────────────────────
-
-const feedbackKey = (userId: string) => ['feedback', userId] as const
-
-// ── useFeedbackQuery ───────────────────────────────────────────────────────────
-
-/**
- * Fetches all feedback items for a user, ordered by date descending.
- * Key: ['feedback', userId]
- * staleTime: 60s
- */
-export function useFeedbackQuery(userId: string) {
-  return useQuery({
-    queryKey: feedbackKey(userId),
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('feedback')
-        .select('*')
-        .eq('user_id', userId)
-        .order('date', { ascending: false })
-      if (error) throw error
-      return (data ?? []).map(feedbackRowToItem)
-    },
-    staleTime: 60_000,
-    enabled: Boolean(userId),
-  })
+function assertFeedbackRelation(relation: string): asserts relation is FeedbackRelation {
+  if (
+    relation === 'peer_engineer' ||
+    relation === 'ux_partner' ||
+    relation === 'product_manager' ||
+    relation === 'pmm_partner' ||
+    relation === 'quality_engineer'
+  ) {
+    return
+  }
+  throw new Error('Invalid relationship type.')
 }
 
-// ── useAddFeedback ─────────────────────────────────────────────────────────────
+async function requireAuthUserId() {
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser()
+  if (error) throw error
+  if (!user?.id) throw new Error('Not authenticated.')
+  return user.id
+}
 
-/**
- * Inserts a new feedback row.
- * Invalidates ['feedback', userId] on success.
- */
-export function useAddFeedback(userId: string) {
-  const queryClient = useQueryClient()
+export async function requestPeerFeedback(
+  engineerId: string,
+  reviewerId: string,
+  relation: string,
+) {
+  const authUserId = await requireAuthUserId()
+  assertFeedbackRelation(relation)
+  const normalizedEngineerId = engineerId.trim()
+  const ownerEngineerId = normalizedEngineerId || authUserId
+  const normalizedReviewerId = reviewerId.trim()
+  if (ownerEngineerId !== authUserId) {
+    throw new Error('You can only create feedback requests for your own profile.')
+  }
+  if (!normalizedReviewerId) {
+    throw new Error('Select a teammate first.')
+  }
+  if (normalizedReviewerId === ownerEngineerId) {
+    throw new Error('You cannot request feedback from yourself.')
+  }
 
-  return useMutation({
-    mutationFn: async (item: Omit<FeedbackItem, 'id'> & { referenceLinks?: string[] }) => {
-      const row: Omit<FeedbackInsert, 'id'> = {
-        user_id: userId,
-        date: item.date,
-        provider: item.provider,
-        type: item.type,
-        notes: item.notes,
-        reference_links: item.referenceLinks ?? [],
-        anonymous: item.anonymous,
-      }
-      const { error } = await supabase.from('feedback').insert(row)
-      if (!error) return
+  const { data: existingPending, error: existingPendingError } = await supabase
+    .from('three_sixty_feedback')
+    .select('id')
+    .eq('engineer_id', ownerEngineerId)
+    .eq('reviewer_id', normalizedReviewerId)
+    .eq('status', 'pending')
+    .limit(1)
+  if (existingPendingError) throw existingPendingError
+  if ((existingPending ?? []).length > 0) {
+    throw new Error('A pending request already exists for this teammate.')
+  }
 
-      const missingReferenceLinksColumn =
-        /reference_links/i.test(error.message) &&
-        /(schema cache|column)/i.test(error.message)
+  const { error } = await supabase
+    .from('three_sixty_feedback')
+    .insert({
+      engineer_id: ownerEngineerId,
+      reviewer_id: normalizedReviewerId,
+      relationship_type: relation,
+      status: 'pending',
+    })
+  if (error) {
+    if ((error as { code?: string }).code === '23505') {
+      throw new Error('A pending request already exists for this teammate.')
+    }
+    throw error
+  }
+  return {
+    engineer_id: ownerEngineerId,
+    reviewer_id: normalizedReviewerId,
+    relationship_type: relation,
+    status: 'pending',
+  } as Pick<
+    ThreeSixtyFeedback,
+    'engineer_id' | 'reviewer_id' | 'relationship_type' | 'status'
+  >
+}
 
-      if (!missingReferenceLinksColumn) throw error
+export async function getIncomingFeedbackRequests() {
+  const reviewerId = await requireAuthUserId()
 
-      const fallbackRow: Omit<FeedbackInsert, 'id'> = {
-        user_id: userId,
-        date: item.date,
-        provider: item.provider,
-        type: item.type,
-        notes: item.notes,
-        anonymous: item.anonymous,
-      }
-      const { error: fallbackError } = await supabase.from('feedback').insert(fallbackRow)
-      if (fallbackError) throw fallbackError
-    },
+  const { data: rows, error } = await supabase
+    .from('three_sixty_feedback')
+    .select(
+      `
+      id,
+      engineer_id,
+      reviewer_id,
+      relationship_type,
+      status,
+      continue_feedback,
+      stop_feedback,
+      start_feedback,
+      execution_vector,
+      created_at,
+      submitted_at
+      `,
+    )
+    .eq('reviewer_id', reviewerId)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false })
 
-    onError: (error: Error) => {
-      toast.error(error.message)
-    },
+  if (error) throw error
+  const feedbackRows = (rows ?? []) as ThreeSixtyFeedback[]
+  if (feedbackRows.length === 0) return feedbackRows
 
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: feedbackKey(userId),
-      })
-    },
-  })
+  const engineerIds = Array.from(new Set(feedbackRows.map((row) => row.engineer_id)))
+  const { data: profileRows, error: profileError } = await supabase
+    .from('profiles')
+    .select('id, full_name, job_title, avatar_url')
+    .in('id', engineerIds)
+  if (profileError) throw profileError
+
+  const profileById = new Map(
+    (profileRows ?? []).map((profile) => [
+      profile.id,
+      {
+        full_name: profile.full_name ?? 'Teammate',
+        job_title: profile.job_title ?? '',
+        avatar_url: profile.avatar_url ?? null,
+      },
+    ]),
+  )
+
+  return feedbackRows.map((row) => ({
+    ...row,
+    profiles: profileById.get(row.engineer_id),
+  }))
+}
+
+export async function submitPeerFeedback(
+  requestId: string,
+  payload: {
+    continueText: string
+    stopText: string
+    startText: string
+    vector: string
+  },
+) {
+  const reviewerId = await requireAuthUserId()
+  const vector = payload.vector as ExecutionVector
+  const now = new Date().toISOString()
+  const { error } = await supabase
+    .from('three_sixty_feedback')
+    .update({
+      continue_feedback: payload.continueText,
+      stop_feedback: payload.stopText,
+      start_feedback: payload.startText,
+      execution_vector: vector,
+      status: 'submitted',
+      submitted_at: now,
+    })
+    .eq('id', requestId)
+    .eq('reviewer_id', reviewerId)
+  if (error) throw error
+  return { id: requestId, status: 'submitted', submitted_at: now } as Pick<
+    ThreeSixtyFeedback,
+    'id' | 'status' | 'submitted_at'
+  >
+}
+
+export async function getEngineerFeedbackDossier(engineerId: string) {
+  const { data, error } = await supabase
+    .from('three_sixty_feedback')
+    .select('*')
+    .eq('engineer_id', engineerId)
+    .eq('status', 'submitted')
+    .order('submitted_at', { ascending: false })
+  if (error) throw error
+  return (data ?? []) as ThreeSixtyFeedback[]
+}
+
+export async function getOutgoingFeedbackRequests(engineerId: string) {
+  const authUserId = await requireAuthUserId()
+  if (engineerId !== authUserId) {
+    throw new Error('You can only load your own outgoing requests.')
+  }
+
+  const { data: rows, error } = await supabase
+    .from('three_sixty_feedback')
+    .select(
+      `
+      id,
+      engineer_id,
+      reviewer_id,
+      relationship_type,
+      status,
+      continue_feedback,
+      stop_feedback,
+      start_feedback,
+      execution_vector,
+      created_at,
+      submitted_at
+      `,
+    )
+    .eq('engineer_id', engineerId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+
+  const feedbackRows = (rows ?? []) as ThreeSixtyFeedback[]
+  if (feedbackRows.length === 0) return feedbackRows
+
+  const reviewerIds = Array.from(new Set(feedbackRows.map((row) => row.reviewer_id)))
+  const { data: profileRows, error: profileError } = await supabase
+    .from('profiles')
+    .select('id, full_name, job_title, avatar_url')
+    .in('id', reviewerIds)
+  if (profileError) throw profileError
+
+  const profileById = new Map(
+    (profileRows ?? []).map((profile) => [
+      profile.id,
+      {
+        full_name: profile.full_name ?? 'Teammate',
+        job_title: profile.job_title ?? '',
+        avatar_url: profile.avatar_url ?? null,
+      },
+    ]),
+  )
+
+  return feedbackRows.map((row) => ({
+    ...row,
+    profiles: profileById.get(row.reviewer_id),
+  }))
 }

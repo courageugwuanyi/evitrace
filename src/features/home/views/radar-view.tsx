@@ -31,7 +31,6 @@ import {
   BarChartHorizontal,
   Plus,
   ChevronDown,
-  MessageSquare,
 } from "lucide-react";
 import {
   Radar,
@@ -52,29 +51,28 @@ import {
 const CustomRadarTick = (props: any) => {
   const { x, y, payload, cx, cy } = props;
   const value = payload?.value ?? "";
+  const fullLabel = String(value);
+  const maxLabelLength = 18;
+  const displayLabel =
+    fullLabel.length > maxLabelLength ? `${fullLabel.slice(0, maxLabelLength - 1)}…` : fullLabel;
 
   let textAnchor: "start" | "middle" | "end" = "middle";
   if (x > cx + 10) textAnchor = "start";
   if (x < cx - 10) textAnchor = "end";
 
-  const words = String(value).split(" ");
-  const lines: string[] = [];
-  if (words.length > 2) {
-    const mid = Math.ceil(words.length / 2);
-    lines.push(words.slice(0, mid).join(" "));
-    lines.push(words.slice(mid).join(" "));
-  } else {
-    lines.push(String(value));
-  }
-
   return (
     <g transform={`translate(${x}, ${y})`}>
-      <text textAnchor={textAnchor} fill="#4b5563" fontSize={11} className="font-medium">
-        {lines.map((line, i) => (
-          <tspan x={0} dy={i === 0 ? 0 : 13} key={i}>
-            {line}
-          </tspan>
-        ))}
+      <title>{fullLabel}</title>
+      <text
+        textAnchor={textAnchor}
+        fill="#4b5563"
+        fontSize={11}
+        className="font-medium cursor-help"
+        style={{ pointerEvents: "all" }}
+      >
+        <tspan x={0} dy={0}>
+          {displayLabel}
+        </tspan>
       </text>
     </g>
   );
@@ -129,6 +127,7 @@ function Td({
 function HierarchicalMatrix({
   data,
   latest,
+  previousCompleted,
   evidence,
   objectives,
   categoryMap,
@@ -137,6 +136,7 @@ function HierarchicalMatrix({
 }: {
   data: ReturnType<typeof deriveRadarData>;
   latest: Assessment | undefined;
+  previousCompleted: Assessment | undefined;
   evidence: EvidenceRecord[];
   objectives: Objective[];
   categoryMap: FrameworkCategoryMap;
@@ -167,6 +167,14 @@ function HierarchicalMatrix({
         : gap >= 0.5
           ? "bg-amber-100 text-amber-800"
           : "bg-slate-100 text-slate-800";
+
+  const calculateProgressTowardsTarget = (previous: number, current: number, target: number) => {
+    const remainingGap = target - previous;
+    if (Math.abs(remainingGap) < 0.001) {
+      return current === target ? 100 : 0;
+    }
+    return +(((current - previous) / remainingGap) * 100).toFixed(1);
+  };
 
   const unmappedHistory = useMemo(() => {
     const unmappedAssessmentCategories = (latest?.categories ?? []).filter(
@@ -203,11 +211,9 @@ function HierarchicalMatrix({
             <Th>Current</Th>
             <Th>Delta</Th>
             <Th>Target</Th>
+            <Th>Progress toward Target (%)</Th>
             <Th>Gap</Th>
             <Th>Evidence Logged</Th>
-            <Th>Rubric Expected</Th>
-            <Th>Evidence Delta</Th>
-            <Th>Notes</Th>
             <Th>Action</Th>
           </tr>
         </thead>
@@ -228,7 +234,7 @@ function HierarchicalMatrix({
             );
             const isOpen = !!open[categoryName];
             const subScores = subs.map((sub) =>
-              getHistoricalQuestionScores(latest, categoryName, sub),
+              getHistoricalQuestionScores(latest, categoryName, sub, previousCompleted),
             );
             const prevAvg =
               subScores.length === 0
@@ -250,14 +256,13 @@ function HierarchicalMatrix({
                   ).toFixed(2);
             const gapAvg = +(targetAvg - curAvg).toFixed(2);
             const delta = calculateScoreDelta(prevAvg, curAvg);
+            const progressToTarget = calculateProgressTowardsTarget(prevAvg, curAvg, targetAvg);
             const evidenceCount = evidence.filter((record) => {
               const matchedCategory =
                 resolveCategoryFromFramework(record.category ?? "", categoryNames) ??
                 resolveCategoryFromFramework(record.competency ?? "", categoryNames);
               return matchedCategory === categoryName;
             }).length;
-            const expectedEvidenceCount = subs.length;
-            const evidenceDelta = evidenceCount - expectedEvidenceCount;
             return (
               <React.Fragment key={categoryName}>
                 <tr
@@ -274,10 +279,7 @@ function HierarchicalMatrix({
                         <ChevronDown size={14} style={{ color: C.subtle }} />
                       </motion.span>
                       {categoryName}
-                      <span
-                        className="text-[10px] font-normal px-1.5 py-0.5 rounded"
-                        style={{ background: "#F4F5F7", color: C.subtle }}
-                      >
+                      <span className="ml-2 inline-block px-1.5 py-0.5 text-[10px] font-mono font-bold bg-slate-100 border border-slate-200 text-slate-500 rounded-md">
                         {subs.length} questions
                       </span>
                     </span>
@@ -294,25 +296,19 @@ function HierarchicalMatrix({
                   <Td style={{ color: C.slate }}>{targetAvg.toFixed(2)}</Td>
                   <Td>
                     <span
+                      className={`px-2 py-0.5 rounded text-xs font-semibold ${changeLozenge(progressToTarget)}`}
+                    >
+                      {progressToTarget > 0 ? `+${progressToTarget}%` : `${progressToTarget}%`}
+                    </span>
+                  </Td>
+                  <Td>
+                    <span
                       className={`px-2 py-0.5 rounded text-xs font-semibold ${gapLozenge(gapAvg)}`}
                     >
                       {gapAvg > 0 ? `+${gapAvg}` : `${gapAvg}`}
                     </span>
                   </Td>
                   <Td style={{ color: C.navy, fontWeight: 600 }}>{evidenceCount}</Td>
-                  <Td style={{ color: C.slate }}>{expectedEvidenceCount}</Td>
-                  <Td>
-                    <span
-                      className={`px-2 py-0.5 rounded text-xs font-semibold ${changeLozenge(evidenceDelta)}`}
-                    >
-                      {evidenceDelta > 0 ? `+${evidenceDelta}` : evidenceDelta}
-                    </span>
-                  </Td>
-                  <Td style={{ color: C.subtle }}>
-                    <span className="text-[11px]">
-                      {latestCat ? "Rollup" : "Defaulted to 1 (pending assessment)"}
-                    </span>
-                  </Td>
                   <Td>
                     <button
                       onClick={(e) => {
@@ -331,7 +327,12 @@ function HierarchicalMatrix({
                 </tr>
                 {isOpen &&
                   subs.map((sub) => {
-                    const historical = getHistoricalQuestionScores(latest, categoryName, sub);
+                    const historical = getHistoricalQuestionScores(
+                      latest,
+                      categoryName,
+                      sub,
+                      previousCompleted,
+                    );
                     const prev = historical.previous;
                     const cur = historical.current;
                     const tgt = historical.target;
@@ -339,6 +340,7 @@ function HierarchicalMatrix({
                     const scale = EFFECTIVENESS_SCALE[Math.max(0, Math.min(4, cur - 1))];
                     const subGap = +(tgt - cur).toFixed(2);
                     const subDelta = calculateScoreDelta(prev, cur);
+                    const subProgress = calculateProgressTowardsTarget(prev, cur, tgt);
                     return (
                       <tr
                         key={categoryName + sub}
@@ -365,30 +367,19 @@ function HierarchicalMatrix({
                         <Td style={{ color: C.slate }}>{tgt}</Td>
                         <Td>
                           <span
+                            className={`px-2 py-0.5 rounded text-xs font-semibold ${changeLozenge(subProgress)}`}
+                          >
+                            {subProgress > 0 ? `+${subProgress}%` : `${subProgress}%`}
+                          </span>
+                        </Td>
+                        <Td>
+                          <span
                             className={`px-2 py-0.5 rounded text-xs font-semibold ${gapLozenge(subGap)}`}
                           >
                             {subGap > 0 ? `+${subGap}` : `${subGap}`}
                           </span>
                         </Td>
                         <Td style={{ color: C.subtle }}>-</Td>
-                        <Td style={{ color: C.subtle }}>-</Td>
-                        <Td style={{ color: C.subtle }}>-</Td>
-                        <Td>
-                          {note ? (
-                            <span
-                              title={note}
-                              className="inline-flex items-center gap-1 text-[11px] cursor-help"
-                              style={{ color: C.primary }}
-                            >
-                              <MessageSquare size={12} />
-                              Note
-                            </span>
-                          ) : (
-                            <span className="text-[11px]" style={{ color: C.subtle }}>
-                              -
-                            </span>
-                          )}
-                        </Td>
                         <Td>
                           <button
                             onClick={() => {
@@ -427,7 +418,7 @@ function HierarchicalMatrix({
                     Unmapped History
                   </button>
                 </Td>
-                <td className="px-4 py-3 align-middle" colSpan={10} style={{ color: C.subtle }}>
+                <td className="px-4 py-3 align-middle" colSpan={8} style={{ color: C.subtle }}>
                   Legacy records from categories not present in the current framework.
                 </td>
               </tr>
@@ -445,6 +436,7 @@ function HierarchicalMatrix({
                     <Td style={{ color: C.slate }}>{category.categoryCurrentAvg.toFixed(2)}</Td>
                     <Td style={{ color: C.slate }}>-</Td>
                     <Td style={{ color: C.slate }}>{category.categoryTarget.toFixed(2)}</Td>
+                    <Td style={{ color: C.slate }}>-</Td>
                     <Td style={{ color: C.slate }}>
                       {(category.categoryTarget - category.categoryCurrentAvg).toFixed(2)}
                     </Td>
@@ -457,17 +449,6 @@ function HierarchicalMatrix({
                         ).length
                       }
                     </Td>
-                    <Td style={{ color: C.slate }}>{category.questions.length}</Td>
-                    <Td style={{ color: C.slate }}>
-                      {
-                        unmappedHistory.objectives.filter((objective) =>
-                          normalizeCategoryName(objective.competency ?? "").includes(
-                            normalizeCategoryName(category.categoryName),
-                          ),
-                        ).length
-                      }
-                    </Td>
-                    <Td style={{ color: C.subtle }}>Legacy category</Td>
                     <Td style={{ color: C.subtle }}>-</Td>
                   </tr>
                 ))}
@@ -504,6 +485,13 @@ export function RadarView({
   onDiscardDraft: () => void;
   onOpenHistory: () => void;
 }) {
+  const completedAssessments = useMemo(
+    () =>
+      assessments
+        .filter((assessment) => assessment.status === "Finalized")
+        .sort((a, b) => new Date(b.dateCompleted).getTime() - new Date(a.dateCompleted).getTime()),
+    [assessments],
+  );
   const current = useMemo(
     () => +(data.reduce((s, d) => s + d.current, 0) / data.length).toFixed(2),
     [data],
@@ -512,8 +500,8 @@ export function RadarView({
   const top = [...data].sort((a, b) => b.current - a.current)[0];
   const gap = [...data].sort((a, b) => b.target - b.current - (a.target - a.current))[0];
   const [chartMode, setChartMode] = useState<"radar" | "bar">("radar");
-  const latest = assessments[0];
-  const prior = assessments[1];
+  const latest = completedAssessments[0] ?? assessments[0];
+  const previousCompleted = completedAssessments[1];
   const { categories, getQuestionsForCategory } = useFramework();
   const frameworkCategoryMap = useMemo(() => {
     if (categories.length > 0) {
@@ -552,14 +540,25 @@ export function RadarView({
       return acc;
     }, {});
     return data.map((r) => {
-      const priorCat = prior?.categories.find(
+      const latestCat = latest?.categories.find(
         (c) =>
           c.categoryName === r.competency ||
           normalizeCategoryName(c.categoryName) === normalizeCategoryName(r.competency),
       );
-      const previous = priorCat
-        ? +Math.min(4, (priorCat.categoryCurrentAvg / 5) * 4).toFixed(2)
-        : +((DEFAULT_EFFECTIVENESS_WEIGHT / 5) * 4).toFixed(2);
+      const previousCat = previousCompleted?.categories.find(
+        (c) =>
+          c.categoryName === r.competency ||
+          normalizeCategoryName(c.categoryName) === normalizeCategoryName(r.competency),
+      );
+      const comparisonPreviousAvg =
+        previousCat && previousCat.questions.length > 0
+          ? previousCat.questions.reduce((sum, question) => sum + question.currentScore, 0) /
+            previousCat.questions.length
+          : latestCat && latestCat.questions.length > 0
+            ? latestCat.questions.reduce((sum, question) => sum + question.previousScore, 0) /
+              latestCat.questions.length
+            : DEFAULT_EFFECTIVENESS_WEIGHT;
+      const previous = +Math.min(4, (comparisonPreviousAvg / 5) * 4).toFixed(2);
       return {
         competency: r.competency,
         previous,
@@ -568,7 +567,19 @@ export function RadarView({
         evidenceCount: evidenceCounts[r.competency] ?? 0,
       };
     });
-  }, [data, evidence, frameworkCategoryNames, prior]);
+  }, [data, evidence, frameworkCategoryNames, latest, previousCompleted]);
+  const dynamicBarChartHeight = Math.max(320, chartData.length * 36 + 48);
+  const formatRelativeSync = (dateValue: string | undefined): string => {
+    if (!dateValue) return "No synced assessment yet";
+    const parsedDate = new Date(dateValue);
+    if (Number.isNaN(parsedDate.getTime())) return "Sync date unavailable";
+    const elapsedMs = Date.now() - parsedDate.getTime();
+    if (elapsedMs < 0) return "Just synced";
+    const elapsedDays = Math.floor(elapsedMs / (1000 * 60 * 60 * 24));
+    if (elapsedDays === 0) return "today";
+    if (elapsedDays === 1) return "1 day ago";
+    return `${elapsedDays} days ago`;
+  };
 
   return (
     <div className="space-y-6">
@@ -715,7 +726,7 @@ export function RadarView({
             On Track
           </div>
           <div className="text-xs mt-1" style={{ color: C.subtle }}>
-            Last sync: 4 days ago
+            Last sync: {formatRelativeSync(latest?.dateCompleted)}
           </div>
         </Card>
       </div>
@@ -780,14 +791,19 @@ export function RadarView({
               Target L4
             </span>
           </div>
-          <div className={`mt-4 ${chartMode === "bar" ? "h-[650px]" : ""}`}>
+          <div
+            className="mt-4"
+            style={chartMode === "bar" ? { height: dynamicBarChartHeight } : undefined}
+          >
             {chartMode === "radar" ? (
-              <div className="w-full h-[400px] overflow-visible">
-                <ResponsiveContainer width="100%" height="100%">
+              <div className="w-full bg-white p-1 rounded-xl">
+                <ResponsiveContainer width="100%" height={360}>
                   <RadarChart
                     data={data}
-                    outerRadius="80%"
-                    margin={{ top: 15, right: 20, bottom: 15, left: 20 }}
+                    cx="50%"
+                    cy="50%"
+                    outerRadius="78%"
+                    margin={{ top: 16, right: 24, bottom: 16, left: 24 }}
                   >
                     <PolarGrid stroke={C.border} />
                     <PolarAngleAxis dataKey="competency" tick={<CustomRadarTick />} />
@@ -895,6 +911,7 @@ export function RadarView({
           <HierarchicalMatrix
             data={data}
             latest={latest}
+            previousCompleted={previousCompleted}
             evidence={evidence}
             objectives={objectives}
             categoryMap={frameworkCategoryMap}

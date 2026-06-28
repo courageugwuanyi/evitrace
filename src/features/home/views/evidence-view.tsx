@@ -32,6 +32,7 @@ type EvidenceItem = EvidenceRecord;
 export function EvidenceView({
   rows,
   readOnly,
+  managerReviewEnabled = false,
   onOpenRow,
   pinnedEvidenceIds,
   onTogglePin,
@@ -41,6 +42,7 @@ export function EvidenceView({
 }: {
   rows: EvidenceRecord[];
   readOnly: boolean;
+  managerReviewEnabled?: boolean;
   onOpenRow: (r: EvidenceItem) => void;
   pinnedEvidenceIds: Set<string>;
   onTogglePin: (r: EvidenceItem) => void;
@@ -59,7 +61,8 @@ export function EvidenceView({
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
 
-  const visible = rows.filter((r) => (showArchived ? r.isArchived : !r.isArchived));
+  const safeRows = useMemo(() => (Array.isArray(rows) ? rows : []), [rows]);
+  const visible = safeRows.filter((r) => (showArchived ? r.isArchived : !r.isArchived));
   const filtered = visible.filter(
     (r) =>
       (q === "" || r.title.toLowerCase().includes(q.toLowerCase())) &&
@@ -70,10 +73,10 @@ export function EvidenceView({
   const filteredIds = filtered.map((row) => row.id);
   const competencyOptions = useMemo(() => {
     if (frameworkCategories.length > 0) return frameworkCategories;
-    return [...new Set(rows.map((row) => row.competency).filter((value) => value.trim().length > 0))].sort(
-      (a, b) => a.localeCompare(b),
-    );
-  }, [frameworkCategories, rows]);
+    return [
+      ...new Set(safeRows.map((row) => row.competency).filter((value) => value.trim().length > 0)),
+    ].sort((a, b) => a.localeCompare(b));
+  }, [frameworkCategories, safeRows]);
   const selectedVisibleIds = filteredIds.filter((id) => selectedRows.has(id));
   const hasVisibleRows = filteredIds.length > 0;
   const allVisibleExpanded = hasVisibleRows && filteredIds.every((id) => expandedRows.has(id));
@@ -161,7 +164,7 @@ export function EvidenceView({
               borderColor: C.border,
             }}
           >
-            <Archive size={12} /> View Archived ({rows.filter((r) => r.isArchived).length})
+            <Archive size={12} /> View Archived ({safeRows.filter((r) => r.isArchived).length})
           </button>
         </div>
       </div>
@@ -326,7 +329,9 @@ export function EvidenceView({
                     checked={allVisibleSelected}
                     onChange={toggleSelectAllVisibleRows}
                     className="h-3.5 w-3.5 rounded border-gray-300"
-                    aria-label={allVisibleSelected ? "Deselect all visible rows" : "Select all visible rows"}
+                    aria-label={
+                      allVisibleSelected ? "Deselect all visible rows" : "Select all visible rows"
+                    }
                   />
                 </Th>
                 <Th className="w-10" />
@@ -353,9 +358,11 @@ export function EvidenceView({
                 return (
                   <React.Fragment key={r.id}>
                     <tr
-                      onClick={() => !showArchived && !readOnly && onOpenRow(r)}
+                      onClick={() =>
+                        !showArchived && (!readOnly || managerReviewEnabled) && onOpenRow(r)
+                      }
                       className={`group relative border-t hover:bg-[#FAFBFC] transition-colors ${
-                        showArchived || readOnly ? "" : "cursor-pointer"
+                        showArchived || (readOnly && !managerReviewEnabled) ? "" : "cursor-pointer"
                       }`}
                       style={{ borderColor: C.border }}
                     >
@@ -412,13 +419,19 @@ export function EvidenceView({
                                 ? "opacity-100 text-indigo-600 bg-indigo-50 border-indigo-200"
                                 : "opacity-0 group-hover:opacity-100 bg-white border-slate-200 text-slate-400 hover:text-indigo-600"
                             }`}
-                            title={isPinned ? "Unpin evidence from workspace" : "Pin evidence to workspace"}
+                            title={
+                              isPinned
+                                ? "Unpin evidence from workspace"
+                                : "Pin evidence to workspace"
+                            }
                             aria-label={isPinned ? `Unpin ${r.title}` : `Pin ${r.title}`}
                           >
                             <Pin size={14} />
                           </button>
                         )}
-                        <span className={`block truncate ${showArchived ? "" : "pr-9"}`}>{r.title}</span>
+                        <span className={`block truncate ${showArchived ? "" : "pr-9"}`}>
+                          {r.title}
+                        </span>
                       </Td>
                       <Td className="max-w-md" style={{ color: C.slate }}>
                         <span className="block truncate">{r.description}</span>
@@ -465,7 +478,10 @@ export function EvidenceView({
                       )}
                       {showArchived && (
                         <Td className="w-36">
-                          <div className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
+                          <div
+                            className="flex items-center gap-1"
+                            onClick={(event) => event.stopPropagation()}
+                          >
                             <button
                               onClick={() => onRestore(r.id)}
                               className="px-2 py-1 rounded text-xs font-semibold inline-flex items-center gap-1 hover:bg-[#F4F5F7]"
@@ -488,13 +504,19 @@ export function EvidenceView({
                     </tr>
                     {isExpanded && (
                       <tr className="border-t" style={{ borderColor: C.border }}>
-                        <td colSpan={totalColumns} className="px-4 py-4 bg-gray-50 dark:bg-gray-900/40">
+                        <td
+                          colSpan={totalColumns}
+                          className="px-4 py-4 bg-gray-50 dark:bg-gray-900/40"
+                        >
                           <div className="w-full max-w-6xl space-y-3 pr-6">
                             <div>
                               <div className="text-[10px] font-bold uppercase tracking-wider text-[#6B778C]">
                                 Title
                               </div>
-                              <p className="mt-1 text-sm whitespace-pre-wrap wrap-break-word" style={{ color: C.navy }}>
+                              <p
+                                className="mt-1 text-sm whitespace-pre-wrap wrap-break-word"
+                                style={{ color: C.navy }}
+                              >
                                 {r.title || "-"}
                               </p>
                             </div>

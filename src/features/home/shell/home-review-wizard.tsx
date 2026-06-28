@@ -73,6 +73,16 @@ export function ReviewWizard({
     [categoryEntries],
   );
   const [activeIdx, setActiveIdx] = useState(initialDraft?.activeIdx ?? 0);
+  const getRolloverScores = (categoryName: string, questionText: string) => {
+    const historical = getHistoricalQuestionScores(latestAssessment, categoryName, questionText);
+    // Each new assessment should roll forward from the most recently completed current score.
+    const previous = historical.current;
+    return {
+      prev: previous,
+      next: previous,
+      notes: historical.note,
+    };
+  };
   const [scores, setScores] = useState<Record<string, Record<string, ReviewQuestion>>>(() => {
     if (initialDraft?.scores) {
       return initialDraft.scores;
@@ -81,12 +91,11 @@ export function ReviewWizard({
     categories.forEach((cat) => {
       init[cat] = {};
       (categoryMap[cat]?.items ?? []).forEach((sub) => {
-        const historical = getHistoricalQuestionScores(latestAssessment, cat, sub);
-        const prev = historical.previous;
+        const rollover = getRolloverScores(cat, sub);
         init[cat][sub] = {
-          prev,
-          next: historical.current,
-          notes: historical.note,
+          prev: rollover.prev,
+          next: rollover.next,
+          notes: rollover.notes,
           evidenceIds: [],
         };
       });
@@ -122,11 +131,11 @@ export function ReviewWizard({
             next[category][item] = existing;
             return;
           }
-          const historical = getHistoricalQuestionScores(latestAssessment, category, item);
+          const rollover = getRolloverScores(category, item);
           next[category][item] = {
-            prev: historical.previous,
-            next: historical.current,
-            notes: historical.note,
+            prev: rollover.prev,
+            next: rollover.next,
+            notes: rollover.notes,
             evidenceIds: [],
           };
         });

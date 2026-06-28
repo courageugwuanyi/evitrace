@@ -127,6 +127,10 @@ function hashInviteCode(rawCode: string): string {
   return crypto.createHash("sha256").update(rawCode).digest("hex");
 }
 
+function isSha256Hash(value: string): boolean {
+  return /^[a-f0-9]{64}$/i.test(value.trim());
+}
+
 function generateInviteCode(): string {
   return crypto.randomBytes(4).toString("hex");
 }
@@ -166,6 +170,16 @@ export const createManagerInvite = createServerFn({ method: "POST" })
       code: rawCode,
       expiresAt,
     };
+  });
+
+export const resolveManagerInviteHash = createServerFn({ method: "POST" })
+  .validator(z.object({ rawToken: z.string().min(1) }))
+  .handler(async ({ data }) => {
+    const normalized = data.rawToken.trim();
+    if (isSha256Hash(normalized)) {
+      return normalized.toLowerCase();
+    }
+    return hashInviteCode(normalized);
   });
 
 export const revokeActiveInvite = createServerFn({ method: "POST" })

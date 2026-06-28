@@ -297,7 +297,9 @@ export function useObjectivesQuery(userId: string, opts: UseObjectivesQueryOpts 
         .eq("is_archived", archived)
         .order("due", { ascending: true });
       if (error) throw error;
-      return (data ?? []).map(objectiveRowToObjective);
+      const records = (data ?? []).map(objectiveRowToObjective);
+      if (includeSamples) return records;
+      return records.filter((record) => !record.isSample);
     },
     staleTime: 60_000,
     enabled: Boolean(userId),

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useFramework } from "@/context/FrameworkContext";
+import { useWorkspace } from "@/features/home/context/WorkspaceContext";
 import { C, Field, GhostBtn, Input, PrimaryBtn, Select } from "@/features/home/shared/ui-kit";
 import { inferCompetencyFromText, polishText } from "@/features/home/shared/text-utils";
 
@@ -33,10 +34,7 @@ function Backdrop({ children, onClose }: { children: React.ReactNode; onClose: (
   );
 }
 
-function Textarea({
-  className,
-  ...props
-}: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+function Textarea({ className, ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea
       {...props}
@@ -50,13 +48,16 @@ function buildFrameworkCategoryMapFromContext(
   categories: string[],
   getQuestionsForCategory: (categoryName: string) => string[],
 ): Record<string, { summary: string; items: string[] }> {
-  return categories.reduce<Record<string, { summary: string; items: string[] }>>((acc, categoryName) => {
-    acc[categoryName] = {
-      summary: "",
-      items: getQuestionsForCategory(categoryName),
-    };
-    return acc;
-  }, {});
+  return categories.reduce<Record<string, { summary: string; items: string[] }>>(
+    (acc, categoryName) => {
+      acc[categoryName] = {
+        summary: "",
+        items: getQuestionsForCategory(categoryName),
+      };
+      return acc;
+    },
+    {},
+  );
 }
 
 export function CaptureModal({
@@ -64,6 +65,7 @@ export function CaptureModal({
   onSaveEvidence,
   onSaveKnowledge,
   competencyDescriptions,
+  managerMode = false,
 }: {
   onClose: () => void;
   onSaveEvidence: (payload: {
@@ -80,9 +82,14 @@ export function CaptureModal({
     reset: () => void;
   }) => void;
   competencyDescriptions: Record<string, string>;
+  managerMode?: boolean;
 }) {
+  const { mode } = useWorkspace();
+  const isManagerPersona = managerMode || mode === "manager";
   const { categories: frameworkCategories, getQuestionsForCategory, isLoading } = useFramework();
-  const [tab, setTab] = useState<"evidence" | "knowledge">("evidence");
+  const [tab, setTab] = useState<"evidence" | "knowledge">(
+    isManagerPersona ? "knowledge" : "evidence",
+  );
   const categoryMap = useMemo(
     () => buildFrameworkCategoryMapFromContext(frameworkCategories, getQuestionsForCategory),
     [frameworkCategories, getQuestionsForCategory],
@@ -116,13 +123,19 @@ export function CaptureModal({
     const inferred = inferCompetencyFromText(title, description);
     const mappedCategory = categories.includes(inferred)
       ? inferred
-      : categories.find((candidate) => candidate.toLowerCase().includes(inferred.toLowerCase())) ??
+      : (categories.find((candidate) => candidate.toLowerCase().includes(inferred.toLowerCase())) ??
         categories[0] ??
-        "";
+        "");
     setCategory(mappedCategory);
     setSubcategory(categoryMap[mappedCategory]?.items[0] ?? "");
     toast.success("Competency auto-mapped.");
   }
+
+  useEffect(() => {
+    if (isManagerPersona && tab !== "knowledge") {
+      setTab("knowledge");
+    }
+  }, [isManagerPersona, tab]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -201,11 +214,19 @@ export function CaptureModal({
           style={{ borderColor: C.border }}
         >
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: C.subtle }}>
+            <div
+              className="text-xs font-semibold uppercase tracking-wide"
+              style={{ color: C.subtle }}
+            >
               Manual Capture
             </div>
             <div className="text-lg font-bold mt-0.5" style={{ color: C.navy }}>
-              Capture activity
+              {isManagerPersona ? "Log Reference Knowledge" : "Capture Performance Evidence"}
+            </div>
+            <div className="text-[11px] mt-1" style={{ color: C.subtle }}>
+              {isManagerPersona
+                ? "Log strategic insights, core playbooks, or reference concepts directly into your leadership workspace."
+                : "Log metrics, milestones, and project links directly into your target performance stream."}
             </div>
           </div>
           <button
@@ -217,39 +238,41 @@ export function CaptureModal({
           </button>
         </div>
         <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
-          <div
-            className="inline-flex rounded-md border p-0.5"
-            style={{ borderColor: C.border }}
-            role="tablist"
-            aria-label="Capture mode"
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === "evidence"}
-              onClick={() => setTab("evidence")}
-              className={`px-3 py-1.5 text-xs font-semibold rounded ${tab === "evidence" ? "text-white" : ""}`}
-              style={{
-                background: tab === "evidence" ? C.primary : "transparent",
-                color: tab === "evidence" ? "#fff" : C.slate,
-              }}
+          {!isManagerPersona && (
+            <div
+              className="inline-flex rounded-md border p-0.5"
+              style={{ borderColor: C.border }}
+              role="tablist"
+              aria-label="Capture mode"
             >
-              Capture Evidence
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === "knowledge"}
-              onClick={() => setTab("knowledge")}
-              className="px-3 py-1.5 text-xs font-semibold rounded"
-              style={{
-                background: tab === "knowledge" ? C.primary : "transparent",
-                color: tab === "knowledge" ? "#fff" : C.slate,
-              }}
-            >
-              Log Knowledge
-            </button>
-          </div>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === "evidence"}
+                onClick={() => setTab("evidence")}
+                className={`px-3 py-1.5 text-xs font-semibold rounded ${tab === "evidence" ? "text-white" : ""}`}
+                style={{
+                  background: tab === "evidence" ? C.primary : "transparent",
+                  color: tab === "evidence" ? "#fff" : C.slate,
+                }}
+              >
+                Capture Evidence
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === "knowledge"}
+                onClick={() => setTab("knowledge")}
+                className="px-3 py-1.5 text-xs font-semibold rounded"
+                style={{
+                  background: tab === "knowledge" ? C.primary : "transparent",
+                  color: tab === "knowledge" ? "#fff" : C.slate,
+                }}
+              >
+                Log Knowledge
+              </button>
+            </div>
+          )}
 
           {tab === "evidence" ? (
             <>
@@ -261,7 +284,7 @@ export function CaptureModal({
                   placeholder="e.g. Led RFC review for payments cutover"
                 />
               </Field>
-              <Field label="Description / Context" optional>
+              <Field label="Detailed Documentation" optional>
                 <Textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
@@ -277,7 +300,11 @@ export function CaptureModal({
                   AI Assistant Actions
                 </div>
                 <div className="flex items-center gap-2">
-                  <GhostBtn type="button" className="border h-8 px-2.5" onClick={handlePolishContent}>
+                  <GhostBtn
+                    type="button"
+                    className="border h-8 px-2.5"
+                    onClick={handlePolishContent}
+                  >
                     <Sparkles size={13} />
                     Polish Content
                   </GhostBtn>
@@ -315,49 +342,66 @@ export function CaptureModal({
                     : "Enter a valid URL starting with http:// or https://"}
                 </div>
               </Field>
-              <Field label="Competency Category" required>
-                <Select value={category} onChange={(e) => onCategoryChange(e.target.value)}>
-                  {hasFrameworkTaxonomy ? null : (
-                    <option value="">No framework categories available</option>
-                  )}
-                  {categories.map((c) => (
-                    <option key={c}>{c}</option>
-                  ))}
-                </Select>
-                <div className="text-[11px] mt-1.5 leading-relaxed" style={{ color: C.subtle }}>
-                  {categoryMap[category]?.summary || competencyDescriptions[category] || "No summary provided."}
-                </div>
-              </Field>
-              <Field label="Subcategory / Question" required>
-                <Select
-                  value={subcategory}
-                  onChange={(e) => setSubcategory(e.target.value)}
-                  disabled={!hasFrameworkTaxonomy || !category}
-                >
-                  {!hasFrameworkTaxonomy ? (
-                    <option value="">No framework categories available</option>
-                  ) : null}
-                  {(categoryMap[category]?.items ?? []).map((s) => (
-                    <option key={s}>{s}</option>
-                  ))}
-                </Select>
-              </Field>
+              {!isManagerPersona && (
+                <>
+                  <Field label="Core Competency Tag" required>
+                    <Select value={category} onChange={(e) => onCategoryChange(e.target.value)}>
+                      {hasFrameworkTaxonomy ? null : (
+                        <option value="">No framework categories available</option>
+                      )}
+                      {categories.map((c) => (
+                        <option key={c}>{c}</option>
+                      ))}
+                    </Select>
+                    <div className="text-[11px] mt-1.5 leading-relaxed" style={{ color: C.subtle }}>
+                      {categoryMap[category]?.summary ||
+                        competencyDescriptions[category] ||
+                        "No summary provided."}
+                    </div>
+                  </Field>
+                  <Field label="Subcategory / Question" required>
+                    <Select
+                      value={subcategory}
+                      onChange={(e) => setSubcategory(e.target.value)}
+                      disabled={!hasFrameworkTaxonomy || !category}
+                    >
+                      {!hasFrameworkTaxonomy ? (
+                        <option value="">No framework categories available</option>
+                      ) : null}
+                      {(categoryMap[category]?.items ?? []).map((s) => (
+                        <option key={s}>{s}</option>
+                      ))}
+                    </Select>
+                  </Field>
+                </>
+              )}
             </>
           ) : (
             <>
-              <Field label="Core Activity / Challenge" required>
+              <Field label={isManagerPersona ? "Title" : "Core Activity / Challenge"} required>
                 <Textarea
                   value={challenge}
                   onChange={(e) => setChallenge(e.target.value)}
-                  placeholder="What challenge did you run into?"
+                  placeholder={
+                    isManagerPersona
+                      ? "Summary label..."
+                      : "What challenge did you run into?"
+                  }
                   rows={4}
                 />
               </Field>
-              <Field label="Solution / Lesson Learned" required>
+              <Field
+                label={isManagerPersona ? "Detailed Documentation" : "Solution / Lesson Learned"}
+                required
+              >
                 <Textarea
                   value={lesson}
                   onChange={(e) => setLesson(e.target.value)}
-                  placeholder="What did you learn that you'll reuse?"
+                  placeholder={
+                    isManagerPersona
+                      ? "Paste contextual references..."
+                      : "What did you learn that you'll reuse?"
+                  }
                   rows={5}
                 />
               </Field>
@@ -453,11 +497,13 @@ export function CaptureModal({
                 })
               }
             >
-              Save Evidence
+              Save Milestone
             </PrimaryBtn>
           ) : (
             <PrimaryBtn
-              disabled={!hasFrameworkTaxonomy || !challenge.trim() || !lesson.trim() || !knowledgeInputValid}
+              disabled={
+                !hasFrameworkTaxonomy || !challenge.trim() || !lesson.trim() || !knowledgeInputValid
+              }
               onClick={() =>
                 onSaveKnowledge({
                   challenge,
@@ -467,7 +513,7 @@ export function CaptureModal({
                 })
               }
             >
-              Save Knowledge
+              {isManagerPersona ? "Commit Knowledge" : "Save Knowledge"}
             </PrimaryBtn>
           )}
         </div>

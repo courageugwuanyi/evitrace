@@ -1,23 +1,13 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { CheckCircle2, ShieldCheck } from "lucide-react";
+import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { createManagerInvite } from "@/lib/api/manager-invites.functions";
 import { useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
 import { ACTIVE_INVITE_URL_STORAGE_KEY } from "@/features/home/shared/constants";
-import { C, Card, Field, Input } from "@/features/home/shared/ui-kit";
-
-type ProfileTeamDraft = {
-  fullName: string;
-  email: string;
-  currentLevel: string;
-  targetLevel: string;
-  manager: string;
-  managerEmail: string;
-  team: string;
-  skipLevel: string;
-};
+import { C, Card } from "@/features/home/shared/ui-kit";
+import { Backdrop } from "@/features/home/shared/overlays";
 
 function getErrorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message) return error.message;
@@ -36,18 +26,13 @@ function shouldTryDisconnectFallback(error: unknown) {
   return normalized.includes("pgrst202") || normalized.includes("schema cache") || normalized.includes("function");
 }
 
-export function TeamSettings({
-  draft,
-  onChange,
-}: {
-  draft: ProfileTeamDraft;
-  onChange: (next: Partial<ProfileTeamDraft>) => void;
-}) {
+export function TeamSettings() {
   const { user, userId } = useAuth();
   const [activeInviteUrl, setActiveInviteUrl] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [confirmAction, setConfirmAction] = useState<"disconnect" | "cancel" | null>(null);
   const [activeManager, setActiveManager] = useState<{
@@ -189,6 +174,7 @@ export function TeamSettings({
         setActiveInviteUrl(null);
         setActiveManager(null);
         setPendingInvite(null);
+        setLoading(false);
         return;
       }
 
@@ -251,6 +237,7 @@ export function TeamSettings({
         window.localStorage.removeItem(ACTIVE_INVITE_URL_STORAGE_KEY);
         setActiveInviteUrl(null);
         setPendingInvite(null);
+        setLoading(false);
         return;
       }
 
@@ -263,6 +250,7 @@ export function TeamSettings({
         expiresAt: existingInvite.expires_at,
         inviteUrl: normalizedUrl,
       });
+      setLoading(false);
     }
 
     void syncManagerConnectionState();
@@ -284,75 +272,90 @@ export function TeamSettings({
   const hasActiveManager = Boolean(activeManager);
   const hasPendingInvite = !hasActiveManager && Boolean(pendingInvite);
   const displayInviteUrl = activeInviteUrl || pendingInvite?.inviteUrl || "";
-  const managerFieldValue = activeManager?.fullName || "No manager connected";
-  const managerTitleFieldValue = activeManager?.currentTitle || "No manager connected";
-  const managerEmailFieldValue = activeManager?.email || "No manager connected";
+  const managerFieldValue = activeManager?.fullName || "Not connected";
+  const managerTitleFieldValue = activeManager?.currentTitle || "Not connected";
+  const managerEmailFieldValue = activeManager?.email || "Not connected";
+  const statusText = hasActiveManager
+    ? "Connected"
+    : hasPendingInvite
+      ? "Awaiting Activation"
+      : null;
+  const statusDotClass = hasActiveManager
+    ? { ping: "bg-emerald-400", dot: "bg-emerald-500" }
+    : { ping: "bg-amber-400", dot: "bg-amber-500" };
+
+  if (loading) return <div className="h-32 w-full bg-slate-50 animate-pulse rounded-xl" />;
 
   return (
     <Card className="p-6">
-      <div>
+      <div className="flex items-center gap-2">
         <h3 className="text-base font-bold tracking-tight" style={{ color: C.navy }}>
-          Team & Manager
+          Manager
         </h3>
-        <p className="text-xs mt-1" style={{ color: C.subtle }}>
-          Manager details and access connection
-        </p>
+        {statusText && (
+          <div className="inline-flex items-center gap-1.5">
+            <span className="relative flex h-2 w-2">
+              <span
+                className={`animate-ping absolute inline-flex h-full w-full rounded-full ${statusDotClass.ping} opacity-75`}
+              />
+              <span className={`relative inline-flex rounded-full h-2 w-2 ${statusDotClass.dot}`} />
+            </span>
+            <span className="text-xs font-medium text-slate-500">{statusText}</span>
+          </div>
+        )}
       </div>
-      <div className="mt-3 text-xs flex items-center gap-1.5" style={{ color: C.subtle }}>
-        <ShieldCheck size={12} />
+      <div className="mt-2 text-xs" style={{ color: C.subtle }}>
         Manager fields are synced from the connected manager account.
       </div>
-      <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-        <Field label="Manager full name">
-          <Input
-            value={managerFieldValue}
-            readOnly
-            disabled
-            className="bg-slate-50 border-slate-200 text-slate-500 cursor-not-allowed select-none"
-          />
-        </Field>
-        <Field label="Manager email">
-          <Input
-            type="email"
-            value={managerEmailFieldValue}
-            readOnly
-            disabled
-            className="bg-slate-50 border-slate-200 text-slate-500 cursor-not-allowed select-none"
-          />
-        </Field>
-        <Field label="Manager title / role">
-          <Input
-            value={managerTitleFieldValue}
-            readOnly
-            disabled
-            className="bg-slate-50 border-slate-200 text-slate-500 cursor-not-allowed select-none"
-          />
-        </Field>
-      </div>
-      <div className="mt-5 rounded-md border p-4" style={{ borderColor: C.border, background: C.card }}>
-        <div className="mb-3 text-xs font-semibold uppercase tracking-wider" style={{ color: C.subtle }}>
-          Connection
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="space-y-1">
+          <div className="text-xs font-semibold text-slate-400">Full Name</div>
+          <span
+            title={managerFieldValue}
+            className="truncate max-w-[180px] sm:max-w-[240px] block text-slate-700"
+          >
+            {managerFieldValue}
+          </span>
         </div>
+        <div className="space-y-1">
+          <div className="text-xs font-semibold text-slate-400">Email</div>
+          <span
+            title={managerEmailFieldValue}
+            className="truncate max-w-[180px] sm:max-w-[240px] block text-slate-700"
+          >
+            {managerEmailFieldValue}
+          </span>
+        </div>
+        <div className="space-y-1">
+          <div className="text-xs font-semibold text-slate-400">Title / Role</div>
+          <span
+            title={managerTitleFieldValue}
+            className="truncate max-w-[180px] sm:max-w-[240px] block text-slate-700"
+          >
+            {managerTitleFieldValue}
+          </span>
+        </div>
+      </div>
 
-        {hasActiveManager && activeManager ? (
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="inline-flex items-center gap-2 rounded-sm border px-2.5 py-1 text-xs font-semibold uppercase tracking-wide" style={{ borderColor: "#57D9A3", background: "#E3FCEF", color: "#006644" }}>
-              <span className="h-1.5 w-1.5 rounded-full" style={{ background: "#36B37E" }} />
-              Connected
-            </div>
-            <div>
-              <button
-                type="button"
-                onClick={() => openDisconnectConfirm("disconnect")}
-                disabled={isDisconnecting}
-                className="inline-flex h-9 items-center justify-center rounded border px-3 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-                style={{ borderColor: "#FFBDAD", background: "#FFEBE6", color: "#AE2A19" }}
-              >
-                {isDisconnecting ? "Revoking access..." : "Disconnect access"}
-              </button>
-            </div>
+      {hasActiveManager && activeManager ? (
+        <div className="mt-5 flex flex-wrap items-center justify-end gap-3">
+          <div>
+            <button
+              type="button"
+              onClick={() => openDisconnectConfirm("disconnect")}
+              disabled={isDisconnecting}
+              className="inline-flex h-9 items-center justify-center rounded border px-3 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+              style={{ borderColor: "#FFBDAD", background: "#FFEBE6", color: "#AE2A19" }}
+            >
+              {isDisconnecting ? "Revoking access..." : "Disconnect access"}
+            </button>
           </div>
-        ) : hasPendingInvite ? (
+        </div>
+      ) : hasPendingInvite ? (
+        <div
+          className="mt-5 rounded-md border p-4"
+          style={{ borderColor: C.border, background: C.card }}
+        >
           <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2 max-w-xl w-full">
               <input
@@ -390,53 +393,71 @@ export function TeamSettings({
               </button>
             </div>
           </div>
-        ) : (
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm" style={{ color: C.slate }}>
-              No manager connected yet.
-            </p>
-            <button
-              type="button"
-              onClick={() => void handleGenerateInvite()}
-              disabled={isGenerating}
-              className="inline-flex h-9 items-center justify-center rounded bg-black px-3 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isGenerating ? "Generating..." : "Generate invite link"}
-            </button>
-          </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm" style={{ color: C.slate }}>
+            No manager connected yet.
+          </p>
+          <button
+            type="button"
+            onClick={() => void handleGenerateInvite()}
+            disabled={isGenerating}
+            className="inline-flex h-9 items-center justify-center rounded bg-black px-3 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isGenerating ? "Generating..." : "Generate invite link"}
+          </button>
+        </div>
+      )}
       <AnimatePresence>
         {showConfirmModal && (
-          <motion.div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+          <Backdrop
+            onClose={() => {
+              setShowConfirmModal(false);
+              setConfirmAction(null);
+            }}
           >
             <motion.div
-              initial={{ opacity: 0, scale: 0.96, y: 8 }}
+              initial={{ opacity: 0, scale: 0.97, y: 8 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.98, y: 4 }}
-              transition={{ duration: 0.18, ease: "easeOut" }}
-              className="bg-white border border-slate-200 rounded-xl p-6 shadow-2xl max-w-sm w-full space-y-4"
+              exit={{ opacity: 0, scale: 0.97, y: 8 }}
+              transition={{ duration: 0.2 }}
+              className="bg-white rounded-lg shadow-2xl w-full max-w-md border"
+              style={{ borderColor: C.border }}
+              onClick={(event) => event.stopPropagation()}
             >
-              <div className="space-y-2">
-                <h4 className="text-base font-semibold text-slate-900">Revoke Manager Connection?</h4>
-                <p className="text-sm text-slate-600">
-                  Are you sure you want to disconnect? Your manager will instantly lose review, alignment,
-                  and comment access to your workspace metrics. Your history will remain perfectly
-                  continuous.
-                </p>
+              <div className="p-5">
+                <div className="flex items-start gap-3">
+                  <div
+                    className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+                    style={{ background: "#FFEBE6" }}
+                  >
+                    <AlertTriangle size={18} style={{ color: C.red }} />
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-base font-bold" style={{ color: C.navy }}>
+                      {confirmAction === "cancel" ? "Cancel invite request?" : "Disconnect manager access?"}
+                    </div>
+                    <div className="text-sm mt-1.5 leading-relaxed" style={{ color: C.slate }}>
+                      {confirmAction === "cancel"
+                        ? "This will cancel the outstanding manager invite request. You can generate a new invite link anytime."
+                        : "This removes your manager's review, alignment, and comment access to your workspace metrics. Your history remains intact."}
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="grid grid-cols-2 gap-2">
+              <div
+                className="px-5 py-3 border-t flex items-center justify-end gap-2"
+                style={{ borderColor: C.border, background: C.bg }}
+              >
                 <button
                   type="button"
                   onClick={() => {
                     setShowConfirmModal(false);
                     setConfirmAction(null);
                   }}
-                  className="h-10 rounded-lg bg-slate-100 text-slate-700 text-sm font-medium transition-colors hover:bg-slate-200"
+                  disabled={isDisconnecting}
+                  className="px-3 py-1.5 rounded text-sm font-semibold border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Cancel
                 </button>
@@ -444,7 +465,8 @@ export function TeamSettings({
                   type="button"
                   onClick={() => void handleDisconnectManager()}
                   disabled={isDisconnecting}
-                  className="h-10 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                  className="px-3 py-1.5 rounded text-sm font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                  style={{ background: C.red }}
                 >
                   {isDisconnecting
                     ? "Revoking..."
@@ -454,7 +476,7 @@ export function TeamSettings({
                 </button>
               </div>
             </motion.div>
-          </motion.div>
+          </Backdrop>
         )}
       </AnimatePresence>
     </Card>

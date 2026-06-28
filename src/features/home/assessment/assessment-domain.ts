@@ -91,29 +91,48 @@ function findQuestionFromAssessment(
   categoryName: string,
   questionText: string,
 ): AssessmentQuestion | undefined {
-  const category = assessment?.categories.find((item) => item.categoryName === categoryName);
-  return category?.questions.find((item) => item.questionText === questionText);
+  const normalizedCategoryName = normalizeCategoryName(categoryName);
+  const normalizedQuestionText = questionText.trim().toLowerCase();
+  const category = assessment?.categories.find(
+    (item) => normalizeCategoryName(item.categoryName) === normalizedCategoryName,
+  );
+  if (!category) return undefined;
+  return category.questions.find(
+    (item) => item.questionText.trim().toLowerCase() === normalizedQuestionText,
+  );
 }
 
 export function getHistoricalQuestionScores(
   assessment: Assessment | undefined,
   categoryName: string,
   questionText: string,
+  previousCompletedAssessment?: Assessment,
 ): { previous: number; current: number; target: number; note: string } {
-  const question = findQuestionFromAssessment(assessment, categoryName, questionText);
-  if (!question) {
+  const latestQuestion = findQuestionFromAssessment(assessment, categoryName, questionText);
+  const previousCompletedQuestion = findQuestionFromAssessment(
+    previousCompletedAssessment,
+    categoryName,
+    questionText,
+  );
+  if (!latestQuestion) {
+    const fallbackScore = previousCompletedQuestion
+      ? clampEffectivenessWeight(previousCompletedQuestion.currentScore)
+      : DEFAULT_EFFECTIVENESS_WEIGHT;
     return {
-      previous: DEFAULT_EFFECTIVENESS_WEIGHT,
-      current: DEFAULT_EFFECTIVENESS_WEIGHT,
+      previous: fallbackScore,
+      current: fallbackScore,
       target: 4,
       note: "",
     };
   }
+  const previousScore = previousCompletedQuestion
+    ? clampEffectivenessWeight(previousCompletedQuestion.currentScore)
+    : clampEffectivenessWeight(latestQuestion.previousScore);
   return {
-    previous: clampEffectivenessWeight(question.previousScore),
-    current: clampEffectivenessWeight(question.currentScore),
-    target: clampEffectivenessWeight(question.targetScore),
-    note: question.justification ?? "",
+    previous: previousScore,
+    current: clampEffectivenessWeight(latestQuestion.currentScore),
+    target: clampEffectivenessWeight(latestQuestion.targetScore),
+    note: latestQuestion.justification ?? "",
   };
 }
 

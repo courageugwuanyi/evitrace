@@ -8,5 +8,5 @@ export const Route = createFileRoute("/settings/team")({
 });
 
 function RouteComponent() {
-  return <HomeRouteApp activeTab="settings" activeSettingsSection="team" />;
+  return <HomeRouteApp activeTab="settings" activeSettingsSection="profile" />;
 }
