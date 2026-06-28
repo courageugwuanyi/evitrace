@@ -1,4 +1,6 @@
 import "./lib/error-capture";
+// Keep tslib in the traced server bundle for Supabase's runtime helpers on Vercel.
+import "tslib";
 
 import { consumeLastCapturedError } from "./lib/error-capture";
 import { renderErrorPage } from "./lib/error-page";

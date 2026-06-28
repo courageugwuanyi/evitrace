@@ -14,8 +14,28 @@ function decodeKnownHtmlEntities(value: string): string {
     .replaceAll("&amp;", "&");
 }
 
+function decodeLikelyEscapedHtml(value: string): string {
+  let decoded = value;
+  decoded = decoded
+    .replace(/\\u003c/gi, "<")
+    .replace(/\\u003e/gi, ">")
+    .replace(/\\u002f/gi, "/");
+
+  if (/%(?:3c|3e|2f)/i.test(decoded)) {
+    try {
+      decoded = decodeURIComponent(decoded);
+    } catch {
+      // Ignore malformed URI sequences and keep the original string.
+    }
+  }
+
+  return decoded;
+}
+
 function isLikelyHtmlPayload(message: string): boolean {
-  const normalized = decodeKnownHtmlEntities(message.trim().toLowerCase());
+  const normalized = decodeLikelyEscapedHtml(
+    decodeKnownHtmlEntities(message.trim().toLowerCase()),
+  );
   if (!normalized) return false;
 
   return (
