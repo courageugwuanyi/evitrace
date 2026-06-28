@@ -12,6 +12,12 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
+  // Force-enable Nitro deploy plugin outside Lovable sandbox context.
+  nitro: {
+    externals: {
+      inline: ["tslib", "@supabase/functions-js", "@supabase/supabase-js"],
+    },
+  },
   vite: {
     build: {
       chunkSizeWarningLimit: 1200,
