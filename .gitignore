@@ -37,3 +37,7 @@ dist-ext/
 supabase/.branches/
 supabase/.temp/
 supabase/config.toml
+
+# Vercel deployment outputs
+.vercel
+.vercel/output

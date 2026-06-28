@@ -1,1 +1,0 @@
-import{r as e}from"./useRouter-DW6OGgiT.js";import{t}from"./home-route-app-aG-cPklH.js";var n=e();function r(){return(0,n.jsx)(t,{activeTab:`feedback`})}export{r as component};
