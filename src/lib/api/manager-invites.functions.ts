@@ -1,5 +1,3 @@
-import crypto from "node:crypto";
-
 import { createServerFn } from "@tanstack/react-start";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
@@ -123,8 +121,23 @@ async function requireAuthenticatedUser(token: string) {
   return { supabase, user };
 }
 
-function hashInviteCode(rawCode: string): string {
-  return crypto.createHash("sha256").update(rawCode).digest("hex");
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function getRuntimeCrypto(): Crypto {
+  const runtimeCrypto = globalThis.crypto;
+  if (!runtimeCrypto?.subtle || typeof runtimeCrypto.getRandomValues !== "function") {
+    throw new Error("Runtime crypto is not available in this environment.");
+  }
+  return runtimeCrypto;
+}
+
+async function hashInviteCode(rawCode: string): Promise<string> {
+  const runtimeCrypto = getRuntimeCrypto();
+  const payload = new TextEncoder().encode(rawCode);
+  const digest = await runtimeCrypto.subtle.digest("SHA-256", payload);
+  return bytesToHex(new Uint8Array(digest));
 }
 
 function isSha256Hash(value: string): boolean {
@@ -132,7 +145,10 @@ function isSha256Hash(value: string): boolean {
 }
 
 function generateInviteCode(): string {
-  return crypto.randomBytes(4).toString("hex");
+  const runtimeCrypto = getRuntimeCrypto();
+  const randomBytes = new Uint8Array(4);
+  runtimeCrypto.getRandomValues(randomBytes);
+  return bytesToHex(randomBytes);
 }
 
 function mapInviteToRelationshipType(inviteType: InviteRelationType): RelationshipType {
@@ -154,7 +170,7 @@ export const createManagerInvite = createServerFn({ method: "POST" })
     }
 
     const rawCode = generateInviteCode();
-    const codeHash = hashInviteCode(rawCode);
+    const codeHash = await hashInviteCode(rawCode);
     const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
     const { error } = await supabase.from("manager_invites").insert({
@@ -179,7 +195,7 @@ export const resolveManagerInviteHash = createServerFn({ method: "POST" })
     if (isSha256Hash(normalized)) {
       return normalized.toLowerCase();
     }
-    return hashInviteCode(normalized);
+      return await hashInviteCode(normalized);
   });
 
 export const revokeActiveInvite = createServerFn({ method: "POST" })
@@ -206,7 +222,7 @@ export const redeemManagerInvite = createServerFn({ method: "POST" })
     const { supabase, user: managerUser } = await requireAuthenticatedUser(data.token);
 
     const normalizedCode = data.rawCode.trim();
-    const codeHash = hashInviteCode(normalizedCode);
+    const codeHash = await hashInviteCode(normalizedCode);
 
     const { data: invite, error: inviteError } = await supabase
       .rpc("verify_and_get_invite", { target_hash: codeHash })
