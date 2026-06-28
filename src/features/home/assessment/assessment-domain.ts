@@ -77,6 +77,15 @@ function clampEffectivenessWeight(value: number): number {
   return Math.max(1, Math.min(5, Math.round(value)));
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function averageQuestionWeight(
   questions: AssessmentQuestion[] | undefined,
   key: "previousScore" | "currentScore",
@@ -147,11 +156,13 @@ export function triggerAssessmentPdfDownload(assessment: Assessment): void {
 
   const rows = assessment.categories
     .map((category) => {
+      const safeCategoryName = escapeHtml(category.categoryName);
       const questions = category.questions
         .map((question) => {
           const delta = calculateScoreDelta(question.previousScore, question.currentScore);
+          const safeQuestionText = escapeHtml(question.questionText);
           return `<tr>
-            <td>${question.questionText}</td>
+            <td>${safeQuestionText}</td>
             <td>${clampEffectivenessWeight(question.previousScore)}</td>
             <td>${clampEffectivenessWeight(question.currentScore)}</td>
             <td>${delta > 0 ? "+" : ""}${delta}</td>
@@ -159,7 +170,7 @@ export function triggerAssessmentPdfDownload(assessment: Assessment): void {
         })
         .join("");
       return `<section>
-        <h3>${category.categoryName} (Avg ${averageQuestionWeight(category.questions, "currentScore").toFixed(2)})</h3>
+        <h3>${safeCategoryName} (Avg ${averageQuestionWeight(category.questions, "currentScore").toFixed(2)})</h3>
         <table>
           <thead><tr><th>Question</th><th>Previous</th><th>Current</th><th>Delta</th></tr></thead>
           <tbody>${questions}</tbody>
@@ -168,11 +179,17 @@ export function triggerAssessmentPdfDownload(assessment: Assessment): void {
     })
     .join("");
 
+  const safeReviewPeriod = escapeHtml(assessment.reviewPeriod);
+  const safeAssessmentId = escapeHtml(assessment.id);
+  const safeEngineerName = escapeHtml(assessment.engineerName);
+  const safeManagerName = escapeHtml(assessment.managerName);
+  const safeDateCompleted = escapeHtml(formatDisplayDate(assessment.dateCompleted));
+
   printable.document.write(`<!doctype html>
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>${assessment.reviewPeriod} Assessment Report</title>
+    <title>${safeReviewPeriod} Assessment Report</title>
     <style>
       body { font-family: Inter, Arial, sans-serif; color: #172B4D; margin: 28px; }
       h1 { margin: 0; font-size: 24px; }
@@ -185,11 +202,11 @@ export function triggerAssessmentPdfDownload(assessment: Assessment): void {
     </style>
   </head>
   <body>
-    <h1>${assessment.reviewPeriod}</h1>
-    <h2>Assessment ${assessment.id}</h2>
+    <h1>${safeReviewPeriod}</h1>
+    <h2>Assessment ${safeAssessmentId}</h2>
     <div class="meta">
-      Engineer: ${assessment.engineerName} &nbsp;|&nbsp; Manager: ${assessment.managerName}
-      &nbsp;|&nbsp; Finalized: ${formatDisplayDate(assessment.dateCompleted)}
+      Engineer: ${safeEngineerName} &nbsp;|&nbsp; Manager: ${safeManagerName}
+      &nbsp;|&nbsp; Finalized: ${safeDateCompleted}
       &nbsp;|&nbsp; Overall Readiness: ${assessment.overallReadinessScore}%
     </div>
     ${rows}
