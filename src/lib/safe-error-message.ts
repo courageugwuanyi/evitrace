@@ -1,48 +1,71 @@
 const HTML_ERROR_PAGE_TITLE = "this page didn't load";
+const MAX_DEPTH = 4;
 
 function readString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function extractMessage(error: unknown): string {
-  if (typeof error === "string") return error.trim();
-  if (error instanceof Error) return error.message.trim();
-  if (typeof error !== "object" || error === null) return "";
-
-  const candidate = error as {
-    message?: unknown;
-    error?: unknown;
-    cause?: unknown;
-    data?: unknown;
-    response?: { message?: unknown; error?: unknown; data?: unknown };
-  };
-
-  return (
-    readString(candidate.message)
-    || readString(candidate.error)
-    || readString(candidate.cause)
-    || readString(candidate.data)
-    || readString(candidate.response?.message)
-    || readString(candidate.response?.error)
-    || readString(candidate.response?.data)
-  );
+function decodeKnownHtmlEntities(value: string): string {
+  return value
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&quot;", "\"")
+    .replaceAll("&#39;", "'")
+    .replaceAll("&amp;", "&");
 }
 
-function isHtmlPayload(message: string): boolean {
-  const normalized = message.trim().toLowerCase();
+function isLikelyHtmlPayload(message: string): boolean {
+  const normalized = decodeKnownHtmlEntities(message.trim().toLowerCase());
   if (!normalized) return false;
 
   return (
-    normalized.includes("<!doctype html")
+    normalized.includes("<!doctype")
     || normalized.includes("<html")
+    || normalized.includes("<head")
     || normalized.includes("<body")
     || normalized.includes("<title")
     || normalized.includes(HTML_ERROR_PAGE_TITLE)
+    || normalized.includes("unexpected token '<'")
+    || (normalized.includes("<") && normalized.includes("</"))
   );
+}
+
+function extractMessage(error: unknown, depth = 0, seen = new Set<unknown>()): string {
+  if (depth > MAX_DEPTH) return "";
+
+  const direct = readString(error);
+  if (direct) return direct;
+
+  if (error instanceof Error) {
+    const message = readString(error.message);
+    if (message) return message;
+  }
+
+  if (typeof error !== "object" || error === null || seen.has(error)) return "";
+  seen.add(error);
+
+  if (Array.isArray(error)) {
+    for (const item of error) {
+      const message = extractMessage(item, depth + 1, seen);
+      if (message) return message;
+    }
+    return "";
+  }
+
+  const candidate = error as Record<string, unknown>;
+  const keysToCheck = ["message", "error", "cause", "data", "response", "statusText"];
+
+  for (const key of keysToCheck) {
+    const value = candidate[key];
+    const message = extractMessage(value, depth + 1, seen);
+    if (message) return message;
+  }
+
+  return "";
 }
 
 export function getSafeErrorMessage(error: unknown, fallback: string): string {
   const message = extractMessage(error);
-  if (!message || isHtmlPayload(message)) return fallback;
+  if (!message || isLikelyHtmlPayload(message)) return fallback;
   return message;
 }
