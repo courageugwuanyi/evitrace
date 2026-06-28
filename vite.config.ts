@@ -12,18 +12,9 @@ export default defineConfig({
     // nitro/vite builds from this
     server: { entry: "server" },
   },
-  nitro: {
-    preset: "vercel",
-    // Force Nitro server output to inline these runtime deps so
-    // serverless containers do not need to resolve them from /var/task/node_modules.
-    externals: {
-      inline: ["tslib", "@supabase/functions-js", "@supabase/supabase-js"],
+  vite: {
+    build: {
+      chunkSizeWarningLimit: 1200,
     },
   },
-  vite: {
-    // Ensure Supabase runtime helpers are bundled for SSR deploy targets.
-    ssr: {
-      noExternal: ["@supabase/functions-js", "tslib", "@supabase/supabase-js"],
-    },
-  }
 });
