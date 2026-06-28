@@ -14,5 +14,11 @@ export default defineConfig({
   },
   nitro: {
     preset: "vercel"
+  },
+  vite: {
+    // Ensure Supabase runtime helpers are bundled for SSR deploy targets.
+    ssr: {
+      noExternal: ["@supabase/functions-js", "tslib"],
+    },
   }
 });
