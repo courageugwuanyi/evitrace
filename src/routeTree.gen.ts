@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ReportRouteImport } from './routes/report'
 import { Route as RadarRouteImport } from './routes/radar'
+import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as ObjectivesRouteImport } from './routes/objectives'
 import { Route as KnowledgeRouteImport } from './routes/knowledge'
 import { Route as InviteRouteImport } from './routes/invite'
@@ -40,6 +41,11 @@ const ReportRoute = ReportRouteImport.update({
 const RadarRoute = RadarRouteImport.update({
   id: '/radar',
   path: '/radar',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ObjectivesRoute = ObjectivesRouteImport.update({
@@ -120,6 +126,7 @@ export interface FileRoutesByFullPath {
   '/invite': typeof InviteRoute
   '/knowledge': typeof KnowledgeRoute
   '/objectives': typeof ObjectivesRoute
+  '/privacy': typeof PrivacyRoute
   '/radar': typeof RadarRoute
   '/report': typeof ReportRoute
   '/settings': typeof SettingsRouteWithChildren
@@ -139,6 +146,7 @@ export interface FileRoutesByTo {
   '/invite': typeof InviteRoute
   '/knowledge': typeof KnowledgeRoute
   '/objectives': typeof ObjectivesRoute
+  '/privacy': typeof PrivacyRoute
   '/radar': typeof RadarRoute
   '/report': typeof ReportRoute
   '/settings': typeof SettingsRouteWithChildren
@@ -159,6 +167,7 @@ export interface FileRoutesById {
   '/invite': typeof InviteRoute
   '/knowledge': typeof KnowledgeRoute
   '/objectives': typeof ObjectivesRoute
+  '/privacy': typeof PrivacyRoute
   '/radar': typeof RadarRoute
   '/report': typeof ReportRoute
   '/settings': typeof SettingsRouteWithChildren
@@ -180,6 +189,7 @@ export interface FileRouteTypes {
     | '/invite'
     | '/knowledge'
     | '/objectives'
+    | '/privacy'
     | '/radar'
     | '/report'
     | '/settings'
@@ -199,6 +209,7 @@ export interface FileRouteTypes {
     | '/invite'
     | '/knowledge'
     | '/objectives'
+    | '/privacy'
     | '/radar'
     | '/report'
     | '/settings'
@@ -218,6 +229,7 @@ export interface FileRouteTypes {
     | '/invite'
     | '/knowledge'
     | '/objectives'
+    | '/privacy'
     | '/radar'
     | '/report'
     | '/settings'
@@ -238,6 +250,7 @@ export interface RootRouteChildren {
   InviteRoute: typeof InviteRoute
   KnowledgeRoute: typeof KnowledgeRoute
   ObjectivesRoute: typeof ObjectivesRoute
+  PrivacyRoute: typeof PrivacyRoute
   RadarRoute: typeof RadarRoute
   ReportRoute: typeof ReportRoute
   SettingsRoute: typeof SettingsRouteWithChildren
@@ -265,6 +278,13 @@ declare module '@tanstack/react-router' {
       path: '/radar'
       fullPath: '/radar'
       preLoaderRoute: typeof RadarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/objectives': {
@@ -409,6 +429,7 @@ const rootRouteChildren: RootRouteChildren = {
   InviteRoute: InviteRoute,
   KnowledgeRoute: KnowledgeRoute,
   ObjectivesRoute: ObjectivesRoute,
+  PrivacyRoute: PrivacyRoute,
   RadarRoute: RadarRoute,
   ReportRoute: ReportRoute,
   SettingsRoute: SettingsRouteWithChildren,

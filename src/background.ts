@@ -22,11 +22,9 @@ const AUTH_SYNC_MESSAGE_TYPE = "AUTH_SYNC_BRIDGE_SESSION";
 const AUTH_STATE_CHANGE_MESSAGE_TYPE = "AUTH_STATE_CHANGE";
 const SYNC_SUPABASE_SESSION_MESSAGE_TYPE = "SYNC_SUPABASE_SESSION";
 const WEB_APP_MATCH_PATTERNS = [
-  "http://192.168.1.130:8080/*",
-  "http://localhost:3000/*",
-  "https://*.yourdomain.com/*",
+  "https://evitrace.vercel.app/*",
 ];
-const DEFAULT_CAPTURE_DEEPLINK_URL = "http://localhost:3000/?action=capture";
+const DEFAULT_CAPTURE_DEEPLINK_URL = "https://evitrace.vercel.app/?action=capture";
 
 type ChromeApi = {
   storage: {
@@ -338,7 +336,7 @@ function focusWindow(windowId: number): Promise<void> {
 }
 
 async function handleNotificationDeepLink(): Promise<void> {
-  const appUrl = "http://localhost:3000/?action=capture";
+  const appUrl = "https://evitrace.vercel.app/?action=capture";
   const tabs = await queryTabs(WEB_APP_MATCH_PATTERNS);
   const existingTab = tabs.find((tab) => typeof tab.id === "number");
   if (existingTab?.id) {

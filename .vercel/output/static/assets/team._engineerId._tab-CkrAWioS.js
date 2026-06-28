@@ -1,0 +1,1 @@
+import{r as e}from"./useRouter-DW6OGgiT.js";import{t}from"./home-route-app-aG-cPklH.js";import{n,r,t as i}from"./index-CR3sEf0d.js";var a=e();function o(){let{engineerId:e,tab:o}=i.useParams();return(0,a.jsx)(t,{activeTab:n(o)&&r.includes(o)?o:`evidence`,routedEngineerId:e})}export{o as component};

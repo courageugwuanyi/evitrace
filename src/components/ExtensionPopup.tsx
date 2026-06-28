@@ -41,7 +41,7 @@ type KnowledgeEntry = {
   userId: string;
 };
 
-const WEB_APP_BASE_URL = "http://192.168.1.130:8080";
+const WEB_APP_BASE_URL = "https://evitrace.vercel.app";
 const SETTINGS_URL = `${WEB_APP_BASE_URL}/settings/profile`;
 const PROFILE_SETTINGS_URL = `${WEB_APP_BASE_URL}/settings/profile`;
 const BRAND_ICON_SRC = "/icons/icon128.png?v=20260621";
