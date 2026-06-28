@@ -13,12 +13,17 @@ export default defineConfig({
     server: { entry: "server" },
   },
   nitro: {
-    preset: "vercel"
+    preset: "vercel",
+    // Force Nitro server output to inline these runtime deps so
+    // serverless containers do not need to resolve them from /var/task/node_modules.
+    externals: {
+      inline: ["tslib", "@supabase/functions-js", "@supabase/supabase-js"],
+    },
   },
   vite: {
     // Ensure Supabase runtime helpers are bundled for SSR deploy targets.
     ssr: {
-      noExternal: ["@supabase/functions-js", "tslib"],
+      noExternal: ["@supabase/functions-js", "tslib", "@supabase/supabase-js"],
     },
   }
 });
