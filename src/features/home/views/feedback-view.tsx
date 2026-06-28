@@ -380,9 +380,15 @@ export function FeedbackView() {
               </label>
               {isSmallAvailableTeam ? (
                 <div className="mt-2 w-full rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800">
-                  Small team detected in your visible teammate set. To preserve anonymity, include
-                  cross-functional reviewers (for example UX, PM, or adjacent engineering partners)
-                  so your cohort reaches at least 3 distinct reviewers.
+                  <p className="font-semibold text-amber-900">🔒 More Reviewers Needed for Anonymity</p>
+                  <p className="mt-1">
+                    To keep feedback strictly anonymous, you need a minimum of{" "}
+                    <strong>3 different reviewers</strong>.
+                  </p>
+                  <p className="mt-1">
+                    <strong>Next Step:</strong> Expand your list by adding cross-functional
+                    teammates, such as a PM, UX Designer, QA, or adjacent engineering partners.
+                  </p>
                 </div>
               ) : null}
               <div className="space-y-1.5">
