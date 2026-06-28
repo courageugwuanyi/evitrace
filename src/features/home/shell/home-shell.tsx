@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
@@ -222,7 +223,9 @@ export function Sidebar({
         className={`h-16 ${collapsed ? "px-1.5" : "px-5"} flex items-center gap-2 border-b`}
         style={{ borderColor: C.border }}
       >
-        <div
+        <Link
+          to="/"
+          aria-label="Go to home"
           className={`flex items-center min-w-0 ${collapsed ? "justify-center flex-1" : "gap-2"}`}
         >
           <BrandMark size={32} />
@@ -236,7 +239,7 @@ export function Sidebar({
               </div>
             </div>
           )}
-        </div>
+        </Link>
       </div>
 
       <nav className="flex-1 p-3 space-y-3 overflow-y-auto">
@@ -457,12 +460,12 @@ export function Sidebar({
                 className="h-16 px-5 flex items-center justify-between border-b"
                 style={{ borderColor: C.border }}
               >
-                <div className="flex items-center gap-2">
+                <Link to="/" aria-label="Go to home" className="flex items-center gap-2">
                   <BrandMark size={32} />
                   <div className="text-[15px] font-bold tracking-tight" style={{ color: C.navy }}>
                     Evitrace
                   </div>
-                </div>
+                </Link>
                 <button
                   onClick={onCloseMobile}
                   className="p-1.5 rounded hover:bg-[#F4F5F7]"
