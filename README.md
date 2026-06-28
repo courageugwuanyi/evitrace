@@ -1,8 +1,8 @@
 # Evitrace
 
-**Engineering competency tracking and promotion readiness, built for individual contributors.**
+**Engineering competency tracking and promotion readiness for engineers and their managers.**
 
-Evitrace helps software engineers systematically capture evidence of their work, track SMART objectives, run structured promotion reviews, and get clear visibility into where they stand against their target level — all in one place.
+Evitrace helps engineering teams systematically capture evidence, track SMART objectives, run structured promotion reviews, and get clear visibility into readiness against target levels — all in one place.
 
 ---
 
@@ -25,15 +25,15 @@ Evitrace helps software engineers systematically capture evidence of their work,
 
 ## Overview
 
-Evitrace replaces the spreadsheets, scattered notes, and memory-reliant promotion conversations that most engineers rely on. It gives you a structured system to:
+Evitrace replaces spreadsheets, scattered notes, and memory-reliant promotion conversations. It gives engineers and managers a structured system to:
 
 - Log evidence from real work across tools like GitHub, Jira, Slack, and Confluence
 - Define and track SMART objectives with measurable success criteria
 - Run structured 360° promotion reviews with your manager
 - Visualise your readiness across competency dimensions with a radar chart
-- Get your manager's approval workflow built in, not bolted on
+- Manage approvals, manager workspaces, and invite-based reporting lines in-app
 
-The app is built with a Supabase backend (Postgres + Auth + Storage), TanStack Start (React 19 + Vite), and TanStack Query for all server-state management. Every piece of data is user-scoped with Row Level Security — no one else can see your records.
+The app is built with a Supabase backend (Postgres + Auth + Storage), TanStack Start (React 19 + Vite), and TanStack Query for server-state management. Access control is enforced through Row Level Security (RLS), role helpers, and reporting-relationship policies.
 
 ---
 
@@ -49,6 +49,15 @@ The home view surfaces the most important information at a glance:
 - **Recent Evidence** — the five most recently added entries
 - **Current Focus Areas** — objectives currently in progress
 - **Action Inbox** — auto-captured integration events waiting to be mapped to evidence or dismissed
+
+### Manager Workspace
+
+Managers can switch into a dedicated workspace and review connected engineers:
+
+- Team directory and manager dashboard with engineer-level summaries
+- Scoped profile workspace with evidence, objectives, radar, and reports
+- One-on-one workspace and business case/calibration surfaces
+- Invite-based engineer-manager linking with secure acceptance flow
 
 ### Evidence Log
 
@@ -79,7 +88,9 @@ A visual radar chart that maps your current scores across competency categories 
 - Shows Top Strength and Primary Gap at a glance
 - Hierarchical gap analysis breaks down each category to question level
 - Legacy data that no longer maps to the active framework is grouped under **Unmapped History**
-- Comparison against previous assessment cycle built in
+- Comparison logic is assessment-aware:
+  - `Current` uses the most recent completed assessment
+  - `Previous` uses the prior completed assessment (or the initial baseline on first cycle)
 
 ### Review Wizard
 
@@ -87,6 +98,7 @@ A step-by-step promotion review tool:
 
 - Walk through competency categories/questions generated from the active framework matrix
 - Attach supporting evidence entries to each question
+- Rollover prior scores from the latest completed assessment to seed new cycles
 - Finalize the session to persist a full assessment snapshot
 - Assessment data feeds directly into the radar and report views
 
@@ -118,6 +130,15 @@ Full control over your profile and the app's behaviour:
 - **Integrations** — toggle per-source auto-capture (Jira, GitHub, Bitbucket, Slack, Teams, Confluence, Notion)
 - **Framework** — select an active built-in/custom template and import your own framework JSON
 - Active framework changes update `profiles.active_framework_id` and propagate through shared app context/query state
+
+### Manager Invites and Access Control
+
+Evitrace includes manager invitation and relationship controls backed by SQL functions and RLS:
+
+- Single-use invite hashes for linking engineers and direct managers
+- Idempotent invite acceptance and relationship cleanup protections
+- Manager-side visibility into connected engineer profiles
+- Guardrails for manager actions over engineer assessments/objectives
 
 ### Extension Preview
 
@@ -219,7 +240,7 @@ supabase gen types typescript --local > src/lib/database.types.ts
 bun run dev
 ```
 
-The app will be available at `http://localhost:3000`.
+The app will be available on the local Vite dev URL shown in your terminal (typically `http://localhost:5173`).
 
 **Other scripts:**
 
@@ -241,6 +262,13 @@ bun run test         # Run tests (Vitest)
 src/
 ├── context/
 │   └── FrameworkContext.tsx # Active framework provider + normalization hooks
+├── features/home/
+│   ├── context/WorkspaceContext.tsx   # Manager/engineer workspace scope
+│   ├── components/ManagerDashboardView.tsx
+│   ├── components/OneOnOneWorkspace.tsx
+│   ├── components/BusinessCaseTab.tsx
+│   ├── components/CalibrationScoreCard.tsx
+│   └── shell/home-route-app.tsx       # Main application shell + view orchestration
 ├── lib/
 │   ├── supabase.ts          # Supabase client singleton
 │   ├── database.types.ts    # Generated DB types (do not edit manually)
@@ -262,7 +290,9 @@ src/
 ├── popup.tsx                # Extension popup entry (Auth + Query + Framework providers)
 ├── routes/
 │   ├── __root.tsx           # App shell, QueryClientProvider
-│   └── index.tsx            # Main application (auth gate + all views)
+│   ├── index.tsx            # Home route
+│   ├── invite.tsx           # Manager invite acceptance flow
+│   └── *.tsx                # Tab and settings routes
 ├── background.ts            # Extension background worker source (TS)
 public/
 ├── manifest.json            # Extension Manifest V3 definition
@@ -281,19 +311,24 @@ supabase/
 The schema mirrors the app's domain model exactly. Every table is user-scoped via `user_id` with Row Level Security enforced at the database level.
 
 
-| Table                   | Purpose                                                     |
-| ----------------------- | ----------------------------------------------------------- |
-| `profiles`              | User profile data (name, level, team, manager)              |
-| `user_settings`         | Notification and integration toggle preferences (JSONB)     |
-| `evidence`              | Evidence records with competency, status, and archive state |
-| `inbox_events`          | Auto-captured integration events pending review             |
-| `objectives`            | SMART objectives with success criteria (JSONB)              |
-| `assessments`           | Promotion review snapshots                                  |
-| `assessment_categories` | Per-category scores and summaries within an assessment      |
-| `assessment_questions`  | Per-question scores with justification and evidence links   |
-| `feedback`              | 360° feedback entries                                       |
-| `competency_frameworks` | Custom uploaded competency framework definitions            |
-| `competency_categories` | Categories and questions within a framework                 |
+| Table | Purpose |
+| --- | --- |
+| `profiles` | User profile data (identity, role metadata, active framework) |
+| `user_settings` | Notification and integration preferences (JSONB) |
+| `evidence` | Evidence records with competency, status, and archive state |
+| `inbox_events` | Auto-captured integration events pending triage |
+| `objectives` | SMART objectives with success criteria (JSONB) |
+| `assessments` | Finalized assessment snapshots and 1:1 topics |
+| `assessment_categories` | Per-category assessment rollups |
+| `assessment_questions` | Per-question scores, rationale, and linked evidence |
+| `feedback` | 360 feedback requests/responses |
+| `knowledge_items` | Structured knowledge-capture entries |
+| `manager_invites` | Invite tokens and manager-connection state |
+| `reporting_relationships` | Engineer↔manager relationship graph |
+| `pinned_resources` | Workspace-pinned evidence/objective/knowledge links |
+| `notifications` | In-app notification records |
+| `competency_frameworks` | Built-in and custom competency framework definitions |
+| `competency_categories` | Framework category/question definitions |
 
 
 ---
@@ -331,8 +366,8 @@ The extension is not yet published — it is available for local unpacked loadin
 
 1. Fork the repository and create a feature branch
 2. Run `bun install` and apply the database migrations
-3. Make your changes — keep the no-CSS-change rule in mind for backend wiring tasks
-4. Run `bun run test` and `bun tsc --noEmit` before opening a PR
+3. Make your changes and keep UI/domain/api updates consistent
+4. Run `bun run test` and `bunx tsc --noEmit` before opening a PR
 5. Open a pull request against `main` with a clear description of what changed and why
 
 ---
