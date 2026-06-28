@@ -17,7 +17,7 @@ export default defineConfig({
       chunkSizeWarningLimit: 1200,
     },
     ssr: {
-      noExternal: true,
+      noExternal: ["tslib", "@supabase/functions-js", "@supabase/supabase-js"],
     },
   },
 });
