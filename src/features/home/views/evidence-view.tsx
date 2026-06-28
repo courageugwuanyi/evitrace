@@ -61,7 +61,8 @@ export function EvidenceView({
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
 
-  const visible = rows.filter((r) => (showArchived ? r.isArchived : !r.isArchived));
+  const safeRows = useMemo(() => (Array.isArray(rows) ? rows : []), [rows]);
+  const visible = safeRows.filter((r) => (showArchived ? r.isArchived : !r.isArchived));
   const filtered = visible.filter(
     (r) =>
       (q === "" || r.title.toLowerCase().includes(q.toLowerCase())) &&
@@ -73,9 +74,9 @@ export function EvidenceView({
   const competencyOptions = useMemo(() => {
     if (frameworkCategories.length > 0) return frameworkCategories;
     return [
-      ...new Set(rows.map((row) => row.competency).filter((value) => value.trim().length > 0)),
+      ...new Set(safeRows.map((row) => row.competency).filter((value) => value.trim().length > 0)),
     ].sort((a, b) => a.localeCompare(b));
-  }, [frameworkCategories, rows]);
+  }, [frameworkCategories, safeRows]);
   const selectedVisibleIds = filteredIds.filter((id) => selectedRows.has(id));
   const hasVisibleRows = filteredIds.length > 0;
   const allVisibleExpanded = hasVisibleRows && filteredIds.every((id) => expandedRows.has(id));
@@ -163,7 +164,7 @@ export function EvidenceView({
               borderColor: C.border,
             }}
           >
-            <Archive size={12} /> View Archived ({rows.filter((r) => r.isArchived).length})
+            <Archive size={12} /> View Archived ({safeRows.filter((r) => r.isArchived).length})
           </button>
         </div>
       </div>

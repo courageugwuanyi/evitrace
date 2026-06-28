@@ -261,10 +261,40 @@ import {
   CartesianGrid,
 } from "recharts";
 
+const MANAGER_ENGINEER_LAST_TAB_STORAGE_KEY = "evitrace.manager.engineerLastTab";
+const MANAGER_ENGINEER_ALLOWED_TABS: Tab[] = ["evidence", "objectives", "radar", "report"];
+
+function readManagerEngineerLastTabMap(): Record<string, Tab> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.sessionStorage.getItem(MANAGER_ENGINEER_LAST_TAB_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const normalized: Record<string, Tab> = {};
+    Object.entries(parsed).forEach(([engineerId, maybeTab]) => {
+      if (
+        typeof engineerId === "string" &&
+        MANAGER_ENGINEER_ALLOWED_TABS.includes(maybeTab as Tab)
+      ) {
+        normalized[engineerId] = maybeTab as Tab;
+      }
+    });
+    return normalized;
+  } catch {
+    return {};
+  }
+}
+
+function writeManagerEngineerLastTabMap(map: Record<string, Tab>) {
+  if (typeof window === "undefined") return;
+  window.sessionStorage.setItem(MANAGER_ENGINEER_LAST_TAB_STORAGE_KEY, JSON.stringify(map));
+}
+
 export function HomeRouteApp({
   activeTab,
   activeSettingsSection = "profile",
   openCaptureOnLoad = false,
+  routedEngineerId = null,
 }: HomeRouteAppProps) {
   return (
     <HomeAuthApp
@@ -274,6 +304,7 @@ export function HomeRouteApp({
             activeTab={activeTab}
             activeSettingsSection={activeSettingsSection}
             openCaptureOnLoad={openCaptureOnLoad}
+            routedEngineerId={routedEngineerId}
           />
         </WorkspaceProvider>
       )}
@@ -285,10 +316,12 @@ function EvitraceApp({
   activeTab,
   activeSettingsSection,
   openCaptureOnLoad,
+  routedEngineerId,
 }: {
   activeTab: Tab;
   activeSettingsSection: SettingsSection;
   openCaptureOnLoad: boolean;
+  routedEngineerId: string | null;
 }) {
   const { user, userId: authUserId, signout } = useAuth();
   const {
@@ -304,8 +337,6 @@ function EvitraceApp({
   const userId = authUserId ?? "";
   const {
     managedEngineers,
-    selectedEngineerId: relationshipSelectedEngineerId,
-    setSelectedEngineerId: setRelationshipSelectedEngineerId,
     isLoadingManagedEngineers,
     activeView,
     setActiveView,
@@ -320,6 +351,7 @@ function EvitraceApp({
   const managerWorkspaceEnabled = mode === "manager" && isManagerAccount;
   const managedEngineersInScope = isManagerMode ? managedEngineers : [];
   const selectedEngineerId = isManagerMode ? workspaceSelectedEngineerId : null;
+  const scopedRouteEngineerId = routedEngineerId?.trim() || null;
   const isManagerScopedToEngineer = managerWorkspaceEnabled && Boolean(selectedEngineerId);
   const reportSubjectEngineerId =
     managerWorkspaceEnabled && selectedEngineerId ? selectedEngineerId : userId;
@@ -328,27 +360,51 @@ function EvitraceApp({
   useEffect(() => {
     if (!isManagerMode) {
       setWorkspaceSelectedEngineerId(null);
-      setRelationshipSelectedEngineerId(null);
-      return;
     }
-    if (relationshipSelectedEngineerId !== workspaceSelectedEngineerId) {
-      setRelationshipSelectedEngineerId(workspaceSelectedEngineerId);
-    }
+  }, [isManagerMode, setWorkspaceSelectedEngineerId]);
+
+  useEffect(() => {
+    if (workspaceContextLoading) return;
+    if (!isManagerMode) return;
+    if (workspaceSelectedEngineerId === scopedRouteEngineerId) return;
+    setWorkspaceSelectedEngineerId(scopedRouteEngineerId);
   }, [
     isManagerMode,
-    relationshipSelectedEngineerId,
-    setRelationshipSelectedEngineerId,
+    scopedRouteEngineerId,
     setWorkspaceSelectedEngineerId,
+    workspaceContextLoading,
     workspaceSelectedEngineerId,
   ]);
 
+  useEffect(() => {
+    if (!isManagerMode) return;
+    if (scopedRouteEngineerId) {
+      if (activeView !== "profile") {
+        setActiveView("profile");
+      }
+      return;
+    }
+    if (activeView === "profile") {
+      setActiveView("directory");
+    }
+  }, [activeView, isManagerMode, scopedRouteEngineerId, setActiveView]);
+
   const tab = activeTab;
   const settingsSection = activeSettingsSection;
+  const getTabPathForCurrentScope = useCallback(
+    (nextTab: Tab) =>
+      getTabPath(nextTab, {
+        mode: isManagerMode ? "manager" : "engineer",
+        engineerId: selectedEngineerId,
+      }),
+    [isManagerMode, selectedEngineerId],
+  );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [managerProfileSubTab, setManagerProfileSubTab] = useState<
     "tracking_workspace" | "compilation_dossier" | "one_on_one_sync"
   >("tracking_workspace");
+  const managerEngineerLastTabRef = useRef<Record<string, Tab>>(readManagerEngineerLastTabMap());
   const [globalSearchQuery, setGlobalSearchQuery] = useState("");
   const hasProcessedPendingInviteRef = useRef(false);
   const { sampleContent, setSampleContent } = useHomeSampleContentVisibility();
@@ -364,22 +420,23 @@ function EvitraceApp({
       !managedEngineersInScope.some((engineer) => engineer.id === selectedEngineerId)
     ) {
       setWorkspaceSelectedEngineerId(null);
-      setRelationshipSelectedEngineerId(null);
       setActiveView("directory");
+      return;
+    }
+    if (isLoadingManagedEngineers) {
       return;
     }
     if (managedEngineersInScope.length === 0) {
       setWorkspaceSelectedEngineerId(null);
-      setRelationshipSelectedEngineerId(null);
       setManagerProfileSubTab("tracking_workspace");
     }
   }, [
+    isLoadingManagedEngineers,
     selectedEngineerId,
     managedEngineersInScope.length,
     managedEngineersInScope,
     managerWorkspaceEnabled,
     setActiveView,
-    setRelationshipSelectedEngineerId,
     setWorkspaceSelectedEngineerId,
   ]);
 
@@ -390,15 +447,43 @@ function EvitraceApp({
   }, [activeView, selectedEngineerId]);
 
   useEffect(() => {
-    if (!isManagerMode) return;
-    if (selectedEngineerId) {
-      if (tab === "evidence" || tab === "objectives" || tab === "radar" || tab === "report") return;
-      void navigate({ to: getTabPath("evidence"), replace: true });
+    if (!isManagerMode || !selectedEngineerId || activeView !== "profile") return;
+    if (!MANAGER_ENGINEER_ALLOWED_TABS.includes(tab)) return;
+    managerEngineerLastTabRef.current = {
+      ...managerEngineerLastTabRef.current,
+      [selectedEngineerId]: tab,
+    };
+    writeManagerEngineerLastTabMap(managerEngineerLastTabRef.current);
+  }, [activeView, isManagerMode, selectedEngineerId, tab]);
+
+  useEffect(() => {
+    if (workspaceContextLoading || isLoadingManagedEngineers) return;
+
+    if (mode === "engineer" && scopedRouteEngineerId) {
+      void navigate({ to: getTabPath("dashboard"), replace: true });
       return;
     }
-    if (tab === "dashboard") return;
-    void navigate({ to: getTabPath("dashboard"), replace: true });
-  }, [isManagerMode, navigate, selectedEngineerId, tab]);
+
+    if (mode === "manager") {
+      const managerNeedsEngineerContext =
+        tab === "evidence" ||
+        tab === "objectives" ||
+        tab === "radar" ||
+        tab === "report" ||
+        tab === "knowledge";
+
+      if (managerNeedsEngineerContext && !scopedRouteEngineerId) {
+        void navigate({ to: getTabPath("dashboard"), replace: true });
+      }
+    }
+  }, [
+    isLoadingManagedEngineers,
+    mode,
+    navigate,
+    scopedRouteEngineerId,
+    tab,
+    workspaceContextLoading,
+  ]);
 
   useEffect(() => {
     if (!userId || hasProcessedPendingInviteRef.current || typeof window === "undefined") return;
@@ -521,7 +606,7 @@ function EvitraceApp({
 
       const { data, error } = await (supabase as any)
         .from("reporting_relationships")
-        .select("manager_id, profiles:manager_id(full_name)")
+        .select("manager_id, profiles!manager_id(full_name)")
         .eq("engineer_id", reportSubjectEngineerId)
         .eq("relation_type", "direct_manager")
         .in("status", ["active", "in_handover"])
@@ -971,7 +1056,7 @@ function EvitraceApp({
           setFocusedKnowledgeId(knowledgeId);
         });
         if (tab !== "knowledge") {
-          void navigate({ to: getTabPath("knowledge") });
+          void navigate({ to: getTabPathForCurrentScope("knowledge") });
         }
         return;
       }
@@ -982,7 +1067,7 @@ function EvitraceApp({
         );
         if (evidenceTarget) {
           setOpenEvidence(evidenceTarget);
-          if (tab !== "evidence") void navigate({ to: getTabPath("evidence") });
+          if (tab !== "evidence") void navigate({ to: getTabPathForCurrentScope("evidence") });
           return;
         }
       }
@@ -993,7 +1078,7 @@ function EvitraceApp({
         );
         if (objectiveTarget) {
           setOpenObjective(objectiveTarget);
-          if (tab !== "objectives") void navigate({ to: getTabPath("objectives") });
+          if (tab !== "objectives") void navigate({ to: getTabPathForCurrentScope("objectives") });
           return;
         }
       }
@@ -1004,16 +1089,16 @@ function EvitraceApp({
       }
 
       if (pin.resource_type === "evidence") {
-        void navigate({ to: getTabPath("evidence") });
+        void navigate({ to: getTabPathForCurrentScope("evidence") });
         return;
       }
 
       if (pin.resource_type === "objective") {
-        void navigate({ to: getTabPath("objectives") });
+        void navigate({ to: getTabPathForCurrentScope("objectives") });
         return;
       }
 
-      void navigate({ to: getTabPath("knowledge") });
+      void navigate({ to: getTabPathForCurrentScope("knowledge") });
     },
     [
       contextArchivedEvidence,
@@ -1035,6 +1120,10 @@ function EvitraceApp({
       managerTeamOverview.length === 0);
   const showManagerProfileSubNavigation =
     managerWorkspaceEnabled && activeView === "profile" && Boolean(selectedEngineerId);
+  const getManagerEngineerLandingTab = useCallback(
+    (engineerId: string): Tab => managerEngineerLastTabRef.current[engineerId] ?? "evidence",
+    [],
+  );
 
   async function handleSignOutForWorkspaceReset() {
     await signout();
@@ -1048,6 +1137,7 @@ function EvitraceApp({
       settingsSection,
       setMobileSidebarOpen,
       setGlobalSearchQuery,
+      getTabPathForCurrentScope,
     });
   const { requestAssessmentDelete, executeAssessmentDelete, clearAssessmentWizardDraft } =
     useHomeAssessmentActions({
@@ -1093,14 +1183,25 @@ function EvitraceApp({
         managerDirectoryActive={managerWorkspaceEnabled && !selectedEngineerId}
         onOpenTeamOverview={() => {
           setWorkspaceSelectedEngineerId(null);
-          setRelationshipSelectedEngineerId(null);
           setActiveView("directory");
           void navigate({ to: getTabPath("dashboard") });
         }}
         onSelectEngineer={(engineerId) => {
+          const landingTab = getManagerEngineerLandingTab(engineerId);
+          const isAlreadyFocused = selectedEngineerId === engineerId && activeView === "profile";
+          if (isAlreadyFocused) {
+            void navigate({
+              to: getTabPath(landingTab, { mode: "manager", engineerId }),
+            });
+            return;
+          }
           setWorkspaceSelectedEngineerId(engineerId);
-          setRelationshipSelectedEngineerId(engineerId);
-          setActiveView("profile");
+          if (activeView !== "profile") {
+            setActiveView("profile");
+          }
+          void navigate({
+            to: getTabPath(landingTab, { mode: "manager", engineerId }),
+          });
         }}
       />
 
@@ -1123,57 +1224,8 @@ function EvitraceApp({
           globalSearchResults={globalSearchResults}
           onGlobalSearchSelect={handleGlobalSearchSelect}
         />
-        {managerWorkspaceEnabled && managedEngineersInScope.length > 0 && (
-          <div className="bg-slate-50 border-b border-slate-200">
-            <div className="max-w-7xl mx-auto w-full px-4 py-3 sm:px-6 lg:px-8 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                  Workspace Context
-                </span>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                    managerWorkspaceEnabled
-                      ? "bg-indigo-100 text-indigo-700"
-                      : "bg-slate-200 text-slate-700"
-                  }`}
-                >
-                  {managerWorkspaceEnabled ? "Manager Workspace" : "Engineer Workspace"}
-                </span>
-                {activeView === "profile" && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setWorkspaceSelectedEngineerId(null);
-                      setRelationshipSelectedEngineerId(null);
-                      setActiveView("directory");
-                    }}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100"
-                  >
-                    <ArrowLeft size={12} />
-                    Back to Team Overview
-                  </button>
-                )}
-              </div>
-              <div className="text-xs font-medium text-slate-600">
-                {selectedEngineerId
-                  ? `Reviewing ${managedEngineersInScope.find((engineer) => engineer.id === selectedEngineerId)?.fullName ?? "selected engineer"}`
-                  : `${managedEngineersInScope.length} engineers in your team scope`}
-              </div>
-            </div>
-          </div>
-        )}
-
         <main className="flex-1 print-main">
           <div className="max-w-7xl mx-auto w-full px-4 py-4 sm:px-6 lg:px-8 md:py-6">
-            {mode === "manager" && (
-              <div className="mb-4 rounded-lg border border-slate-200 bg-white px-3 py-2">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                  {selectedEngineerId
-                    ? `Lead Operations > Direct Reports > ${selectedManagedEngineer?.fullName ?? "Selected Engineer"} > Active Inspection Controls`
-                    : "Lead Operations > Active Squadron Dashboard"}
-                </p>
-              </div>
-            )}
             {!showWorkspaceConnectionFallback &&
               !isManagerScopedToEngineer &&
               tab === "dashboard" &&
@@ -1353,7 +1405,6 @@ function EvitraceApp({
                           setHandoverNotes("");
                           setManagerRelationshipsRefreshNonce((prev) => prev + 1);
                           setWorkspaceSelectedEngineerId(null);
-                          setRelationshipSelectedEngineerId(null);
                           setActiveView("directory");
                         })
                         .catch((error) => {
@@ -1399,23 +1450,36 @@ function EvitraceApp({
                 isLoading={isManagerTeamOverviewLoading}
                 isError={isManagerTeamOverviewError}
                 onInspectEngineer={(engineerId) => {
+                  const landingTab = getManagerEngineerLandingTab(engineerId);
+                  const isAlreadyFocused =
+                    selectedEngineerId === engineerId && activeView === "profile";
+                  if (isAlreadyFocused) {
+                    void navigate({
+                      to: getTabPath(landingTab, { mode: "manager", engineerId }),
+                    });
+                    return;
+                  }
                   setWorkspaceSelectedEngineerId(engineerId);
-                  setRelationshipSelectedEngineerId(engineerId);
-                  setActiveView("profile");
+                  if (activeView !== "profile") {
+                    setActiveView("profile");
+                  }
+                  void navigate({
+                    to: getTabPath(landingTab, { mode: "manager", engineerId }),
+                  });
                 }}
               />
             ) : (
               <>
                 {showManagerProfileSubNavigation && (
                   <div className="mb-4 space-y-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                    <div className="rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-indigo-600">
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                         Reviewing Engineer
                       </p>
-                      <p className="text-sm font-semibold text-indigo-900">
+                      <p className="text-sm font-semibold text-slate-900">
                         {selectedManagedEngineer?.fullName ?? "Selected engineer"}
                       </p>
-                      <p className="text-xs text-indigo-700">
+                      <p className="text-xs text-slate-600">
                         {selectedManagedEngineer?.status === "in_handover"
                           ? "Transitioning handover"
                           : "Active reporting line"}
@@ -1433,7 +1497,7 @@ function EvitraceApp({
                           onClick={() => setManagerProfileSubTab(subTab.id)}
                           className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors ${
                             managerProfileSubTab === subTab.id
-                              ? "border-indigo-300 bg-indigo-100 text-indigo-800"
+                              ? "border-slate-300 bg-slate-100 text-slate-900"
                               : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
                           }`}
                         >
@@ -1970,7 +2034,7 @@ function EvitraceApp({
                     setReview(session);
                     clearAssessmentWizardDraft();
                     setShowWizard(false);
-                    void navigate({ to: getTabPath("report") });
+                    void navigate({ to: getTabPathForCurrentScope("report") });
                     flash("Assessment finalized · Report generated");
                   },
                 },
@@ -1993,7 +2057,7 @@ function EvitraceApp({
             onOpen={(a) => {
               setReview(assessmentToSession(a));
               setShowHistory(false);
-              void navigate({ to: getTabPath("report") });
+              void navigate({ to: getTabPathForCurrentScope("report") });
             }}
           />
         )}

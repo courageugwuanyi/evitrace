@@ -18,12 +18,14 @@ import { Route as InviteRouteImport } from './routes/invite'
 import { Route as FeedbackRouteImport } from './routes/feedback'
 import { Route as EvidenceRouteImport } from './routes/evidence'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as TeamEngineerIdRouteImport } from './routes/team.$engineerId'
 import { Route as SettingsTeamRouteImport } from './routes/settings.team'
 import { Route as SettingsProfileRouteImport } from './routes/settings.profile'
 import { Route as SettingsNotificationsRouteImport } from './routes/settings.notifications'
 import { Route as SettingsFrameworkRouteImport } from './routes/settings.framework'
 import { Route as SettingsExtensionRouteImport } from './routes/settings.extension'
 import { Route as SettingsDashboardRouteImport } from './routes/settings.dashboard'
+import { Route as TeamEngineerIdTabRouteImport } from './routes/team.$engineerId.$tab'
 
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
@@ -70,6 +72,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TeamEngineerIdRoute = TeamEngineerIdRouteImport.update({
+  id: '/team/$engineerId',
+  path: '/team/$engineerId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsTeamRoute = SettingsTeamRouteImport.update({
   id: '/team',
   path: '/team',
@@ -100,6 +107,11 @@ const SettingsDashboardRoute = SettingsDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => SettingsRoute,
 } as any)
+const TeamEngineerIdTabRoute = TeamEngineerIdTabRouteImport.update({
+  id: '/$tab',
+  path: '/$tab',
+  getParentRoute: () => TeamEngineerIdRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -117,6 +129,8 @@ export interface FileRoutesByFullPath {
   '/settings/notifications': typeof SettingsNotificationsRoute
   '/settings/profile': typeof SettingsProfileRoute
   '/settings/team': typeof SettingsTeamRoute
+  '/team/$engineerId': typeof TeamEngineerIdRouteWithChildren
+  '/team/$engineerId/$tab': typeof TeamEngineerIdTabRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -134,6 +148,8 @@ export interface FileRoutesByTo {
   '/settings/notifications': typeof SettingsNotificationsRoute
   '/settings/profile': typeof SettingsProfileRoute
   '/settings/team': typeof SettingsTeamRoute
+  '/team/$engineerId': typeof TeamEngineerIdRouteWithChildren
+  '/team/$engineerId/$tab': typeof TeamEngineerIdTabRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -152,6 +168,8 @@ export interface FileRoutesById {
   '/settings/notifications': typeof SettingsNotificationsRoute
   '/settings/profile': typeof SettingsProfileRoute
   '/settings/team': typeof SettingsTeamRoute
+  '/team/$engineerId': typeof TeamEngineerIdRouteWithChildren
+  '/team/$engineerId/$tab': typeof TeamEngineerIdTabRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -171,6 +189,8 @@ export interface FileRouteTypes {
     | '/settings/notifications'
     | '/settings/profile'
     | '/settings/team'
+    | '/team/$engineerId'
+    | '/team/$engineerId/$tab'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -188,6 +208,8 @@ export interface FileRouteTypes {
     | '/settings/notifications'
     | '/settings/profile'
     | '/settings/team'
+    | '/team/$engineerId'
+    | '/team/$engineerId/$tab'
   id:
     | '__root__'
     | '/'
@@ -205,6 +227,8 @@ export interface FileRouteTypes {
     | '/settings/notifications'
     | '/settings/profile'
     | '/settings/team'
+    | '/team/$engineerId'
+    | '/team/$engineerId/$tab'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -217,6 +241,7 @@ export interface RootRouteChildren {
   RadarRoute: typeof RadarRoute
   ReportRoute: typeof ReportRoute
   SettingsRoute: typeof SettingsRouteWithChildren
+  TeamEngineerIdRoute: typeof TeamEngineerIdRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -284,6 +309,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/team/$engineerId': {
+      id: '/team/$engineerId'
+      path: '/team/$engineerId'
+      fullPath: '/team/$engineerId'
+      preLoaderRoute: typeof TeamEngineerIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/team': {
       id: '/settings/team'
       path: '/team'
@@ -326,6 +358,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsDashboardRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/team/$engineerId/$tab': {
+      id: '/team/$engineerId/$tab'
+      path: '/$tab'
+      fullPath: '/team/$engineerId/$tab'
+      preLoaderRoute: typeof TeamEngineerIdTabRouteImport
+      parentRoute: typeof TeamEngineerIdRoute
+    }
   }
 }
 
@@ -351,6 +390,18 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
   SettingsRouteChildren,
 )
 
+interface TeamEngineerIdRouteChildren {
+  TeamEngineerIdTabRoute: typeof TeamEngineerIdTabRoute
+}
+
+const TeamEngineerIdRouteChildren: TeamEngineerIdRouteChildren = {
+  TeamEngineerIdTabRoute: TeamEngineerIdTabRoute,
+}
+
+const TeamEngineerIdRouteWithChildren = TeamEngineerIdRoute._addFileChildren(
+  TeamEngineerIdRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   EvidenceRoute: EvidenceRoute,
@@ -361,6 +412,7 @@ const rootRouteChildren: RootRouteChildren = {
   RadarRoute: RadarRoute,
   ReportRoute: ReportRoute,
   SettingsRoute: SettingsRouteWithChildren,
+  TeamEngineerIdRoute: TeamEngineerIdRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

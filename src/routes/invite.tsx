@@ -6,6 +6,7 @@ import {
   MANAGER_ONBOARDING_CONTEXT_KEY,
   PENDING_WORKSPACE_INVITE_HASH_KEY,
 } from "@/features/home/shared/constants";
+import { resolveManagerInviteHash } from "@/lib/api/manager-invites.functions";
 import { supabase } from "@/lib/supabase";
 
 export const Route = createFileRoute("/invite")({
@@ -17,13 +18,11 @@ function isSha256Hash(value: string): boolean {
 }
 
 async function resolveInviteHash(rawToken: string): Promise<string> {
-  const normalized = rawToken.trim();
-  if (isSha256Hash(normalized)) return normalized.toLowerCase();
-  const encoded = new TextEncoder().encode(normalized);
-  const digest = await window.crypto.subtle.digest("SHA-256", encoded);
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
+  const resolved = await resolveManagerInviteHash({ data: { rawToken } });
+  if (!isSha256Hash(resolved)) {
+    throw new Error("Invalid workspace connection reference hash.");
+  }
+  return resolved.toLowerCase();
 }
 
 function parseRpcResponse(data: unknown): Record<string, unknown> | null {

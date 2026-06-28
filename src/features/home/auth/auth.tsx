@@ -437,6 +437,12 @@ function AppGate({ EvitraceApp }: { EvitraceApp: React.ComponentType }) {
   const { user, loading } = useAuth();
 
   useEffect(() => {
+    if (loading || user) return;
+    if (window.location.pathname === "/") return;
+    window.location.replace("/");
+  }, [loading, user]);
+
+  useEffect(() => {
     if (!user) return;
     if (hasPendingWorkspaceInviteHash()) return;
     const pendingInvite = sessionStorage.getItem(PENDING_INVITE_CODE_KEY);

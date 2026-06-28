@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 type WorkspaceMode = "engineer" | "manager";
 const WORKSPACE_MODE_STORAGE_KEY = "evitrace.workspace.mode";
 const WORKSPACE_SELECTED_ENGINEER_STORAGE_KEY = "evitrace.workspace.selectedEngineerId";
+const WORKSPACE_ACTIVE_ENGINEER_STORAGE_KEY = "evitrace_active_engineer_id";
 const WORKSPACE_BOOTSTRAPPED_STORAGE_KEY = "evitrace.workspace.bootstrapped";
 
 function readStoredWorkspaceMode(): WorkspaceMode {
@@ -14,7 +15,9 @@ function readStoredWorkspaceMode(): WorkspaceMode {
 
 function readStoredSelectedEngineerId(): string | null {
   if (typeof window === "undefined") return null;
-  const stored = window.sessionStorage.getItem(WORKSPACE_SELECTED_ENGINEER_STORAGE_KEY)?.trim();
+  const stored =
+    window.sessionStorage.getItem(WORKSPACE_ACTIVE_ENGINEER_STORAGE_KEY)?.trim() ??
+    window.sessionStorage.getItem(WORKSPACE_SELECTED_ENGINEER_STORAGE_KEY)?.trim();
   return stored ? stored : null;
 }
 
@@ -46,46 +49,63 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(() => !hasWorkspaceBootstrapped());
 
   const refreshWorkspace = useCallback(async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      setLoading(false);
-      return;
-    }
+    try {
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+      if (userError) throw userError;
+      if (!user) {
+        setIsManagerAccount(false);
+        setLinkedEngineers([]);
+        setModeState("engineer");
+        setSelectedEngineerIdState(null);
+        return;
+      }
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("job_title")
-      .eq("id", user.id)
-      .single();
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("job_title")
+        .eq("id", user.id)
+        .single();
+      if (profileError) {
+        console.warn("[workspace] failed to read profile job title:", profileError.message);
+      }
 
-    const isManagerByTitle = profile?.job_title?.toLowerCase().includes("manager");
+      const isManagerByTitle = profile?.job_title?.toLowerCase().includes("manager");
 
-    const { data: relations } = await supabase
-      .from("reporting_relationships")
-      .select(
-        `
-        engineer_id,
-        profiles:engineer_id (id, full_name, job_title, avatar_url)
-      `,
-      )
-      .eq("manager_id", user.id)
-      .eq("status", "active");
+      const { data: relations, error: relationsError } = await supabase
+        .from("reporting_relationships")
+        .select(
+          `
+          engineer_id,
+          profiles!engineer_id (id, full_name, job_title, avatar_url)
+        `,
+        )
+        .eq("manager_id", user.id)
+        .eq("status", "active");
+      if (relationsError) throw relationsError;
 
-    const hasLinkedEngineers = relations && relations.length > 0;
-    const isManager = isManagerByTitle || hasLinkedEngineers;
+      const hasLinkedEngineers = Boolean(relations && relations.length > 0);
+      const isManager = Boolean(isManagerByTitle || hasLinkedEngineers);
 
-    setIsManagerAccount(isManager);
+      setIsManagerAccount(isManager);
 
-    if (hasLinkedEngineers) {
-      const engineers = relations.map((r: any) => r.profiles).filter(Boolean);
-      setLinkedEngineers(engineers);
-    } else {
+      if (hasLinkedEngineers) {
+        const engineers = relations.map((r: any) => r.profiles).filter(Boolean);
+        setLinkedEngineers(engineers);
+      } else {
+        setLinkedEngineers([]);
+      }
+
+      if (!isManager) {
+        setModeState("engineer");
+        setSelectedEngineerIdState(null);
+      }
+    } catch (error) {
+      console.error("[workspace] failed to refresh workspace context:", error);
+      setIsManagerAccount(false);
       setLinkedEngineers([]);
-    }
-
-    if (!isManager) {
       setModeState("engineer");
       setSelectedEngineerIdState(null);
     }
@@ -106,17 +126,29 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   }, [refreshWorkspace]);
 
   const setSelectedEngineerId = (nextId: string | null) => {
+    if (selectedEngineerId === nextId) return;
+
     if (mode === "manager" && selectedEngineerId && selectedEngineerId !== nextId) {
-      void supabase.channel(`workspace-sync-${selectedEngineerId}`).send({
-        type: "broadcast",
-        event: "session_terminated",
-        payload: { exited_by: "manager" },
-      });
+      const staleEngineerId = selectedEngineerId;
+      setTimeout(() => {
+        void supabase
+          .channel(`workspace-sync-${staleEngineerId}`)
+          .send({
+            type: "broadcast",
+            event: "session_terminated",
+            payload: { exited_by: "manager" },
+          })
+          .catch((error) => {
+            console.error("Non-blocking workspace broadcast failed:", error);
+          });
+      }, 0);
     }
     if (typeof window !== "undefined") {
       if (nextId) {
+        window.sessionStorage.setItem(WORKSPACE_ACTIVE_ENGINEER_STORAGE_KEY, nextId);
         window.sessionStorage.setItem(WORKSPACE_SELECTED_ENGINEER_STORAGE_KEY, nextId);
       } else {
+        window.sessionStorage.removeItem(WORKSPACE_ACTIVE_ENGINEER_STORAGE_KEY);
         window.sessionStorage.removeItem(WORKSPACE_SELECTED_ENGINEER_STORAGE_KEY);
       }
     }
@@ -127,6 +159,7 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
     if (nextMode === "engineer") {
       setSelectedEngineerIdState(null);
       if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem(WORKSPACE_ACTIVE_ENGINEER_STORAGE_KEY);
         window.sessionStorage.removeItem(WORKSPACE_SELECTED_ENGINEER_STORAGE_KEY);
       }
     }
@@ -144,9 +177,11 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!selectedEngineerId) {
+      window.sessionStorage.removeItem(WORKSPACE_ACTIVE_ENGINEER_STORAGE_KEY);
       window.sessionStorage.removeItem(WORKSPACE_SELECTED_ENGINEER_STORAGE_KEY);
       return;
     }
+    window.sessionStorage.setItem(WORKSPACE_ACTIVE_ENGINEER_STORAGE_KEY, selectedEngineerId);
     window.sessionStorage.setItem(WORKSPACE_SELECTED_ENGINEER_STORAGE_KEY, selectedEngineerId);
   }, [selectedEngineerId]);
 

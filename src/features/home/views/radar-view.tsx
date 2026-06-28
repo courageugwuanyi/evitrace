@@ -62,8 +62,14 @@ const CustomRadarTick = (props: any) => {
 
   return (
     <g transform={`translate(${x}, ${y})`}>
-      <text textAnchor={textAnchor} fill="#4b5563" fontSize={11} className="font-medium">
-        <title>{fullLabel}</title>
+      <title>{fullLabel}</title>
+      <text
+        textAnchor={textAnchor}
+        fill="#4b5563"
+        fontSize={11}
+        className="font-medium cursor-help"
+        style={{ pointerEvents: "all" }}
+      >
         <tspan x={0} dy={0}>
           {displayLabel}
         </tspan>
@@ -273,9 +279,7 @@ function HierarchicalMatrix({
                         <ChevronDown size={14} style={{ color: C.subtle }} />
                       </motion.span>
                       {categoryName}
-                      <span
-                        className="ml-2 inline-block px-1.5 py-0.5 text-[10px] font-mono font-bold bg-slate-100 border border-slate-200 text-slate-500 rounded-md"
-                      >
+                      <span className="ml-2 inline-block px-1.5 py-0.5 text-[10px] font-mono font-bold bg-slate-100 border border-slate-200 text-slate-500 rounded-md">
                         {subs.length} questions
                       </span>
                     </span>
@@ -553,7 +557,7 @@ export function RadarView({
           : latestCat && latestCat.questions.length > 0
             ? latestCat.questions.reduce((sum, question) => sum + question.previousScore, 0) /
               latestCat.questions.length
-          : DEFAULT_EFFECTIVENESS_WEIGHT;
+            : DEFAULT_EFFECTIVENESS_WEIGHT;
       const previous = +Math.min(4, (comparisonPreviousAvg / 5) * 4).toFixed(2);
       return {
         competency: r.competency,
@@ -787,14 +791,19 @@ export function RadarView({
               Target L4
             </span>
           </div>
-          <div className="mt-4" style={chartMode === "bar" ? { height: dynamicBarChartHeight } : undefined}>
+          <div
+            className="mt-4"
+            style={chartMode === "bar" ? { height: dynamicBarChartHeight } : undefined}
+          >
             {chartMode === "radar" ? (
-              <div className="w-full h-[400px] overflow-visible">
-                <ResponsiveContainer width="100%" height="100%">
+              <div className="w-full bg-white p-1 rounded-xl">
+                <ResponsiveContainer width="100%" height={360}>
                   <RadarChart
                     data={data}
+                    cx="50%"
+                    cy="50%"
                     outerRadius="78%"
-                    margin={{ top: 20, right: 30, bottom: 20, left: 30 }}
+                    margin={{ top: 16, right: 24, bottom: 16, left: 24 }}
                   >
                     <PolarGrid stroke={C.border} />
                     <PolarAngleAxis dataKey="competency" tick={<CustomRadarTick />} />

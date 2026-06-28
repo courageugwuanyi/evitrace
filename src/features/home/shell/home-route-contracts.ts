@@ -23,4 +23,5 @@ export type HomeRouteAppProps = {
   activeTab: Tab;
   activeSettingsSection?: SettingsSection;
   openCaptureOnLoad?: boolean;
+  routedEngineerId?: string | null;
 };

@@ -195,7 +195,9 @@ export function useEvidenceQuery(
         .eq('is_archived', archived)
         .order('date', { ascending: false })
       if (error) throw error
-      return (data ?? []).map(evidenceRowToRecord)
+      const records = (data ?? []).map(evidenceRowToRecord)
+      if (includeSamples) return records
+      return records.filter((record) => !record.isSample)
     },
     staleTime: 60_000,
     enabled: Boolean(userId),

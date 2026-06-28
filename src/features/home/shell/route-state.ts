@@ -1,6 +1,25 @@
 import type { SettingsSection, Tab } from "@/features/home/shared/navigation";
 
-export function getTabPath(tab: Tab): string {
+type WorkspaceMode = "engineer" | "manager";
+type TabPathOptions = {
+  mode?: WorkspaceMode;
+  engineerId?: string | null;
+};
+
+const MANAGER_SCOPED_TABS: Tab[] = ["evidence", "objectives", "radar", "report"];
+
+export function getManagerTabPath(engineerId: string, tab: Tab): string {
+  if (!MANAGER_SCOPED_TABS.includes(tab)) {
+    return "/";
+  }
+  return `/team/${engineerId}/${tab}`;
+}
+
+export function getTabPath(tab: Tab, options?: TabPathOptions): string {
+  const scopedEngineerId = options?.engineerId?.trim();
+  if (options?.mode === "manager" && scopedEngineerId && MANAGER_SCOPED_TABS.includes(tab)) {
+    return getManagerTabPath(scopedEngineerId, tab);
+  }
   switch (tab) {
     case "dashboard":
       return "/";

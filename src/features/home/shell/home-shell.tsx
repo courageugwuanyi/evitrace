@@ -26,7 +26,6 @@ import {
   PanelLeft,
   Menu,
   X,
-  User,
   Terminal,
   ClipboardCheck,
 } from "lucide-react";
@@ -50,6 +49,7 @@ export type HomeGlobalSearchResultItem = {
 };
 
 type WorkspaceMode = "engineer" | "manager";
+const RECENT_ENGINEERS_STORAGE_KEY = "evitrace.manager.recentEngineerIds";
 
 export function Sidebar({
   tab,
@@ -104,56 +104,48 @@ export function Sidebar({
   const mainNav: {
     id: HomeTab;
     label: string;
-    sub: string;
     icon: React.ComponentType<{ size?: number }>;
     visibleIn: WorkspaceMode | "all";
   }[] = [
     {
       id: "dashboard",
       label: "Dashboard",
-      sub: "Daily Actions",
       icon: LayoutDashboard,
       visibleIn: "all",
     },
     {
       id: "evidence",
       label: "Evidence Log",
-      sub: "Data Table",
       icon: TableProperties,
       visibleIn: "all",
     },
     {
       id: "objectives",
       label: "Objectives",
-      sub: "Skill Gap Planning",
       icon: Target,
       visibleIn: "all",
     },
     {
       id: "knowledge",
       label: "Knowledge Hub",
-      sub: "Learned Insights",
       icon: BookOpen,
       visibleIn: "engineer",
     },
     {
       id: "feedback",
       label: "360 Feedback",
-      sub: "Peer & Manager Reviews",
       icon: MessageCircleHeart,
       visibleIn: "engineer",
     },
     {
       id: "radar",
       label: "Promotion Readiness",
-      sub: "Assessment & Gaps",
       icon: TrendingUp,
       visibleIn: "all",
     },
     {
       id: "report",
       label: "Reviews & Reports",
-      sub: "Archive & 1-on-1 Prep",
       icon: FileText,
       visibleIn: "all",
     },
@@ -165,6 +157,18 @@ export function Sidebar({
     icon: SettingsIcon,
   };
   const [engineerQuery, setEngineerQuery] = useState("");
+  const [recentEngineerIds, setRecentEngineerIds] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = window.sessionStorage.getItem(RECENT_ENGINEERS_STORAGE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((value): value is string => typeof value === "string");
+    } catch {
+      return [];
+    }
+  });
   const normalizedEngineerQuery = engineerQuery.trim().toLowerCase();
   const filteredEngineers = useMemo(() => {
     if (!normalizedEngineerQuery) return managedEngineers;
@@ -174,38 +178,36 @@ export function Sidebar({
       return fullName.includes(normalizedEngineerQuery) || email.includes(normalizedEngineerQuery);
     });
   }, [managedEngineers, normalizedEngineerQuery]);
+  function rememberRecentEngineer(engineerId: string) {
+    setRecentEngineerIds((prev) => {
+      const next = [engineerId, ...prev.filter((id) => id !== engineerId)].slice(0, 5);
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem(RECENT_ENGINEERS_STORAGE_KEY, JSON.stringify(next));
+      }
+      return next;
+    });
+  }
   const NavButton = ({ n }: { n: (typeof mainNav)[number] }) => {
     const active = tab === n.id;
-    const isSettings = n.id === "settings";
-    const activeBackground = isSettings ? "#F4F5F7" : C.primarySoft;
-    const activeColor = isSettings ? C.navy : C.primary;
     const Icon = n.icon;
     return (
       <button
         key={n.id}
         onClick={() => setTab(n.id)}
         title={collapsed ? n.label : undefined}
-        className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "gap-3 px-3"} py-2.5 rounded text-left transition-colors`}
+        className={`w-full flex items-center ${
+          collapsed ? "justify-center px-2" : "gap-2.5 px-2.5"
+        } h-10 rounded-lg text-left transition-colors border`}
         style={{
-          background: active ? activeBackground : "transparent",
-          color: active ? activeColor : C.slate,
+          background: active ? "#EEF2FF" : "transparent",
+          color: active ? C.navy : C.slate,
+          borderColor: active ? "#C7D2FE" : "transparent",
         }}
-        onMouseEnter={(e) => {
-          if (!active) e.currentTarget.style.background = "#F4F5F7";
-        }}
-        onMouseLeave={(e) => {
-          if (!active) e.currentTarget.style.background = "transparent";
-        }}
+        onMouseEnter={(e) => !active && (e.currentTarget.style.background = "#F8FAFC")}
+        onMouseLeave={(e) => !active && (e.currentTarget.style.background = "transparent")}
       >
         <Icon size={18} />
-        {!collapsed && (
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold">{n.label}</div>
-            <div className="text-[11px]" style={{ color: active ? activeColor : C.subtle }}>
-              {n.sub}
-            </div>
-          </div>
-        )}
+        {!collapsed && <div className="text-sm font-semibold truncate">{n.label}</div>}
       </button>
     );
   };
@@ -229,7 +231,7 @@ export function Sidebar({
                 Evitrace
               </div>
               <div className="text-[10px] uppercase tracking-wider" style={{ color: C.subtle }}>
-                Performance Intelligence
+                Workspace
               </div>
             </div>
           )}
@@ -237,29 +239,14 @@ export function Sidebar({
       </div>
 
       <nav className="flex-1 p-3 space-y-3 overflow-y-auto">
-        {!collapsed && (
-          <div className="p-3 bg-slate-50 border border-slate-200/60 rounded-xl flex items-center justify-between">
-            <div className="flex flex-col">
-              <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-                Active View Mode
-              </span>
-              <span className="text-xs font-bold text-slate-800">
-                {mode === "manager" ? "Manager Workspace" : "Developer Space"}
-              </span>
-            </div>
-            <span className="text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded border border-indigo-100">
-              {mode.toUpperCase()}
-            </span>
-          </div>
-        )}
         {loading && !collapsed && (
           <div className="h-10 w-full rounded-md bg-slate-100 animate-pulse" />
         )}
         {mode === "manager" && managedEngineers.length > 0 && !collapsed && (
-          <div className="space-y-2">
+          <div className="space-y-2 rounded-xl border border-slate-200 bg-slate-50/70 p-2.5">
             <div className="flex items-center justify-between px-2">
               <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block">
-                Squad Roster ({managedEngineers.length})
+                Team ({managedEngineers.length})
               </label>
               {selectedEngineerId && (
                 <button
@@ -276,97 +263,52 @@ export function Sidebar({
               <input
                 value={engineerQuery}
                 onChange={(event) => setEngineerQuery(event.target.value)}
-                placeholder="Quick-filter team members..."
-                className="w-full text-xs bg-slate-50 border border-slate-200 pl-8 pr-3 py-1.5 rounded-lg outline-none focus:bg-white focus:border-slate-300 transition-all text-slate-800"
+                placeholder="Search engineers..."
+                className="w-full text-xs bg-white border border-slate-200 pl-8 pr-3 py-1.5 rounded-lg outline-none focus:border-indigo-300 transition-all text-slate-800"
               />
             </div>
-            <div className="space-y-0.5 max-h-44 overflow-y-auto border border-slate-100 rounded-lg p-1 bg-slate-50/50">
-              <button
-                type="button"
-                onClick={onOpenTeamOverview}
-                className={`w-full rounded-md px-2.5 py-1.5 text-left text-xs font-semibold transition-colors ${
-                  managerDirectoryActive
-                    ? "bg-indigo-50 text-indigo-900 border border-indigo-100"
-                    : "bg-white text-slate-600 hover:bg-slate-50 border border-transparent"
-                }`}
-              >
-                Team Overview
-              </button>
+            <div className="mx-1 rounded-lg border border-slate-200 bg-white p-2">
               {filteredEngineers.length === 0 ? (
-                <p className="text-[11px] text-slate-400 italic p-2 text-center">
+                <p className="text-[11px] text-slate-400 italic p-1 text-center">
                   No matching profiles found.
                 </p>
               ) : (
-                filteredEngineers.map((engineer) => {
-                  const isActive = selectedEngineerId === engineer.id;
-                  return (
-                    <button
-                      key={engineer.id}
-                      type="button"
-                      onClick={() => onSelectEngineer?.(engineer.id)}
-                      className={`w-full flex items-center gap-2 px-2.5 py-1.5 text-xs font-semibold rounded-md text-left transition-all cursor-pointer ${
-                        isActive
-                          ? "bg-slate-900 text-white shadow-xs font-bold scale-[1.01]"
-                          : "text-slate-600 hover:text-slate-900 hover:bg-white border border-transparent hover:border-slate-200/60"
-                      }`}
-                      title={engineer.email}
-                    >
-                      <User className={`h-3 w-3 shrink-0 ${isActive ? "text-indigo-400" : "text-slate-400"}`} />
-                      <span className="truncate">{engineer.fullName}</span>
-                    </button>
-                  );
-                })
+                <select
+                  value={selectedEngineerId ?? "__team_overview__"}
+                  onChange={(event) => {
+                    const nextValue = event.target.value;
+                    if (nextValue === "__team_overview__") {
+                      onOpenTeamOverview?.();
+                      onCloseMobile();
+                      return;
+                    }
+                    rememberRecentEngineer(nextValue);
+                    onSelectEngineer?.(nextValue);
+                    onCloseMobile();
+                  }}
+                  className="w-full rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 outline-none focus:border-indigo-300 focus:bg-white"
+                >
+                  <option value="__team_overview__">Team Overview</option>
+                  {filteredEngineers.map((engineer) => (
+                    <option key={engineer.id} value={engineer.id}>
+                      {engineer.fullName}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {selectedEngineerId && !managerDirectoryActive && (
+                <p className="mt-1.5 text-[10px] text-slate-500 px-0.5">
+                  Viewing selected engineer workspace.
+                </p>
               )}
             </div>
           </div>
         )}
-        {mode === "manager" && selectedEngineerId && !collapsed && (
-          <div className="space-y-1 pt-2 border-t border-slate-100">
-            <label className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block px-2 mb-1">
-              Inspection Controls
-            </label>
-            <button
-              type="button"
-              onClick={() => setTab("evidence")}
-              className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-md text-left transition-colors ${
-                tab === "evidence"
-                  ? "bg-indigo-50 text-indigo-800 border border-indigo-100"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              <Terminal
-                className={`h-3.5 w-3.5 ${tab === "evidence" ? "text-indigo-600" : "text-slate-400"}`}
-              />{" "}
-              Evidence Log
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("objectives")}
-              className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-md text-left transition-colors ${
-                tab === "objectives"
-                  ? "bg-indigo-50 text-indigo-800 border border-indigo-100"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              <ClipboardCheck
-                className={`h-3.5 w-3.5 ${tab === "objectives" ? "text-indigo-600" : "text-slate-400"}`}
-              />{" "}
-              Objectives Board
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("radar")}
-              className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-md text-left transition-colors ${
-                tab === "radar"
-                  ? "bg-indigo-50 text-indigo-800 border border-indigo-100"
-                  : "text-slate-600 hover:bg-slate-50"
-              }`}
-            >
-              <TrendingUp
-                className={`h-3.5 w-3.5 ${tab === "radar" ? "text-indigo-600" : "text-slate-400"}`}
-              />{" "}
-              Promotion Readiness
-            </button>
+        {!collapsed && (
+          <div className="pt-1">
+            <div className="px-2 pb-1 text-[10px] uppercase tracking-wider font-semibold text-slate-400">
+              Navigation
+            </div>
           </div>
         )}
         {mainNav
@@ -396,21 +338,46 @@ export function Sidebar({
       </div>
 
       <div className="p-3 border-t space-y-2" style={{ borderColor: C.border }}>
+        {mode !== "manager" && <NavButton n={settingsItem} />}
         {isManagerAccount && (
           <button
             onClick={() => setMode(mode === "manager" ? "engineer" : "manager")}
             title={collapsed ? "Switch workspace profile" : undefined}
-            className={`w-full flex items-center ${collapsed ? "justify-center px-2" : "justify-between"} p-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200/60 rounded-xl text-left transition-all cursor-pointer text-xs font-bold text-slate-600`}
+            className={`w-full flex items-center ${
+              collapsed ? "justify-center px-2" : "justify-between px-3"
+            } h-10 rounded-lg border transition-all ${
+              mode === "manager"
+                ? "border-indigo-200 bg-indigo-50/80 text-indigo-700 hover:bg-indigo-100"
+                : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+            }`}
           >
-            {!collapsed && (
-              <span>Switch Workspace Profile</span>
+            {collapsed ? (
+              mode === "manager" ? (
+                <ClipboardCheck size={16} />
+              ) : (
+                <Terminal size={16} />
+              )
+            ) : (
+              <>
+                <span className="flex items-center gap-1.5 text-xs font-semibold">
+                  {mode === "manager" ? <ClipboardCheck size={14} /> : <Terminal size={14} />}
+                  Switch Workspace
+                </span>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide ${
+                    mode === "manager"
+                      ? "bg-indigo-100 text-indigo-700"
+                      : "bg-slate-200 text-slate-700"
+                  }`}
+                >
+                  {mode.toUpperCase()}
+                </span>
+              </>
             )}
-            <span className="text-[10px] text-slate-400">Flip</span>
           </button>
         )}
-        {mode !== "manager" && <NavButton n={settingsItem} />}
         {!collapsed && (
-          <div className="px-1 pt-1 rounded-md border" style={{ borderColor: C.border }}>
+          <div className="px-2.5 py-2 rounded-lg border bg-white" style={{ borderColor: C.border }}>
             <div className="flex items-center gap-2 min-w-0">
               <div
                 className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold text-white shrink-0"
@@ -422,9 +389,6 @@ export function Sidebar({
                 <div className="text-xs font-semibold truncate" style={{ color: C.navy }}>
                   {displayName}
                 </div>
-                <div className="text-[11px] truncate" style={{ color: C.subtle }}>
-                  {displayRole}
-                </div>
                 {hasFullName && (
                   <div className="text-[11px] truncate" style={{ color: C.subtle }}>
                     {displayEmail}
@@ -433,9 +397,12 @@ export function Sidebar({
               </div>
             </div>
             <div
-              className="mt-2 pt-2 border-t flex items-center justify-end"
+              className="mt-2 pt-2 border-t flex items-center justify-between"
               style={{ borderColor: C.border }}
             >
+              <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-400">
+                {displayRole}
+              </span>
               <button
                 onClick={handleSignout}
                 title="Sign out"
@@ -514,7 +481,7 @@ export function Sidebar({
                         className="text-[10px] font-bold uppercase tracking-wider"
                         style={{ color: C.subtle }}
                       >
-                        Squad Roster ({managedEngineers.length})
+                        Team ({managedEngineers.length})
                       </div>
                       {selectedEngineerId && (
                         <button
@@ -534,50 +501,40 @@ export function Sidebar({
                       <input
                         value={engineerQuery}
                         onChange={(event) => setEngineerQuery(event.target.value)}
-                        placeholder="Quick-filter team members..."
+                        placeholder="Search engineers..."
                         className="h-8 w-full rounded border border-slate-200 bg-white pl-7 pr-2 text-xs text-slate-700 outline-none transition-all focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
                       />
                     </div>
-                    <button
-                      type="button"
-                      onClick={onOpenTeamOverview}
-                      className={`mb-1 w-full rounded px-2 py-1.5 text-left text-xs font-semibold transition-colors ${
-                        managerDirectoryActive ? "bg-white" : "hover:bg-white"
-                      }`}
-                      style={{
-                        color: managerDirectoryActive ? C.primary : C.slate,
-                        border: `1px solid ${C.border}`,
-                      }}
-                    >
-                      Team Overview
-                    </button>
-                    <div className="max-h-44 space-y-1 overflow-y-auto pr-1">
-                      {filteredEngineers.map((engineer) => {
-                        const active = engineer.id === selectedEngineerId;
-                        return (
-                          <button
-                            key={engineer.id}
-                            type="button"
-                            onClick={() => onSelectEngineer?.(engineer.id)}
-                            className={`w-full rounded border px-2 py-1.5 text-left text-xs transition-colors ${
-                              active ? "bg-indigo-50" : "bg-white hover:bg-slate-50"
-                            }`}
-                            style={{
-                              borderColor: active ? "#C7D2FE" : C.border,
-                              color: active ? C.primary : C.slate,
-                            }}
-                            title={engineer.email}
-                          >
-                            <div className="truncate font-semibold">{engineer.fullName}</div>
-                          </button>
-                        );
-                      })}
-                      {filteredEngineers.length === 0 && (
-                        <div className="rounded border border-dashed border-slate-200 px-2 py-2 text-[11px] text-slate-500">
-                          No matching profiles found.
-                        </div>
-                      )}
-                    </div>
+                    {filteredEngineers.length === 0 ? (
+                      <div className="rounded border border-dashed border-slate-200 px-2 py-2 text-[11px] text-slate-500">
+                        No matching profiles found.
+                      </div>
+                    ) : (
+                      <>
+                        <select
+                          value={selectedEngineerId ?? "__team_overview__"}
+                          onChange={(event) => {
+                            const nextValue = event.target.value;
+                            if (nextValue === "__team_overview__") {
+                              onOpenTeamOverview?.();
+                              onCloseMobile();
+                              return;
+                            }
+                            rememberRecentEngineer(nextValue);
+                            onSelectEngineer?.(nextValue);
+                            onCloseMobile();
+                          }}
+                          className="h-8 w-full rounded border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700 outline-none transition-all focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15"
+                        >
+                          <option value="__team_overview__">Team Overview</option>
+                          {filteredEngineers.map((engineer) => (
+                            <option key={engineer.id} value={engineer.id}>
+                              {engineer.fullName}
+                            </option>
+                          ))}
+                        </select>
+                      </>
+                    )}
                   </div>
                 )}
                 {mainNav
@@ -597,10 +554,25 @@ export function Sidebar({
                 {isManagerAccount && (
                   <button
                     onClick={() => setMode(mode === "manager" ? "engineer" : "manager")}
-                    className="w-full flex items-center justify-between p-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200/60 rounded-xl text-left transition-all cursor-pointer text-xs font-bold text-slate-600"
+                    className={`w-full flex items-center justify-between p-2.5 border rounded-xl text-left transition-all cursor-pointer ${
+                      mode === "manager"
+                        ? "border-indigo-200 bg-indigo-50/80 hover:bg-indigo-100 text-indigo-700"
+                        : "border-slate-200/60 bg-slate-50 hover:bg-slate-100 text-slate-700"
+                    }`}
                   >
-                    <span>Switch Workspace Profile</span>
-                    <span className="text-[10px] text-slate-400">Flip</span>
+                    <span className="inline-flex items-center gap-1.5 text-xs font-semibold">
+                      {mode === "manager" ? <ClipboardCheck size={14} /> : <Terminal size={14} />}
+                      Switch Workspace
+                    </span>
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] font-bold tracking-wide ${
+                        mode === "manager"
+                          ? "bg-indigo-100 text-indigo-700"
+                          : "bg-slate-200 text-slate-700"
+                      }`}
+                    >
+                      {mode.toUpperCase()}
+                    </span>
                   </button>
                 )}
                 {mode !== "manager" && <NavButton n={settingsItem} />}
