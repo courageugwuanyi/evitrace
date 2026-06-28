@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { toast } from "sonner";
 import { pinResource, unpinResource } from "@/lib/api/pinned-resources.functions";
+import { getSafeErrorMessage } from "@/lib/safe-error-message";
 import { supabase } from "@/lib/supabase";
 import type { EvidenceRecord, Objective } from "@/features/home/shared/models";
 import type { PinnedResourceRow } from "@/features/home/shared/pinned-resource-samples";
@@ -91,7 +92,7 @@ export function useHomePinnedResourcesActions({
         setPinnedResources((prev) =>
           prev.some((pin) => pin.id === existing.id) ? prev : [existing, ...prev],
         );
-        const message = error instanceof Error ? error.message : "Failed to unpin resource.";
+        const message = getSafeErrorMessage(error, "Failed to unpin resource.");
         toast.error(message);
         return false;
       }
@@ -182,7 +183,7 @@ export function useHomePinnedResourcesActions({
       setIsPinnedQuickAddOpen(false);
       onFlash("Resource pinned");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to pin resource.";
+      const message = getSafeErrorMessage(error, "Failed to pin resource.");
       toast.error(message);
     } finally {
       setIsSubmittingPinnedResource(false);
@@ -210,7 +211,7 @@ export function useHomePinnedResourcesActions({
         });
         onFlash("Objective pinned to workspace");
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to pin objective.";
+        const message = getSafeErrorMessage(error, "Failed to pin objective.");
         toast.error(message);
       }
     },
@@ -228,7 +229,7 @@ export function useHomePinnedResourcesActions({
         });
         onFlash("Evidence pinned to workspace");
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to pin evidence.";
+        const message = getSafeErrorMessage(error, "Failed to pin evidence.");
         toast.error(message);
       }
     },
@@ -276,7 +277,7 @@ export function useHomePinnedResourcesActions({
         });
         onFlash("Knowledge card pinned to workspace");
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to pin knowledge card.";
+        const message = getSafeErrorMessage(error, "Failed to pin knowledge card.");
         toast.error(message);
       }
     },

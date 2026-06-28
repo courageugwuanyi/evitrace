@@ -4,6 +4,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { getSafeErrorMessage } from "../safe-error-message";
 import { supabase } from "../supabase";
 import { toLocalDateString } from "../datetime";
 import { objectiveRowToObjective, objectiveToRow, type Objective } from "./mappers";
@@ -331,7 +332,7 @@ export function useCreateObjective(userId: string) {
     },
 
     onError: (error: Error) => {
-      toast.error(error.message);
+      toast.error(getSafeErrorMessage(error, "Unable to create objective right now."));
     },
 
     onSuccess: (createdObjective) => {
@@ -428,7 +429,7 @@ export function useMoveObjective(userId: string) {
     },
 
     onError: (error: Error) => {
-      toast.error(error.message);
+      toast.error(getSafeErrorMessage(error, "Unable to update objective status right now."));
     },
 
     onSuccess: (_data, { status, objective }) => {
@@ -470,7 +471,7 @@ export function useSaveObjective(userId: string) {
     },
 
     onError: (error: Error) => {
-      toast.error(error.message);
+      toast.error(getSafeErrorMessage(error, "Unable to save objective changes right now."));
     },
 
     onSuccess: () => {
@@ -513,7 +514,7 @@ export function useArchiveObjective(userId: string) {
     },
 
     onError: (error: Error) => {
-      toast.error(error.message);
+      toast.error(getSafeErrorMessage(error, "Unable to archive objective right now."));
     },
 
     onSuccess: () => {
@@ -549,7 +550,7 @@ export function useRestoreObjective(userId: string) {
     },
 
     onError: (error: Error) => {
-      toast.error(error.message);
+      toast.error(getSafeErrorMessage(error, "Unable to restore objective right now."));
     },
 
     onSuccess: () => {
@@ -589,7 +590,7 @@ export function useDeleteObjective(userId: string) {
     },
 
     onError: (error: Error) => {
-      toast.error(error.message);
+      toast.error(getSafeErrorMessage(error, "Unable to delete objective right now."));
     },
 
     onSuccess: () => {

@@ -15,6 +15,7 @@ import React, {
   useState,
 } from 'react'
 import { toast } from 'sonner'
+import { getSafeErrorMessage } from './safe-error-message'
 import { supabase } from './supabase'
 import type { Database } from './database.types'
 import { getCurrentTimeZone } from './datetime'
@@ -336,7 +337,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signin = useCallback(async (email: string, password: string): Promise<boolean> => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
-      toast.error(error.message)
+      toast.error(getSafeErrorMessage(error, 'Unable to sign in right now.'))
       return false
     }
 
@@ -349,7 +350,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .maybeSingle()
 
     if (profileLookupError) {
-      toast.error(profileLookupError.message)
+      toast.error(getSafeErrorMessage(profileLookupError, 'Unable to load your profile right now.'))
       return false
     }
 
@@ -370,7 +371,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         job_title: seeded.job_title,
       })
       if (insertProfileError) {
-        toast.error(insertProfileError.message)
+        toast.error(getSafeErrorMessage(insertProfileError, 'Unable to create your profile right now.'))
         return false
       }
     }
@@ -382,7 +383,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .maybeSingle()
 
     if (settingsLookupError) {
-      toast.error(settingsLookupError.message)
+      toast.error(getSafeErrorMessage(settingsLookupError, 'Unable to load your settings right now.'))
       return false
     }
 
@@ -393,7 +394,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         integrations: DEFAULT_INTEGRATIONS,
       })
       if (insertSettingsError) {
-        toast.error(insertSettingsError.message)
+        toast.error(getSafeErrorMessage(insertSettingsError, 'Unable to create your settings right now.'))
         return false
       }
     }
@@ -427,7 +428,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       })
 
       if (error) {
-        toast.error(error.message)
+        toast.error(getSafeErrorMessage(error, 'Unable to sign up right now.'))
         return false
       }
 
@@ -501,7 +502,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: patch.email,
         })
         if (emailError) {
-          toast.error(emailError.message)
+          toast.error(getSafeErrorMessage(emailError, 'Unable to update email right now.'))
           return false
         }
       }
@@ -536,7 +537,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .eq('id', authUser.id)
 
         if (updateError) {
-          toast.error(updateError.message)
+          toast.error(getSafeErrorMessage(updateError, 'Unable to update profile right now.'))
           return false
         }
       }

@@ -3,6 +3,7 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/lib/auth";
 import { sendNotification } from "@/lib/api/notifications.functions";
+import { getSafeErrorMessage } from "@/lib/safe-error-message";
 import { supabase } from "@/lib/supabase";
 
 type ManagerActionsPanelProps = {
@@ -160,7 +161,10 @@ export function ManagerActionsPanel({ engineerId, currentUserRole }: ManagerActi
           setAuthorNameById({});
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to load manager collaboration data.";
+        const message = getSafeErrorMessage(
+          error,
+          "Failed to load manager collaboration data.",
+        );
         toast.error(message);
       } finally {
         if (active) setLoading(false);
@@ -182,7 +186,7 @@ export function ManagerActionsPanel({ engineerId, currentUserRole }: ManagerActi
       content: feedbackContent,
     });
     if (error) {
-      toast.error(error.message);
+      toast.error(getSafeErrorMessage(error, "Unable to save feedback right now."));
       return;
     }
     await sendNotification({
@@ -213,7 +217,7 @@ export function ManagerActionsPanel({ engineerId, currentUserRole }: ManagerActi
       description: resourceDescription.trim() || null,
     });
     if (error) {
-      toast.error(error.message);
+      toast.error(getSafeErrorMessage(error, "Unable to save resource right now."));
       return;
     }
     setResourceTitle("");
@@ -242,7 +246,7 @@ export function ManagerActionsPanel({ engineerId, currentUserRole }: ManagerActi
         })
         .eq("id", businessCase.id);
       if (error) {
-        toast.error(error.message);
+        toast.error(getSafeErrorMessage(error, "Unable to save business case right now."));
         return;
       }
     } else {
@@ -255,7 +259,7 @@ export function ManagerActionsPanel({ engineerId, currentUserRole }: ManagerActi
         status: businessCaseStatus,
       });
       if (error) {
-        toast.error(error.message);
+        toast.error(getSafeErrorMessage(error, "Unable to save business case right now."));
         return;
       }
     }
@@ -270,7 +274,7 @@ export function ManagerActionsPanel({ engineerId, currentUserRole }: ManagerActi
       comment: commentDraft.trim(),
     });
     if (error) {
-      toast.error(error.message);
+      toast.error(getSafeErrorMessage(error, "Unable to add comment right now."));
       return;
     }
     setCommentDraft("");

@@ -4,6 +4,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { getSafeErrorMessage } from '../safe-error-message'
 import { supabase } from '../supabase'
 import {
   assessmentRowsToAssessment,
@@ -88,7 +89,7 @@ export function useAssessmentsQuery(userId: string) {
  *   3. For update case: delete existing categories (CASCADE deletes questions), then bulk insert fresh categories
  *   4. Bulk insert questions
  *
- * On any error: toast.error(error.message) and throw (caller keeps wizard open)
+ * On any error: show a sanitized toast message and throw (caller keeps wizard open)
  * On success: invalidate ['assessments', userId]
  */
 export function useFinalizeAssessment(userId: string) {
@@ -159,7 +160,7 @@ export function useFinalizeAssessment(userId: string) {
 
     onError: (error: Error) => {
       // Surface the error — caller keeps wizard open
-      toast.error(error.message)
+      toast.error(getSafeErrorMessage(error, 'Unable to finalize assessment right now.'))
     },
 
     onSuccess: (_data, variables) => {
@@ -194,7 +195,7 @@ export function useUpdateOneOnOneTopics(userId: string) {
     },
 
     onError: (error: Error) => {
-      toast.error(error.message)
+      toast.error(getSafeErrorMessage(error, 'Unable to update one-on-one topics right now.'))
     },
 
     onSuccess: () => {
@@ -223,7 +224,7 @@ export function useDeleteAssessment(userId: string) {
     },
 
     onError: (error: Error) => {
-      toast.error(error.message)
+      toast.error(getSafeErrorMessage(error, 'Unable to delete assessment right now.'))
     },
 
     onSuccess: () => {

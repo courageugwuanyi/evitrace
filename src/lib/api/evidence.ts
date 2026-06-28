@@ -4,6 +4,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { getSafeErrorMessage } from '../safe-error-message'
 import { supabase } from '../supabase'
 import { toLocalDateString } from '../datetime'
 import {
@@ -263,7 +264,7 @@ export function useSaveEvidence(userId: string) {
       if (context?.previousData !== undefined && context?.queryKey) {
         queryClient.setQueryData(context.queryKey, context.previousData)
       }
-      toast.error(error.message)
+      toast.error(getSafeErrorMessage(error, 'Unable to save evidence right now.'))
     },
 
     onSettled: () => {
@@ -296,7 +297,7 @@ export function useArchiveEvidence(userId: string) {
     },
 
     onError: (error: Error) => {
-      toast.error(error.message)
+      toast.error(getSafeErrorMessage(error, 'Unable to archive evidence right now.'))
     },
 
     onSettled: () => {
@@ -330,7 +331,7 @@ export function useRestoreEvidence(userId: string) {
     },
 
     onError: (error: Error) => {
-      toast.error(error.message)
+      toast.error(getSafeErrorMessage(error, 'Unable to restore evidence right now.'))
     },
 
     onSettled: () => {
@@ -364,7 +365,7 @@ export function useDeleteEvidence(userId: string) {
     },
 
     onError: (error: Error) => {
-      toast.error(error.message)
+      toast.error(getSafeErrorMessage(error, 'Unable to delete evidence right now.'))
     },
 
     onSettled: () => {
@@ -395,7 +396,7 @@ export function useInsertEvidence(userId: string) {
     },
 
     onError: (error: Error) => {
-      toast.error(error.message)
+      toast.error(getSafeErrorMessage(error, 'Unable to add evidence right now.'))
     },
 
     onSettled: () => {

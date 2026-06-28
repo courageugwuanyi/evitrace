@@ -4,6 +4,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { getSafeErrorMessage } from '../safe-error-message'
 import { supabase } from '../supabase'
 import type { Database } from '../database.types'
 
@@ -81,7 +82,7 @@ export function useFrameworkQuery(userId: string) {
  *   1. Upsert the competency_frameworks row (ON CONFLICT (id) DO UPDATE)
  *   2. Bulk upsert competency_categories rows (ON CONFLICT (id) DO UPDATE)
  *
- * On any error: toast.error(error.message) and rethrow.
+ * On any error: show a sanitized toast message and rethrow.
  * On success: invalidate ['frameworks', userId].
  */
 export function useUploadFramework(userId: string) {
@@ -122,7 +123,7 @@ export function useUploadFramework(userId: string) {
     },
 
     onError: (error: Error) => {
-      toast.error(error.message)
+      toast.error(getSafeErrorMessage(error, 'Unable to save framework right now.'))
     },
 
     onSuccess: () => {

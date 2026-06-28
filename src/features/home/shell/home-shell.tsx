@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
+import { getSafeErrorMessage } from "@/lib/safe-error-message";
 import { supabase } from "@/lib/supabase";
 import { useWorkspace } from "@/features/home/context/WorkspaceContext";
 import { C, BrandMark, Input, PrimaryBtn } from "@/features/home/shared/ui-kit";
@@ -657,7 +658,7 @@ export function TopHeader({
       void queryClient.invalidateQueries({ queryKey: ["header-notifications", userId] });
     },
     onError: (error: Error) => {
-      toast.error(error.message || "Unable to update notifications right now.");
+      toast.error(getSafeErrorMessage(error, "Unable to update notifications right now."));
     },
   });
   const [open, setOpen] = useState(false);

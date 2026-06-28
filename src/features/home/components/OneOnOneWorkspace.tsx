@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { BookOpen, MessageSquarePlus, Plus } from "lucide-react";
 
+import { getSafeErrorMessage } from "@/lib/safe-error-message";
 import { supabase } from "@/lib/supabase";
 
 type OneOnOneTopicRow = {
@@ -50,8 +51,10 @@ export function OneOnOneWorkspace({ engineerId }: { engineerId: string }) {
       setTopics((topicsResponse.data ?? []) as OneOnOneTopicRow[]);
       setResources((resourcesResponse.data ?? []) as SharedResourceRow[]);
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to sync 1-on-1 and resources workspace.";
+      const message = getSafeErrorMessage(
+        error,
+        "Failed to sync 1-on-1 and resources workspace.",
+      );
       toast.error(message);
     } finally {
       setLoading(false);
@@ -85,7 +88,7 @@ export function OneOnOneWorkspace({ engineerId }: { engineerId: string }) {
       toast.success("Added topic to the shared 1-on-1 agenda.");
       await loadWorkspaceData();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to add 1-on-1 topic.";
+      const message = getSafeErrorMessage(error, "Failed to add 1-on-1 topic.");
       toast.error(message);
     }
   }
@@ -114,7 +117,7 @@ export function OneOnOneWorkspace({ engineerId }: { engineerId: string }) {
       toast.success("Suggested learning resource published to the shared hub.");
       await loadWorkspaceData();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to publish resource.";
+      const message = getSafeErrorMessage(error, "Failed to publish resource.");
       toast.error(message);
     }
   }

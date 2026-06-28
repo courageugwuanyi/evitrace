@@ -29,6 +29,7 @@ import {
 import { useDashboardStats } from "@/lib/api/dashboard";
 import { getManagerTeamOverview, signOffTransfer } from "@/lib/api/manager-invites.functions";
 import { sendNotification } from "@/lib/api/notifications.functions";
+import { getSafeErrorMessage } from "@/lib/safe-error-message";
 import { supabase } from "@/lib/supabase";
 import { formatUtcToLocal, toLocalDateString } from "@/lib/datetime";
 import { generateSafeId } from "@/lib/utils/generateSafeId";
@@ -503,9 +504,10 @@ function EvitraceApp({
         } | null;
         if (error || response?.success === false) {
           toast.error(
-            response?.message ??
-              error?.message ??
+            getSafeErrorMessage(
+              response?.message ?? error,
               "Workspace connection linking transaction failed.",
+            ),
           );
           return;
         }
@@ -731,7 +733,7 @@ function EvitraceApp({
       if (context?.previousRows) {
         queryClient.setQueryData(knowledgeQueryKey, context.previousRows);
       }
-      toast.error(error.message || "Failed to update knowledge entry.");
+      toast.error(getSafeErrorMessage(error, "Failed to update knowledge entry."));
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: knowledgeQueryKey });
@@ -758,7 +760,7 @@ function EvitraceApp({
       if (context?.previousRows) {
         queryClient.setQueryData(knowledgeQueryKey, context.previousRows);
       }
-      toast.error(error.message || "Failed to delete knowledge entry.");
+      toast.error(getSafeErrorMessage(error, "Failed to delete knowledge entry."));
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: knowledgeQueryKey });
@@ -1408,8 +1410,10 @@ function EvitraceApp({
                           setActiveView("directory");
                         })
                         .catch((error) => {
-                          const message =
-                            error instanceof Error ? error.message : "Failed to sign off transfer.";
+                          const message = getSafeErrorMessage(
+                            error,
+                            "Failed to sign off transfer.",
+                          );
                           toast.error(message);
                         })
                         .finally(() => {

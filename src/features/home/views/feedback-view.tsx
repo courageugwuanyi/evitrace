@@ -12,6 +12,7 @@ import {
   submitPeerFeedback,
 } from "@/lib/api/feedback";
 import { sendNotification } from "@/lib/api/notifications.functions";
+import { getSafeErrorMessage } from "@/lib/safe-error-message";
 import { supabase } from "@/lib/supabase";
 import type { ThreeSixtyFeedback } from "@/lib/database.types";
 import { Card, PrimaryBtn, C, Select } from "@/features/home/shared/ui-kit";
@@ -81,12 +82,7 @@ function shuffleStrings(values: string[]): string[] {
 }
 
 function getErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === "object" && error !== null && "message" in error) {
-    const message = (error as { message?: unknown }).message;
-    if (typeof message === "string" && message.trim().length > 0) return message;
-  }
-  return fallback;
+  return getSafeErrorMessage(error, fallback);
 }
 
 function formatDateLabel(isoDate: string): string {

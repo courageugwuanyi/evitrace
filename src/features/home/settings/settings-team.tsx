@@ -4,18 +4,14 @@ import React, { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { createManagerInvite } from "@/lib/api/manager-invites.functions";
 import { useAuth } from "@/lib/auth";
+import { getSafeErrorMessage } from "@/lib/safe-error-message";
 import { supabase } from "@/lib/supabase";
 import { ACTIVE_INVITE_URL_STORAGE_KEY } from "@/features/home/shared/constants";
 import { C, Card } from "@/features/home/shared/ui-kit";
 import { Backdrop } from "@/features/home/shared/overlays";
 
 function getErrorMessage(error: unknown, fallback: string) {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === "object" && error !== null && "message" in error) {
-    const message = (error as { message?: unknown }).message;
-    if (typeof message === "string" && message.trim().length > 0) return message;
-  }
-  return fallback;
+  return getSafeErrorMessage(error, fallback);
 }
 
 function shouldTryDisconnectFallback(error: unknown) {
@@ -75,7 +71,7 @@ export function TeamSettings() {
       setCopied(false);
       toast.success("Invite link generated");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to generate invite link.";
+      const message = getSafeErrorMessage(error, "Failed to generate invite link.");
       toast.error(message);
     } finally {
       setIsGenerating(false);

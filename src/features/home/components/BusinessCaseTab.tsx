@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { FileText, RefreshCcw, Save } from "lucide-react";
 
+import { getSafeErrorMessage } from "@/lib/safe-error-message";
 import { supabase } from "@/lib/supabase";
 
 type BusinessCaseRow = {
@@ -146,8 +147,10 @@ export function BusinessCaseTab({ engineerId }: { engineerId: string }) {
         setExecutiveSummary(caseRow?.executive_summary ?? "");
         setCompetencySummary(caseRow?.competency_gains_summary ?? "");
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Unable to load business case compilation data.";
+        const message = getSafeErrorMessage(
+          error,
+          "Unable to load business case compilation data.",
+        );
         toast.error(message);
       } finally {
         if (isActive) setLoading(false);
@@ -229,7 +232,7 @@ export function BusinessCaseTab({ engineerId }: { engineerId: string }) {
       }
       toast.success("Compilation dossier saved.");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to save compilation dossier.";
+      const message = getSafeErrorMessage(error, "Failed to save compilation dossier.");
       toast.error(message);
     } finally {
       setSaving(false);

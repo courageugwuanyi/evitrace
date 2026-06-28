@@ -6,6 +6,7 @@ import type { NotificationPrefs } from "@/lib/api/mappers";
 import { useSaveNotifications, useSettingsQuery } from "@/lib/api/settings";
 import { useAuth } from "@/lib/auth";
 import { getCurrentTimeZone } from "@/lib/datetime";
+import { getSafeErrorMessage } from "@/lib/safe-error-message";
 import { supabase } from "@/lib/supabase";
 import { SettingRow, Toggle } from "@/features/home/settings/settings-ui";
 import { C, Card } from "@/features/home/shared/ui-kit";
@@ -86,7 +87,7 @@ export function NotificationsSettings() {
       if (error) throw error;
     },
     onError: (error: Error) => {
-      toast.error(error.message);
+      toast.error(getSafeErrorMessage(error, "Unable to save timezone right now."));
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["profile", settingsUserId] });
@@ -122,7 +123,7 @@ export function NotificationsSettings() {
       if (error) throw error;
     },
     onError: (error: Error) => {
-      toast.error(error.message);
+      toast.error(getSafeErrorMessage(error, "Unable to save prompt times right now."));
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["profile-prompt-times", settingsUserId] });

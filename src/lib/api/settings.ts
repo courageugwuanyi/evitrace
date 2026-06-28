@@ -4,6 +4,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { getSafeErrorMessage } from '../safe-error-message'
 import { supabase } from '../supabase'
 import {
   settingsRowToSettings,
@@ -110,7 +111,7 @@ export function useSaveNotifications(userId: string) {
     },
 
     onError: (error: Error) => {
-      toast.error(error.message)
+      toast.error(getSafeErrorMessage(error, 'Unable to update notification settings right now.'))
     },
 
     onSettled: () => {
@@ -140,7 +141,7 @@ export function useSaveIntegrations(userId: string) {
     },
 
     onError: (error: Error) => {
-      toast.error(error.message)
+      toast.error(getSafeErrorMessage(error, 'Unable to update integration settings right now.'))
     },
 
     onSettled: () => {
@@ -179,7 +180,7 @@ export function useSetActiveFramework(userId: string) {
       void queryClient.invalidateQueries({ queryKey: profileKey(userId) })
     },
     onError: (error: Error) => {
-      toast.error(error.message)
+      toast.error(getSafeErrorMessage(error, 'Unable to switch active framework right now.'))
     },
   })
 }

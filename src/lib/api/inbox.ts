@@ -4,6 +4,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { getSafeErrorMessage } from '../safe-error-message'
 import { supabase } from '../supabase'
 import { toLocalDateString } from '../datetime'
 import { inboxRowToItem, type InboxItem, type EvidenceRecord } from './mappers'
@@ -135,7 +136,7 @@ export function useApproveInbox(userId: string) {
       if (context?.previousEvidence !== undefined && context?.evidenceQueryKey) {
         queryClient.setQueryData(context.evidenceQueryKey, context.previousEvidence)
       }
-      toast.error(error.message)
+      toast.error(getSafeErrorMessage(error, 'Unable to approve inbox item right now.'))
     },
 
     onSuccess: () => {
@@ -165,7 +166,7 @@ export function useDismissInbox(userId: string) {
     },
 
     onError: (error: Error) => {
-      toast.error(error.message)
+      toast.error(getSafeErrorMessage(error, 'Unable to dismiss inbox item right now.'))
     },
 
     onSuccess: () => {

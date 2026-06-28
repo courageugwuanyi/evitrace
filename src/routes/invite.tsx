@@ -7,6 +7,7 @@ import {
   PENDING_WORKSPACE_INVITE_HASH_KEY,
 } from "@/features/home/shared/constants";
 import { resolveManagerInviteHash } from "@/lib/api/manager-invites.functions";
+import { getSafeErrorMessage } from "@/lib/safe-error-message";
 import { supabase } from "@/lib/supabase";
 
 export const Route = createFileRoute("/invite")({
@@ -67,9 +68,11 @@ function InviteRedeemPage() {
           const response = parseRpcResponse(data);
           const isSuccess = response?.success === true;
           if (error || !isSuccess) {
-            toast.error(
-              String(response?.message ?? error?.message ?? "Workspace connection linking failed."),
+            const errorMessage = getSafeErrorMessage(
+              response?.message ?? error,
+              "Workspace connection linking failed. Please try again.",
             );
+            toast.error(errorMessage);
           } else {
             toast.success(
               String(
@@ -89,10 +92,10 @@ function InviteRedeemPage() {
         });
         void navigate({ to: "/" });
       } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Network synchronization timeout during link analysis.";
+        const message = getSafeErrorMessage(
+          error,
+          "Network synchronization timeout during link analysis.",
+        );
         toast.error(message);
         void navigate({ to: "/" });
       } finally {

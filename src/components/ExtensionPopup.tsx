@@ -17,6 +17,7 @@ import { useInsertEvidence } from "@/lib/api/evidence";
 import { getFrameworkDisplayName, useSettingsQuery } from "@/lib/api/settings";
 import { useFrameworkContext } from "@/context/FrameworkContext";
 import { getCurrentTimeZone, toLocalDateString } from "@/lib/datetime";
+import { getSafeErrorMessage } from "@/lib/safe-error-message";
 import { supabase } from "@/lib/supabase";
 
 type TabMode = "evidence" | "knowledge";
@@ -488,7 +489,7 @@ export function ExtensionPopup({
           showSuccessBannerMessage("Evidence captured successfully!");
         },
         onError: (error) => {
-          toast.error(error.message);
+          toast.error(getSafeErrorMessage(error, "Unable to save evidence right now."));
         },
       },
     );
@@ -513,7 +514,7 @@ export function ExtensionPopup({
       .insert(payload as never)
       .then(({ error }) => {
         if (error) {
-          toast.error(error.message);
+          toast.error(getSafeErrorMessage(error, "Unable to save knowledge right now."));
           return;
         }
         const entry: KnowledgeEntry = {

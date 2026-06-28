@@ -4,6 +4,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { getSafeErrorMessage } from '../safe-error-message'
 import { supabase } from '../supabase'
 import { profileRowToAuthUser, type AuthUser } from './mappers'
 import type { Database } from '../database.types'
@@ -66,7 +67,7 @@ export function useSaveProfile(userId: string) {
     },
 
     onError: (error: Error) => {
-      toast.error(error.message)
+      toast.error(getSafeErrorMessage(error, 'Unable to save profile changes right now.'))
     },
 
     onSuccess: () => {
@@ -104,7 +105,7 @@ export function useSaveTeam(userId: string) {
     },
 
     onError: (error: Error) => {
-      toast.error(error.message)
+      toast.error(getSafeErrorMessage(error, 'Unable to save team details right now.'))
     },
 
     onSuccess: () => {
@@ -152,7 +153,7 @@ export function useUploadAvatar(userId: string) {
     },
 
     onError: (error: Error) => {
-      toast.error(error.message)
+      toast.error(getSafeErrorMessage(error, 'Unable to upload avatar right now.'))
     },
 
     onSuccess: () => {

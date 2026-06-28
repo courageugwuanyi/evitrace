@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Share2 } from "lucide-react";
 import { toast } from "sonner";
 
+import { getSafeErrorMessage } from "@/lib/safe-error-message";
 import { supabase } from "@/lib/supabase";
 
 interface KnowledgeCurationCardProps {
@@ -51,8 +52,7 @@ export function KnowledgeCurationCard({ onSaveRefresh }: KnowledgeCurationCardPr
       setShareToTeam(false);
       onSaveRefresh();
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Resource curation transaction failed.";
+      const message = getSafeErrorMessage(error, "Resource curation transaction failed.");
       toast.error(message);
     } finally {
       setSaving(false);

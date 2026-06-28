@@ -6,6 +6,7 @@ import { AlertTriangle, CloudUpload, Download, KeyRound, Layers, Loader2, Lock, 
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { getFrameworkDisplayName, useSetActiveFramework, type FrameworkOption } from "@/lib/api/settings";
+import { getSafeErrorMessage } from "@/lib/safe-error-message";
 import { supabase } from "@/lib/supabase";
 import { toLocalDateString } from "@/lib/datetime";
 import { type SettingsSection } from "@/features/home/shared/navigation";
@@ -135,7 +136,7 @@ export function SettingsView({
       await supabase.auth.signOut();
       void navigate({ to: "/", replace: true });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to delete account.";
+      const message = getSafeErrorMessage(error, "Failed to delete account.");
       toast.error(message);
     } finally {
       setIsDeletingAccount(false);
@@ -503,7 +504,7 @@ function FrameworkSettings() {
       toast.success("Custom framework imported and linked.");
     },
     onError: (error: Error) => {
-      toast.error(error.message);
+      toast.error(getSafeErrorMessage(error, "Unable to import framework right now."));
     },
   });
 
